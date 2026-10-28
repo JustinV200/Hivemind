@@ -3210,20 +3210,20 @@ neither track changes it, and 15.3a rebases on it once it merges.
   so a compromised Hive can never turn either on remotely. On a Virtual Cell the Hive Stand attaches
   from outside (Docker exec with a tty; QEMU's console), because the Hive owns the machine. On the
   Hive Stand the shell is a local PTY.
-- **Coexisting with bees.** Smoke is the default: the Warden checkpoints and pauses the Cell's
-  tasks (the Clustering lever, selected by Cell), stays up and marks the Cell `INSPECTED`; closing
-  the Inspection resumes them from their Handoffs. `--alongside` keeps the bees running for a
-  terminal only, under its own operator lease. Screen control always Smokes, because a human mouse
-  and an Exoskeleton mouse on the same display corrupt each other. While a Cell is `INSPECTED` its
-  Warden suspends Watch observations and the Patrol episode (codingrules 8.7's watch mode), so the
-  operator's command lines, logs and touched files never reach Bee Bread or a model; with
-  `--alongside`, the bees still running can see the operator's processes and files like any
-  other process on the Cell, and can read what the operator types, passwords included; the
-  operator is told exactly that before such an Inspection opens. Under Smoke every Warden of the
-  Cell, in the Hive Stand's process, inside a Virtual Cell or on a colonized device or Nuc, runs
-  no awake episode and writes nothing to Bee Bread until the Inspection closes, and the
-  background processes the Cell's leases started are frozen (15.4b). `--alongside` is refused
-  on a Virtual Cell.
+- **Coexisting with bees.** Two layers. **Layer 1, during every Inspection** (the Cell is
+  `INSPECTED`): every Warden of the Cell, in the Hive Stand's process, inside a Virtual Cell or
+  on a colonized device or Nuc, suspends Watch observations, the Patrol and any awake episode
+  of its own, and writes nothing to Bee Bread, so the operator's command lines, logs and touched
+  files never reach Bee Bread or a model through the Warden. **Layer 2, Smoke** (the default):
+  the Warden checkpoints and pauses the Cell's tasks (the Clustering lever, selected by Cell);
+  the Queen, the Warden and the packet refuse new dispatch, new non-operator leases and
+  `session.*` on the Cell's other leases; and the processes those leases started are frozen
+  (15.4b). Closing resumes the tasks from their Handoffs. `--alongside` gets layer 1 only: the
+  bees keep running and writing their own task memory, so they can see the operator's processes
+  and files like any other process on the Cell and read what the operator types, passwords
+  included; the operator is told exactly that before such an Inspection opens. `--alongside`
+  is for a terminal only and is refused on a Virtual Cell. Screen control always Smokes, because
+  a human mouse and an Exoskeleton mouse on the same display corrupt each other.
 - **Authorisation.** A new human-only family `entrance:inspect` with scopes `shell`, `screen_view`
   and `screen_control`, never in a bee's set and never in the UI's default credentials; widened only
   on loopback. Opening needs an interactive device and a fresh step-up (`ActionKind.INSPECT`), every
@@ -3374,11 +3374,13 @@ in daily use.
   module outside the door that imports `StepUpProof` or builds a warrant. *Size:* medium, 2.5
   agent-days.
 - [ ] **15.4b Smoke, the trail and the timeouts.** Clustering's lever selected by Cell; the
+  two layers of the shape. Layer 1, on every Inspection, `--alongside` included: the
   `INSPECTED` mode on every Warden, the Hive Stand's, an in-Cell one and an on-device one on a
-  colonized device or Nuc alike: no Watch observations, no Patrol, no awake episode, nothing
-  written to Bee Bread until the Inspection closes. While a Cell is `INSPECTED` the Queen and its
-  Warden refuse new task dispatch to it, new leases on it other than the operator's, and the
-  packet refuses every `session.*` request on its other leases. Smoke also freezes every process
+  colonized device or Nuc alike: no Watch observations, no Patrol, no awake episode of the
+  Warden's own, nothing written to Bee Bread by it until the Inspection closes. Layer 2, under
+  Smoke only: the Queen and the Warden refuse new task dispatch to the Cell and new leases on it
+  other than the operator's, and the packet refuses every `session.*` request on its other
+  leases (absolute: no Inspection feature uses `session.*`). Smoke also freezes every process
   the Cell's other leases started, background processes (`session.process`, gateway-contract
   9.3) and in-flight `session.exec` runs alike, and thaws them on close: on Linux through the
   cgroup freezer on a cgroup per lease, on Windows by suspending the lease's Job Object, created
@@ -3402,7 +3404,9 @@ in daily use.
   `session.exec` on another lease of that Cell are all refused; after an Inspection on the Hive
   Stand and one on a Nuc that ran `mysql -psecret` and edited a file, nothing from either
   (command line, process, log line or file change) is in Bee Bread and no Warden episode or
-  Patrol ran meanwhile; on the Nuc, a lease's background process and an in-flight exec, including
+  Patrol ran meanwhile, and the same holds for an `--alongside` Inspection on the Nuc, whose
+  bees kept running and were neither refused nor frozen; on the Nuc under Smoke, a lease's
+  background process and an in-flight exec, including
   a child that tried to leave its process group, were frozen for the whole Inspection and running
   again after it. *Size:* large, 4 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs the separate guest-loopback fix landed
@@ -3410,9 +3414,14 @@ in daily use.
   Unix socket (a named pipe on Windows) with a getty from cloud-init; the Hive Stand: a local PTY
   in a new sub-package `hivemind/cell/local/pty/`, since `cell/` is where subprocess is allowed and
   `cell/local/` already holds the ten modules codingrules 5.6 allows. Smoke on a Docker Cell
-  freezes every process in the container except the operator's exec and its children, by
-  `SIGSTOP` sent from the host to each process `docker top` lists, and `SIGCONT` on close;
-  the in-Cell Warden is among them, so the Queen expects its silence while the Cell is
+  freezes every process in the container except the operator's exec, its children and the
+  freezer itself. The freezer is a fixed helper `docker exec`'d inside the container, so it works
+  on Docker Desktop too, where the container's pids live in its VM and not on the host: it lists
+  `/proc`, sends `SIGSTOP` to every process outside the operator's session, and repeats until
+  two passes in a row find nothing new, so a process that forks between passes is caught on the
+  next; on close it sends `SIGCONT` to what it stopped. The residual (a process that keeps
+  spawning faster than a pass, or hides in a nested pid namespace, may run briefly) is disclosed
+  in the operator-lease ADR. The in-Cell Warden is among the frozen, so the Queen expects its silence while the Cell is
   `INSPECTED`. On a QEMU Cell the guest's processes are not frozen: there is no guest agent to do
   it, so bees there stop only through the task pause, and the residual (a background process in
   the guest could read the operator's terminal) is disclosed in the operator-lease ADR; the Hive
@@ -3425,9 +3434,10 @@ in daily use.
   `10.0.2.2` or `host.docker.internal`, with a forged `Host: localhost`, is refused, and a backend
   that fails this check refuses remote Inspection; after an Inspection on a Docker Cell that ran
   `mysql -psecret`, nothing from it is in Bee Bread and the in-Cell Warden ran no episode
-  meanwhile; `--alongside` on a Virtual Cell is refused; on the Docker Cell a bee's background
-  process is stopped for the whole Inspection and running after it, and the Queen raised no
-  stalled-Warden Alarm. *Size:* medium, 3.5 agent-days.
+  meanwhile; `--alongside` on a Virtual Cell is refused; on the Docker Cell, on Docker Engine and
+  on Docker Desktop, a bee's background process and a bee process forking children in a loop are
+  stopped, children included, for the whole Inspection and running after it, and the Queen raised no
+  stalled-Warden Alarm. *Size:* medium, 4 agent-days.
 - [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
   behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
   gains its allow-list row. *Exit:* a device without the scope gets 403, one without fresh step-up
@@ -3565,9 +3575,13 @@ attached to the Entrance relay by a test harness.
   fails the check, `hive inspect --screen` opens no TCP port. *Size:* medium, 3
   agent-days.
 - [ ] **15.18 Clipboard and file transfer (optional extras).** Text clipboard both ways through RFB,
-  off by default, capped in size, counted on the trail, `C2`; files through the existing session
-  `put_file`/`get_file` and the Basket, never through a VNC file-transfer extension. *Exit:* both
-  work when enabled and are absent when not. *Size:* medium, 2 agent-days.
+  off by default, capped in size, counted on the trail, `C2`; files through new `inspect.put_file`
+  and `inspect.get_file` frames on the Inspection's own channel, built only by the door and
+  warrant-checked at `FrameSender.send` like every `inspect.*` frame, with the Basket holding what
+  comes back; never `session.put_file`/`get_file` (refused on an operator lease and, under Smoke,
+  on every other lease) and never a VNC file-transfer extension. *Exit:* both work when enabled
+  and are absent when not; a `session.put_file` on the operator lease is still refused; an
+  `inspect.put_file` without a warrant is dropped. *Size:* medium, 2.5 agent-days.
 - [ ] **15.19 Screen recording (optional).** The screen as a flight recording (6.6), `C2`, retention
   window, announced in the pane; refused on Night Veil. *Exit:* a recorded session replays; an
   unrecorded one leaves no bytes anywhere; a Night Veil Cell refuses to record. *Size:* small, 1.5
@@ -3615,12 +3629,17 @@ events only make sense landed together, and 15.14a because capture and input are
   statement that `--alongside` lets the Cell's bees see the operator's processes and files; the
   opt-in as human-on-device only, behind OS elevation in a store the packet cannot write; the
   operator lease closed to every `cell.request` and `session.*` request; `inspect.open` built
-  only by the Queen's door from an Entrance-built `StepUpProof`, and every `inspect.*` frame
+  only by the Queen's door from an Entrance-built `StepUpProof`; Inspection file transfer over
+  door-built `inspect.put_file`/`get_file` frames, the one exception to doing file work through
+  `session.*`, which stays refused on an operator lease without exception; the two layers, with
+  `--alongside` getting only layer 1; every `inspect.*` frame
   checked against the door's live table at `FrameSender.send`, with `inspect.close` as the
   system-close path that never needs a proof; Smoke freezing the leases' processes and silencing
   every Warden of the Cell, chosen over a second account; the heartbeat opt-in field, outside
   13.4a's dire pattern. Disclosed and accepted residuals: on macOS a process that left its group
-  is not frozen; on a QEMU Cell the guest's processes are not frozen; persistence planted before
+  is not frozen; on a QEMU Cell the guest's processes are not frozen; on a Docker Cell a process
+  that outruns the freezer's passes or hides in a nested pid namespace may run briefly;
+  persistence planted before
   the Inspection (cron, `systemd --user` units, LaunchAgents, Scheduled Tasks, `PATH` shims) runs
   outside any lease and is not frozen, though the clean shell does not load it. Operator
   guidance: never type an elevation secret on a device that has hosted `FULL` leases).
