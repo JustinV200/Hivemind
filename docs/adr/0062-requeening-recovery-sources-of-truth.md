@@ -148,3 +148,18 @@ of a Night Veil Cell beyond envelope ids, which expire with the replay window.
   survives the Queen, and re-placing it would run it twice.
 - **Tear down a Virtual Cell whose Warden does not return.** Deferred: a Warden can return after
   the grace (a slow host), and the Undertaker already owns teardown of Cells nothing uses.
+
+## Amendment (2026-10-28): a Warden lost while the Queen runs
+
+Requeening took orphans back only at a start, so a Virtual Cell killed while the Queen ran (its
+container gone, its Warden with it) left its task RUNNING until the Hive stopped; the roadmap 13.6
+chaos suite found it. Her tick now applies the same take-back to a Warden she placed work on that
+is away holding a task (`queen/requeening/lost.py`): not attached, on no Cell a hold covers (a
+device's are the swarm gate's, ADR-0053), and not while a Requeening settles. It waits
+`[supervision] max_offline_s` plus `[queen] requeening_grace_s` from the first tick that saw the
+Warden away: past `max_offline_s` a Warden that only lost its link has clustered fully, and the
+grace is what a restarted Queen gives one to redial. Then its tasks go back to PENDING from their
+newest Handoff (a Night Veil task is cancelled), its grants are revoked and its Cell is released,
+which tears a Virtual Cell down. A Cell cut off and back inside that window, as a Night Veil Cell
+over a Tor outage is, is never touched. A stopping Hive likewise revokes every grant its own
+Wardens still hold, since none of them outlives the stop.
