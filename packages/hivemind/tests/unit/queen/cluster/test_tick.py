@@ -26,7 +26,7 @@ from hivemind.queen.cluster.health import (
     DEFAULT_INITIAL_BACKOFF_S,
 )
 from hivemind.queen.cluster.orders import ClusterOrder, InMemoryOrderStore, OrderKind, new_order_id
-from hivemind.queen.cluster.protocol import cluster
+from hivemind.queen.cluster.protocol import cluster, resume
 from hivemind.queen.cluster.tick import awake_available, run_cluster_tick, run_release_tick
 from hivemind.queen.deps import QueenDeps
 from hivemind.queen.queen import Queen
@@ -119,6 +119,30 @@ async def test_run_cluster_tick_acts_on_a_pending_wake_order() -> None:
     assert state.clustered_providers == frozenset()
     task = await deps.chamber.get(goal_id)
     assert task.status is TaskStatus.RUNNING
+
+
+async def test_a_supersedure_freeze_holds_every_resume_and_wake_order() -> None:
+    """ADR-0065: while a freeze is clustering, nothing resumes and a WAKE order waits."""
+    deps, queen, _warden_end, goal_id = await _running_goal()
+    state = ClusterState()
+    state.mark_clustered("fake")
+    await deps.chamber.pause(goal_id, "test setup")
+    order = ClusterOrder(
+        id=new_order_id(deps.clock),
+        kind=OrderKind.WAKE,
+        provider="fake",
+        requested_at=deps.clock.now(),
+    )
+    await deps.orders.put_order(order)
+    state.hold_resumes(True)  # QueenLevers.freeze takes this before its first cluster() await.
+
+    await run_cluster_tick(deps, state, queen.wardens)
+    outcome = await resume("fake", deps, state, queen.wardens)
+
+    assert outcome.resumed_task_ids == ()
+    assert state.clustered_providers == {"fake"}
+    assert (await deps.chamber.get(goal_id)).status is TaskStatus.PAUSED
+    assert await deps.orders.pending() == (order,)
 
 
 async def test_run_cluster_tick_wake_with_no_provider_resumes_every_clustered_one() -> None:
