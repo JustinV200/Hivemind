@@ -25,9 +25,9 @@ checks that the Hive copes. It lives in `packages/hivemind/tests/e2e/chaos/` and
 | `test_chaos_provider.py` | The provider goes down while a Drone's reply is in flight | The health poller clusters it (checkpoint, then pause), sees it healthy again and resumes the task, with no operator order |
 | `test_chaos_cells.py` | A Virtual Cell's container dies mid-task | The Queen takes the task back once the Warden is lost (`max_offline_s` plus the redial grace in a real Hive), tears the dead Cell down, and the task finishes on a fresh Cell |
 | `test_chaos_cells.py` | Every Virtual Cell's link drops mid-task | The Warden redials and the task finishes |
-| `test_chaos_pressure.py` | A rogue Warden link floods the Queen with thousands of Alarms mid-goal | The flood is held back, never dropped, and the goal still succeeds |
+| `test_chaos_pressure.py` | A rogue Warden link floods the Queen with thousands of Alarms mid-goal | The flood waits on its own link, which is never cut; the Queen decides on its Alarms beside the goal, and the goal still succeeds |
 | `test_chaos_pressure.py` | Every Drone call costs far past the goal's spend cap | The cost cap clusters the provider, the task pauses at a Handoff, and stopping the Hive revokes its grant |
-| `test_chaos_supersedure.py` | The candidate dies before it is ready, or stalls its restore | The old Queen rolls back inside the window and the goal finishes on her |
+| `test_chaos_supersedure.py` | The candidate stalls its restore (one killed before it is ready is `test_supersedure.py`'s rollback, held to the same bar) | The old Queen rolls back inside the window and the goal finishes on her |
 | `test_chaos_supersedure.py` | The old Queen's process ends mid-copy | She refuses to start until `hive supersede --settle`; settled as aborted she starts and the goal finishes |
 | `test_chaos_entrance.py` | An unknown client hammers the invite route | The Guard Bee's `invite_abuse` rule reduces the Entrance; the remote listener stops answering |
 | `test_chaos_injection.py` | Seeds from the shipped pattern file arrive through a Honey hit, and through a tool result in a Virtual Cell | The hit is flagged and withheld, steered writes and hosts are refused, no grant widens; the Cell is isolated by rule and its tainted Handoff is not resumed after a lift |
