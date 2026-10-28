@@ -3224,6 +3224,18 @@ neither track changes it, and 15.3a rebases on it once it merges.
   capability widening and reopening stop being loopback-only in practice, and a stolen phone plus
   the password and a step-up could enrol a new device. If the option is kept at all, the
   operator-lease ADR states that consequence.
+  **The loopback listener is unreachable from any Virtual Cell guest.** Today it is not: QEMU's
+  SLIRP network without `restrict=on` maps the guest's `10.0.2.2` to the host's `127.0.0.1`
+  (`hive/backends/qemu/network.py:47-50`), Docker Desktop's `host.docker.internal` and
+  `host-gateway` probably do the same, and `entrance/expose/loopback.py:58-80` checks only the
+  `Host` and proxy headers, so `curl -H 'Host: localhost:<port>' http://10.0.2.2:<port>/` from
+  inside the Cell is treated as loopback. That is the `hive_stand_remote` hole, on by default. The
+  rule holds once the listener rejects guest-originated connections (a binding or peer check) or
+  the backends stop forwarding to host loopback (SLIRP `restrict` with only the Queen's port
+  forwarded, no host-gateway alias). Until it holds for a backend, remote Inspection of that
+  backend's Cells is refused (loopback-only, like the Hive Stand). The same exposure exists today
+  for bees on QEMU and Docker Desktop Cells, independent of this phase; it is fixed separately
+  (raised as its own fix on 2026-10-28), and 15.5 only verifies it.
 - **Limits.** `READ_ONLY` Cells: screen view only, if opted in. `SCRATCH`: screen view only; no
   shell, since a PTY cannot be held to scratch. `FULL`: everything opted in. Meadow and Propolis
   alike. **Night Veil: terminal only, never the screen, never recorded.** A Night Veil Cell is
@@ -3305,8 +3317,12 @@ Track A (terminal)
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Docker: an exec with a tty attached from the Hive
   Stand; QEMU: a virtio console on a Unix socket (a named pipe on Windows) with a getty from
   cloud-init; the Hive Stand: a local PTY. A Night Veil Cell uses the same host-side attach, which
-  crosses no network. *Exit:* through the same harness, the shell works on a Docker Cell, a QEMU
-  Cell, a Night Veil Docker Cell and the Hive Stand. *Size:* medium, 2 to 3 agent-days.
+  crosses no network. A remote Inspection of a Virtual Cell is refused until its backend meets the
+  loopback-listener rule above. *Exit:* through the same harness, the shell works on a Docker
+  Cell, a QEMU Cell, a Night Veil Docker Cell and the Hive Stand; from an Inspection shell on a
+  QEMU Cell and on a Docker Desktop Cell, a request to the Entrance's loopback port through
+  `10.0.2.2` or `host.docker.internal`, with a forged `Host: localhost`, is refused, and a backend
+  that fails this check refuses remote Inspection. *Size:* medium, 2 to 3 agent-days.
 - [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
   behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
   gains its allow-list row. *Exit:* a device without the scope gets 403, one without fresh step-up
@@ -3354,7 +3370,8 @@ attached to the Entrance relay by a test harness.
 - [ ] **15.13 Linux X11 and headless Virtual Cells.** x11vnc on the real display of an opted-in
   Linux Real Cell; on a Virtual Cell, the Exoskeleton's Xvfb and openbox with x11vnc in
   `desktop-ubuntu`; QEMU's own `-vnc` on a Unix socket for the VM console. *Exit:* control an Ubuntu
-  laptop's desktop (notice up) and a headless Docker Cell from the test client. *Size:* medium to large,
+  laptop's desktop (notice up), a headless Docker Cell, and a QEMU Cell's console through its
+  Unix-socket `-vnc`, from the test client. *Size:* medium to large,
   3 agent-days.
 - [ ] **15.14a Windows capture and input.** Desktop Duplication capture and `SendInput` through the
   chosen path (a bundled VNC server run as a separate process, or the packet's own), in the
@@ -3432,7 +3449,9 @@ events only make sense landed together, and 15.14a because capture and input are
   default shell allowed by gateway-contract `:633-634` inside an operator lease only; the Capping
   exemption for a human's keystrokes; the left-as-found exception, carried into codingrules 15
   and CLAUDE.md; and, if `hive_stand_remote` is kept, the plain statement that it ends
-  loopback-only approval in practice).
+  loopback-only approval in practice; the rule that the Entrance's loopback listener is
+  unreachable from any Virtual Cell guest, and that remote Inspection of a backend's Cells is
+  refused until it holds).
 - `inspection-channel-on-waggle.md` (the keyed byte channel inside a signed open; sequence numbers
   instead of the replay window; never queued; the amendment to gateway-contract section 16).
 - `remote-desktop-transport.md` (RFB through loopback servers and an outbound data socket, against
@@ -3515,7 +3534,9 @@ events only make sense landed together, and 15.14a because capture and input are
    device the operator widened (the 8.11 amendment); Smoke by default or bees alongside; whether a
    shell or screen on the Hive Stand itself is ever reachable remotely (default no; yes would let a
    remote session reach the loopback listener, so a stolen phone plus the password and a step-up
-   could enrol a new device; Justin's call); a Night Veil terminal
+   could enrol a new device; Justin's call); how the loopback listener is kept unreachable from
+   Virtual Cell guests (a peer check on the listener, or SLIRP `restrict` and no host-gateway
+   alias), without which remote Inspection of those Cells stays refused; a Night Veil terminal
    (attached from the host side) or none at all; whether recordings are offered at all.
 19. Remote desktop transport (phase 15.10): RFB through bundled loopback VNC servers and noVNC,
    own capture in the packet, or WebRTC; which VNC server per OS and its licence (x11vnc,
