@@ -15,7 +15,8 @@ Fits into the Hive:
 
 Key invariants:
     - SUPERSEDED and its trail record come before the acknowledgement, and both before the notice.
-    - `queen.superseded` carries ids, the sequence and booleans only.
+    - The old Queen's `queen.superseded` carries ids and the sequence only; `acknowledged` is
+      the candidate's own record's, which alone knows it.
 
 See Also:
     - docs/waggle/enrolment.md section 12 for what a device does with the notice.
@@ -117,8 +118,7 @@ async def hand_over(
         started_id=record.started_id,
         candidate_node_id=record.candidate_node_id,
         notice_sequence=record.sequence,
-        acknowledged=True,
-    )
+    )  # No `acknowledged`: not yet known here; the candidate's own record says whether it landed.
     acknowledged = await link.acknowledge(record.started_id)
     notice = relocation_notice(record.sequence, announce, recorder.clock.now(), rollback=False)
     return Handover(acknowledged=acknowledged, notices_sent=await sender.broadcast(notice))
