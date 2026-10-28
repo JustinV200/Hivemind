@@ -31,6 +31,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from e2e.chaos.rig import assert_nothing_left_open
 from e2e.kernel_helpers import wait_until
 from e2e.supersedure_rig import (
     GOAL,
@@ -97,3 +98,4 @@ async def test_a_candidate_killed_before_it_is_ready_is_rolled_back_and_the_goal
     assert await old.stores.trail.query(TrailQuery(kind=SUPERSEDED_KIND)) == ()
     [notice] = sender.notices
     assert notice.is_rollback and notice.new_node_id == old.manifest.hive.node_id
+    await assert_nothing_left_open(old)  # The chaos bar (13.6): no lease or grant left open.

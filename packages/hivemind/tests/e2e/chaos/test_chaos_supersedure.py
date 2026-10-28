@@ -1,9 +1,10 @@
-"""Chaos: a Supersedure whose candidate dies or stalls, and whose old Queen dies mid-move.
+"""Chaos: a Supersedure whose candidate stalls, and whose old Queen dies mid-move.
 
 Roadmap 13.6's Supersedure half, over two Queens on temp stores (`e2e.supersedure_rig`). The old
 Hive's goal waits on a question on the Hive Stand when the human orders the move. A candidate
-killed before it is ready, and one whose restore never returns (it stopped answering mid-copy),
-must both be rolled back inside the window, the goal finishing on the old Queen. An old Queen
+whose restore never returns (it stopped answering mid-copy) must be rolled back inside the
+window, the goal finishing on the old Queen; one killed before it is ready is the plain rollback
+of tests/e2e/test_supersedure.py, held to the same bar there. An old Queen
 whose process ends mid-move (the copy still running) must refuse to start again until the human
 settles the move; once settled as aborted she starts, requeens and the goal finishes. In every
 case two Queens are never active at once, and nothing is left open once the Hive is down.
@@ -53,14 +54,13 @@ from hivemind.queen.supersedure import ABORTED_KIND, SUPERSEDED_KIND, AbortCause
 pytestmark = [pytest.mark.e2e, pytest.mark.chaos]
 
 
-@pytest.mark.parametrize(("dies", "stalls"), [(True, False), (False, True)])
-async def test_a_candidate_that_dies_or_stalls_is_rolled_back_and_the_goal_finishes(
-    tmp_path: Path, dies: bool, stalls: bool
+async def test_a_candidate_that_stalls_is_rolled_back_and_the_goal_finishes(
+    tmp_path: Path,
 ) -> None:
-    old, candidate, _sender = await setup(tmp_path, dies=dies, stalls=stalls)
+    old, candidate, _sender = await setup(tmp_path, dies=False, stalls=True)
     both: list[tuple[QueenMode, QueenMode]] = []
 
-    finished = await bounded("candidate lost", _rolled_back(old, candidate, both))
+    finished = await bounded("candidate stalled", _rolled_back(old, candidate, both))
 
     assert finished.status is TaskStatus.SUCCEEDED
     [aborted] = await old.stores.trail.query(TrailQuery(kind=ABORTED_KIND))
