@@ -3219,9 +3219,9 @@ neither track changes it, and 15.3a rebases on it once it merges.
   mechanism on every Cell: each task checkpoints to its Handoff (a bee that does not in time is
   retired), then the processes of every non-operator lease are killed while the lease itself stays open, its scratch, restore records
   and grants untouched, as an isolated Cell keeps its lease (codingrules.md:1849, Appendix C).
-  While the Inspection is open, new dispatch and leases on the Cell are refused; on close each
-  task this Inspection Smoked resumes on the same lease, unless the Cell is isolated or the
-  Handoff is tainted (15.4b). `--alongside` gets layer 1 only: the bees keep running
+  While the Inspection is open, new dispatch and leases on the Cell are refused; on close, once
+  the operator lease is confirmed ended, each task this Inspection Smoked resumes on the same
+  lease, unless the Cell is isolated or the Handoff is tainted (15.4b). `--alongside` gets layer 1 only: the bees keep running
   and writing their own task memory, so they can see the operator's processes and files like any
   other process on the Cell and read what the operator types, passwords included; the operator
   is told exactly that before such an Inspection opens. `--alongside` is for a terminal only and
@@ -3302,8 +3302,9 @@ lab devices, never on an enrolled device in daily use.
 - [ ] **15.1 ADRs, vocabulary and manifest.** Write the four ADRs below before any code (the
   transport ADR as a draft, accepted at 15.10's exit, before 15.11a); add
   Inspection, operator lease and Smoke to the README glossary; amend codingrules 8.11, 12 (the two
-  `cell.inspection_*` skeleton events), 15 and Appendix C (rows for the Inspection lifecycle, from
-  open through Smoked to closed, in the Brood Chamber's `inspections` table; the Warden's
+  `cell.inspection_*` skeleton events), 15 and Appendix C (rows for the Inspection lifecycle, open,
+  Smoked, `CLOSING` (close requested, the operator lease not yet confirmed ended) and `ENDED`, in
+  the Brood Chamber's `inspections` table; the Warden's
   `INSPECTED` mode, derived from those rows and re-sent on attach; the operator lease kind; and the
   Inspection row and the `smoked_by` mark as state that survives a Queen crash), and gateway-contract sections 6 (the `inspect.*`
   open kinds, shell and screen, join rule 3's Queen-only list, so a Warden can never open one),
@@ -3439,8 +3440,7 @@ lab devices, never on an enrolled device in daily use.
   Inspection closes. `INSPECTED` is derived from the door's durable open rows, never held only in
   a Warden's memory: the Queen re-sends it whenever a Cell's Warden attaches or reconnects
   (`OFFLINE` to `ACTIVE`, `CLUSTERED` to `ACTIVE`, a restart), as she re-sends a `CellTaintOrder`
-  (codingrules.md:1849), and lifts it only once the operator lease is confirmed ended: an
-  `inspect.closed`, the lease released, or the link grace or the dead-man switch elapsed. Layer 2,
+  (codingrules.md:1849), and lifts it only when the Inspection's row reaches `ENDED` (below). Layer 2,
   Smoke, is one mechanism on every backend, with no branch on the
   Cell's kind. Every bee on the Cell is asked for a Handoff (Clustering's lever, selected by
   Cell) and given `[inspection] handoff_patience_s` (default 30 s), bounded the way
@@ -3476,17 +3476,25 @@ lab devices, never on an enrolled device in daily use.
   non-operator leases on it, and every `CellSession` kind (`LocalProcessSession`,
   `InCellSession` and the Pollen session) refuses exec, process `START` and file operations on
   a non-operator lease, as the packet refuses every `session.*` request (absolute: no
-  Inspection feature uses `session.*`). On close only the tasks still marked `smoked_by` this
-  Inspection resume, each from its Handoff on the same, still-open lease, and each mark is cleared
+  Inspection feature uses `session.*`). On a Pollen device or a Nuc the operator's shell can
+  outlive a close (the link can come back within `link_grace_s`, and no dead-man switch fires
+  while a Warden is on the device), so resuming and lifting `INSPECTED` share one durable gate. A
+  close first moves the Inspection's row to `CLOSING` and sends `inspect.close` (or releases the
+  operator lease); the row reaches `ENDED` only once the operator lease is confirmed ended (an
+  `inspect.closed`, the lease released, or the link grace or the dead-man switch elapsed). Only
+  at `ENDED` is `INSPECTED` lifted and do the tasks still marked `smoked_by` this Inspection
+  resume, each from its Handoff on the same, still-open lease, and each mark is cleared
   in the same transaction as its resume; none resumes on a Cell that is `ISOLATED` or from a
   tainted Handoff, since isolation and its human-only lift take precedence
   (codingrules.md:1849), and the close clears those marks too, so a later lift leaves the task
   paused. Because the lease never closes, every
   path that ends a lease (the dead-man switch, Sting Cut, Absconding, Requeening's recovery, a
   task cancel or re-placement) restores it exactly as it does today. A Queen that starts by
-  Requeening (13.1) system-closes every Inspection row that has no `cell.inspection_closed`,
-  with or without a lease, writing exactly one close with its reason, lifts `INSPECTED` on the
-  Cell's Wardens and, from 15.5a, tears down its host-side attach state (the QEMU console socket
+  Requeening (13.1) system-closes every Inspection row that is not `ENDED`, open or `CLOSING`,
+  with or without a lease: it moves the row to `CLOSING`, sends `inspect.close` to a Pollen Cell
+  (or releases its operator lease) and waits for the confirmation that moves it to `ENDED`,
+  writes exactly one close with its reason, lifts `INSPECTED` on the Cell's Wardens and, from
+  15.5a, tears down its host-side attach state (the QEMU console socket
   and its login session, any `docker exec` attached for it), and only then resumes the tasks that
   Inspection Smoked. Every Inspection has that row: the door writes it at open, before the
   operator lease opens, for every Inspection, `--alongside` and idle-Cell ones included, in a new
@@ -3494,8 +3502,8 @@ lab devices, never on an enrolled device in daily use.
   mirror it with ids and counts only. Smoke only adds to it, before the first Handoff request: the
   Smoked task ids, also on `cell.inspection_smoked`, and a `smoked_by` mark on each task's Brood
   Chamber row. Requeening reads the table, never memory, since the door's table that held the
-  warrant died with the old Queen: having closed the row, it resumes every task still marked
-  `smoked_by` an Inspection that is now closed, clearing each mark in the same transaction, and
+  warrant died with the old Queen: once the row is `ENDED`, it resumes every task still marked
+  `smoked_by` that Inspection, clearing each mark in the same transaction, and
   clears without resuming those on an `ISOLATED` Cell or with a tainted Handoff; the same rule
   covers a crash between a normal close and its resumes. A Supersedure (13.2a) never meets one:
   its preflight refuses while any Inspection is open, so the operator closes them first, and
@@ -3540,7 +3548,10 @@ lab devices, never on an enrolled device in daily use.
   Handoff is never resumed; a stale `smoked_by` mark left from an earlier Inspection is not
   resumed by a later one; lifting the isolation of a Cell that was isolated during an Inspection
   leaves its task paused; a crash between a close and its resumes still resumes the marked tasks
-  after the restart; a Warden that restarts mid-Inspection comes back `INSPECTED`, with Watch and
+  after the restart; killing the Queen and restarting it within `link_grace_s`, on a Pollen device
+  and on a Nuc, leaves the operator's shell gone before the Smoked task resumes; a timeout close
+  whose `inspect.closed` is delayed keeps the row `CLOSING`, the Cell `INSPECTED` and the task
+  paused until the device confirms; a Warden that restarts mid-Inspection comes back `INSPECTED`, with Watch and
   the Patrol off until the close; a Supersedure started with an Inspection open is refused by
   its preflight, and an Inspection open attempted while a Supersedure is in progress is refused.
   *Size:* large, 6 agent-days.
@@ -3910,8 +3921,10 @@ sense landed together (its Hive Stand containment may land first as a preparator
   written by the door at open into the Brood Chamber's `inspections` table (before the operator
   lease, `--alongside` and idle ones included) and Smoke adding the Smoked ids and the
   `smoked_by` marks before the first Handoff request, so Requeening resumes every task still
-  marked by a closed Inspection; `INSPECTED` derived from those rows, re-sent whenever a Warden
-  attaches and lifted only once the operator lease is confirmed ended, and none on an isolated Cell or from a tainted
+  marked by an `ENDED` Inspection; `INSPECTED` derived from those rows and re-sent whenever a
+  Warden attaches; one durable gate, the row moving through `CLOSING` to `ENDED` only once the
+  operator lease is confirmed ended, for both the `INSPECTED` lift and the Smoked-task resume, on
+  every close and in Requeening, and none on an isolated Cell or from a tainted
   Handoff; loopback trusted only with the stand key, never by
   listener (a step-up is `LOOPBACK` only with it, and a Hive Stand or co-located shell open is a
   stand-key row), because the stand key guards only the loopback-only rows and a guest reaches
