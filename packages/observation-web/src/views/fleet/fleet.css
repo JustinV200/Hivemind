@@ -28,7 +28,9 @@
  *   - docs/observation/design.md sections 3, 4.3 and 5.1.
  */
 
-/* Legend: in the title row, never collapsed; its three lines wrap as the row narrows */
+/* Legend: a full-width strip under the title row at every width (its three sentences are longer
+   than the row's free space, so it never shares the row with the filter), never collapsed; its
+   three lines wrap as the strip narrows */
 .fleet-legend {
   display: flex;
   flex-wrap: wrap;
@@ -250,11 +252,6 @@
 @media (min-width: 720px) {
   .fleet-table tbody {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .fleet-legend {
-    flex-basis: auto;
-    margin-left: auto;
   }
 }
 

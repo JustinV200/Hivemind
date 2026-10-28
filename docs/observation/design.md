@@ -345,8 +345,9 @@ All: one choice at a time, which is what makes it a segmented control and not th
 chips). Columns: Cell id, kind, source, status and mode, tier badge, mask badge, access level, two
 badges for where the Warden runs and where its models come from, current task and role, open
 Alarms, the highest live Cell Wax severity, lease age, and links to its page, its Attendant view
-and its bees' thoughts. The **legend** (`Legend`) is fixed at the top right of the view's title
-row on 720 px and up, and fixed above the table on phone; it is never collapsed or scrolled out.
+and its bees' thoughts. The **legend** (`Legend`) is a full-width strip under the view's title
+row, above the table, at every width (its three sentences are longer than the row's free space);
+it is never collapsed or scrolled out.
 Read: `/v1/cells`, `/v1/fleet` (added in 12.1). Streams: cells, tasks, telemetry.
 
 ### 5.2 Cell page (`#/cells/<id>`)

@@ -2,10 +2,12 @@
  * Attendant view styles: the header, the graph panel and the inbox column beside it.
  *
  * Mobile first (design.md section 2): the graph panel and the inbox stack in one column, the
- * graph drawn top to bottom and scaled by its viewBox. From 1100px the inbox column sits beside the
- * graph, which then runs left to right and scrolls sideways inside its panel rather than shrink
- * its text. The SVG's text is real text in the page's fonts and its fills and strokes are tokens,
- * so both themes work with no literal colour here.
+ * graph drawn top to bottom on a canvas exactly as wide as its pane (one unit per pixel, so its
+ * 12 unit text is 12px on any phone). In a pane of 720px or more the graph runs left to right at
+ * exactly 1x (the `<svg>` carries its canvas's width, `task_graph.tsx`) and a chain longer than
+ * the panel scrolls sideways inside it rather than shrink its text; from 1100px the inbox column
+ * sits beside the graph. The SVG's text is real text in the page's fonts and its fills and
+ * strokes are tokens, so both themes work with no literal colour here.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/attendant/`. Imported by `attendant.tsx`. Class names

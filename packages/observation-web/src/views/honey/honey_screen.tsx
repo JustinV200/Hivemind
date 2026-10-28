@@ -50,7 +50,9 @@ export function HoneyScreen(props: { path: string; item: string | null }): React
   const openId = mine ? (state.reading?.id ?? null) : null;
   return (
     <>
-      <ViewTitle title="Honey" subject={path} />
+      {/* At the root the path is a lone slash, which says nothing beside the title; the
+          crumbs name the folder, so the subject is only shown once there is one */}
+      <ViewTitle title="Honey" subject={path === '/' ? undefined : path} />
       <Breadcrumbs path={path} parent={folder?.parent ?? null} />
       {error ? (
         <>
