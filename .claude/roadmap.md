@@ -3280,7 +3280,9 @@ in daily use.
 
 - [ ] **15.1 ADRs, vocabulary and manifest.** Write the four ADRs below before any code; add
   Inspection, operator lease and Smoke to the README glossary; amend codingrules 8.11, 12 (the two
-  `cell.inspection_*` skeleton events) and 15, and gateway-contract section 16, as the ADRs decide.
+  `cell.inspection_*` skeleton events) and 15, and gateway-contract sections 6 (the `inspect.*`
+  open kinds, shell and screen, join rule 3's Queen-only list, so a Warden can never open one) and
+  16, as the ADRs decide.
   The section 15 changes: "Real Cells are borrowed" gains the operator lease as the one lease
   exempt from restore; "Nothing lands uncapped" exempts a human's own keystrokes and pointer;
   "Watching is bounded" names `entrance:inspect:screen_*` plus the device's opt-in as the separate
@@ -3294,8 +3296,10 @@ in daily use.
   output, close, closed) on a new protocol minor; byte frames carry a per-Inspection sequence number
   inside a channel keyed at the signed open, so a keystroke is not a fresh signed envelope and
   never enters the replay window; no output frame is ever queued in the outbox. `spec.md` and the
-  gateway contract gain the section. *Exit:* contract suite covers open, resize, input, close and a
-  replayed or out-of-order frame refused. *Size:* medium, 2 to 3 agent-days.
+  gateway contract gain the section, and the open kinds are Queen-only (gateway-contract section 6,
+  rule 3). *Exit:* contract suite covers open, resize, input, close and a replayed or out-of-order
+  frame refused; an `inspect.open` signed by the Cell's Warden (on a colonized device or a Nuc)
+  is dropped. *Size:* medium, 2 to 3 agent-days.
 - [ ] **15.3a Pollen PTY on POSIX and the operator lease.** A PTY executor on Linux and macOS
   (`pty`); the shell is the device's own default, never text from a request; window resize; the
   process group recorded in the lease table before the first byte; the operator lease kind, exempt
@@ -3334,8 +3338,8 @@ in daily use.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs the separate guest-loopback fix landed
   first. Docker: an exec with a tty attached from the Hive Stand; QEMU: a virtio console on a
   Unix socket (a named pipe on Windows) with a getty from cloud-init; the Hive Stand: a local PTY
-  in `hivemind/cell/local/`, beside `LocalProcessSession`, since `cell/` is where subprocess is
-  allowed. A Night Veil Cell uses the same host-side attach, which
+  in a new sub-package `hivemind/cell/local/pty/`, since `cell/` is where subprocess is allowed and
+  `cell/local/` already holds the ten modules codingrules 5.6 allows. A Night Veil Cell uses the same host-side attach, which
   crosses no network. A remote Inspection of a Virtual Cell is refused until its backend meets the
   loopback-listener rule above. *Exit:* through the same harness, the shell works on a Docker
   Cell, a QEMU Cell, a Night Veil Docker Cell and the Hive Stand; from an Inspection shell on a
@@ -3387,7 +3391,7 @@ attached to the Entrance relay by a test harness.
   refusing with `pollen.capability_denied` unless the device opted in with `--screen`, whatever
   the Hive asks. *Exit:* bytes round-trip against a test server with the Inspection's limits; a
   lease release closes the socket and stops the server; a device that opted in with `--shell` only
-  refuses. *Size:* medium, 2.5 agent-days.
+  refuses; a screen open signed by the Cell's Warden is dropped. *Size:* medium, 2.5 agent-days.
 - [ ] **15.11b Screen door and relay at the Entrance.** The swarm listener's `/inspect/` path, which
   hands the socket in process to a binary `Duplex` view at `/v1/cells/{cell}/inspect/screen` behind `screen_view` or
   `screen_control`, landing together with its gates so no build ever serves an ungated screen:
@@ -3515,7 +3519,9 @@ events only make sense landed together, and 15.14a because capture and input are
   refused until it holds; `INSPECTED` suspending Watch and the Patrol, and the plain statement
   that `--alongside` lets the Cell's bees see the operator's processes and files).
 - `inspection-channel-on-waggle.md` (the keyed byte channel inside a signed open; sequence numbers
-  instead of the replay window; never queued; the amendment to gateway-contract section 16).
+  instead of the replay window; never queued; the amendments to gateway-contract section 6, making
+  the `inspect.*` open kinds for shell and screen Queen-only under rule 3 so a Warden's signature
+  cannot open one, and section 16).
 - `remote-desktop-transport.md` (RFB through loopback servers and an outbound data socket, against
   own capture, against WebRTC; the spike's numbers; the loopback-listener exception to "no inbound
   socket" (gateway-contract `:629`) and the operator-lease exception to "capture the screen or the
