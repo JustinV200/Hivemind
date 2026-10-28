@@ -26,3 +26,8 @@ whole Hive), and backups. Populated as each of those capabilities lands, mostly 
   Hive runs; never the secret store) and `hive restore` (stop the Hive, put the secret store in
   place, restore with `--sha256`; refused for another Hive or a different identity key), and what
   a restore leaves to Requeening.
+- [`supersedure.md`](supersedure.md): moving the Hive Stand to another colonized machine with `hive
+  supersede` (roadmap step 13.2a, ADR-0065): the candidate test (`hive doctor --supersedure`), the
+  freeze, the copy, the held candidate and the handover; the automatic rollback; settling a
+  Supersedure a crash left open with `hive supersede --settle`; what the old machine becomes; and
+  what is not wired for a real machine yet.
