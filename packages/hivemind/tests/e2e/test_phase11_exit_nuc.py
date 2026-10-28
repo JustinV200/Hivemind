@@ -40,6 +40,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 import pytest
+from e2e.chaos.rig import open_grants, open_leases
 from e2e.swarm.colony.models import (
     ALLOWED,
     EXTRA,
@@ -332,3 +333,19 @@ def test_the_nucs_warden_is_refused_a_model_outside_the_allowlist(nuc: NucRun) -
     assert event.payload["rule"] == "guard.scope.loadable_source"
     assert event.payload["principal_kind"] == "warden"
     assert SMALL in refusal.reply.loaded_models  # What it already offered is still on offer.
+
+
+@pytest.mark.chaos
+def test_dropping_the_nuc_mid_task_leaves_no_lease_or_grant_open(nuc: NucRun) -> None:
+    """Roadmap 13.6's Nuc leg: the cable pulled mid-task leaves nothing of it open.
+
+    Read while the Hive still runs (the Hive Stand's own lease is rightly open), so only what the
+    device held, and what the finished tasks were granted, is judged.
+    """
+    on_device = _on_device(nuc)
+    tasks = (nuc.long, nuc.ordinary, nuc.exacting)
+    # A grant's records name its task in their payload: forage.granted and forage.revoked alike.
+    granted_to_tasks = [event for event in nuc.trail if event.payload.get("task_id") in tasks]
+
+    assert open_leases(on_device) == set()
+    assert open_grants(granted_to_tasks) == set()
