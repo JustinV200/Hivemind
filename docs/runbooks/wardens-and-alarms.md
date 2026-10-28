@@ -65,7 +65,7 @@ the attempts no Nurse Bee could review. Answer a question with:
 
 ```
 hive inbox answer <question id> "use the staging database" --manifest hive.toml
-hive inbox answer <question id> --option 2 --manifest hive.toml
+hive inbox answer <question id> "the second one" --option 2 --manifest hive.toml
 ```
 
 The running Hive picks the answer up on its next poll and the waiting bee carries on. An Alarm waits
