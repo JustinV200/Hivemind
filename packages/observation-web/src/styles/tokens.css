@@ -108,7 +108,8 @@
 @media (min-width: 720px) {
   :root {
     --gutter: 24px;
-    --strip-h: 64px;
+    /* One row: a 12px label over a 24px number in a padded cell, inside the band's padding */
+    --strip-h: 68px;
   }
 }
 

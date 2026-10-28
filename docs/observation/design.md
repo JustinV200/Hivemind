@@ -29,9 +29,11 @@ From top to bottom, on every screen after login:
    `data-theme` on `<html>`); from 720 px the device name and the listener (`loopback` or
    `remote`) and a log out button, which on a phone move into the nav's More panel. A session
    that `needs_step_up` shows a banner under the bar until the step-up prompt is done.
-2. **Summary strip** (64 px, never scrolls away, never hidden by navigation). Four groups, each
-   drawn as a shallow comb cell (3.4) with its label above and its number below in 20 px bold,
-   sharing the band equally up to where the content stops (the rail plus the 1440 px cap), with
+2. **Summary strip** (68 px from 720 px, 116 px on a phone; never scrolls away, never hidden by
+   navigation). Four groups, each drawn as a shallow comb cell (3.4) with its label above and
+   its number below in bold, 20 px on a phone and 24 px from 720 px, where a cell is wide and one
+   row deep, sharing the band equally up to where the content stops (the rail plus the 1440 px
+   cap), with
    the stale note at the band's right edge; a number that just moved carries a 2 px accent
    underline for five seconds:
    - `Bees` active bees (total).

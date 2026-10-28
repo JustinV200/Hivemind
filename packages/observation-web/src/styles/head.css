@@ -7,7 +7,8 @@
  * lines, the label with its hint and the number, so the band holds the 116px the tokens budget
  * and the pinned head stays under a quarter of the screen; while a stream is down the cells give
  * up 2px of padding each, which is what the stale note's line needs to fit the same band), set
- * 4px apart so they read as one row of comb rather than four boxes; the notice bar under it says
+ * 4px apart so they read as one row of comb rather than four boxes, their numbers 24px from the
+ * rail width, where a cell is wide and one row deep; the notice bar under it says
  * what the push stream reports as waiting. The head's height changes as the banner and the
  * notice bar come and go, which is why the rail reads it as `--head-h` rather than assuming the
  * bar plus the strip.
@@ -257,5 +258,12 @@
     justify-self: end;
     align-self: center;
     white-space: nowrap;
+  }
+
+  /* One row of wide cells has room for a bigger figure, so a cell reads as a comb cell holding
+     a number rather than a long slab under a 12px label; the band grows to the 68px the tokens
+     budget for it */
+  .strip-value {
+    font-size: 24px;
   }
 }
