@@ -52,7 +52,7 @@ from hivemind.entrance.enrol import (
     bootstrap_operator,
     unlock_console_key,
 )
-from hivemind.entrance.expose import ExposureRefusedError
+from hivemind.entrance.expose import STAND_HEADER, ExposureRefusedError
 from hivemind.entrance.runtime import HiveEntrance
 from hivemind.entrance.store import SqliteEntranceStore
 from hivemind.forage.slots import ModelSlot
@@ -147,7 +147,9 @@ async def _admit_and_run_a_goal(manifest: HiveManifest, served: ServedHive) -> N
     console_key = await _bootstrap_console(manifest)
     async with serve_hive(served) as entrance:
         base = f"http://localhost:{entrance.listeners.loopback_port}"
-        async with httpx.AsyncClient(base_url=base, timeout=10.0) as http:
+        # The console holds the stand key, as `hive entrance` reads it from the serve record.
+        stand = {STAND_HEADER: entrance.listeners.stand_key}
+        async with httpx.AsyncClient(base_url=base, timeout=10.0, headers=stand) as http:
             client = LandingClient(http, manifest.hive.id, served.hive.clock)
             console = await client.login(console_key)
             program, device_id = await _approved_program(client, console)
@@ -215,7 +217,9 @@ async def _follow_a_goal(manifest: HiveManifest, served: ServedHive) -> None:
     console_key = await _bootstrap_console(manifest)
     async with serve_hive(served) as entrance:
         base = f"http://localhost:{entrance.listeners.loopback_port}"
-        async with httpx.AsyncClient(base_url=base, timeout=10.0) as http:
+        # The console holds the stand key, as `hive entrance` reads it from the serve record.
+        stand = {STAND_HEADER: entrance.listeners.stand_key}
+        async with httpx.AsyncClient(base_url=base, timeout=10.0, headers=stand) as http:
             client = LandingClient(http, manifest.hive.id, served.hive.clock)
             program, _ = await _approved_program(client, await client.login(console_key))
             hub, board = entrance.services.streams.hub, served.hive.telemetry

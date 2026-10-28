@@ -81,6 +81,7 @@ class _Listeners:
 
     def __init__(self, *, remote_port: int | None, exposed: bool) -> None:
         self.loopback_port = 8710
+        self.stand_key = "stand-key"
         self.remote_port = remote_port
         self.exposed = exposed
         self.remote_listening = False  # uvicorn still starting: what a real run met.

@@ -62,6 +62,7 @@ from hivemind.entrance.enrol import (
     bootstrap_operator,
     unlock_console_key,
 )
+from hivemind.entrance.expose import STAND_HEADER
 from hivemind.entrance.runtime import HiveEntrance
 from hivemind.entrance.store import SqliteEntranceStore
 from hivemind.forage.slots import ModelSlot
@@ -253,7 +254,11 @@ async def standing(
     console_key = await _bootstrap_console(manifest, password)
     async with serve(served) as entrance:
         base = f"http://127.0.0.1:{entrance.listeners.loopback_port}"
-        async with httpx.AsyncClient(base_url=base, timeout=10.0, trust_env=False) as http:
+        # The console holds the stand key, as `hive entrance` reads it from the serve record.
+        stand = {STAND_HEADER: entrance.listeners.stand_key}
+        async with httpx.AsyncClient(
+            base_url=base, timeout=10.0, trust_env=False, headers=stand
+        ) as http:
             console = LandingClient(http, manifest.hive.id, served.hive.clock)
             session = await console.login(console_key, password)
             yield Stand(entrance, served, console, session, password)
