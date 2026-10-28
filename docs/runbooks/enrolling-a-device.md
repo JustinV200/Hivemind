@@ -248,9 +248,12 @@ as the account pollen should run under, and run what the README says:
     bash ./pollinate.sh                                            # Linux, macOS
 
 Windows may ask to allow the Tailscale install, and Linux for your password. A Mac needs Tailscale
-installed by hand first. The script can be run again safely, and it deletes `secrets/` when it
-ends, whether it worked or not, so a run that failed needs a new packet. `hive swarm list` then
-shows the device, as in section 4.
+installed by hand first (the Tailscale app). Two things stop the script before it uses anything, so
+the same packet works once they are fixed: a Mac without Tailscale, and a machine already signed in
+to another Tailscale account (a personal one, say); run `tailscale logout` there and run the script
+again. Otherwise the script can be run again safely, and it deletes `secrets/` when it ends,
+whether it worked or not, so a run that failed needs a new packet. `hive swarm list` then shows the
+device, as in section 4.
 
 To take the device back, `hive swarm revoke` it (section 6) and remove it under Machines in the
 Tailscale admin console; either one alone cuts the Hive off from it.

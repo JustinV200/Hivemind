@@ -23,7 +23,6 @@ $TailscaleExe = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
 $MsiIndex = 'https://pkgs.tailscale.com/stable/'               # Tailscale's official packages.
 $WaitSeconds = 120                    # How long to wait for Tailscale and for the Hive Stand.
 $TailscaleSigner = '^CN=Tailscale Inc\.,'   # The MSI's Authenticode subject must start with this.
-$script:WasOnTailnet = $false          # Set when Tailscale was already up before this packet ran.
 
 function Say([string]$Text) { Write-Host "pollinate: $Text" }
 
@@ -57,17 +56,21 @@ function Install-TailscaleMsi {
     $published = (Invoke-WebRequest -UseBasicParsing -Uri ($MsiIndex + $name + '.sha256')).Content
     if ($published -is [byte[]]) { $published = [Text.Encoding]::ASCII.GetString($published) }
     $expected = ($published.Trim() -split '\s+')[0]
-    $signature = Get-AuthenticodeSignature $msi
-    # Both checks or nothing runs: the hash Tailscale published, and a valid signature whose
-    # subject is Tailscale Inc.'s own (anchored, so 'NotTailscale' or 'O=Tailscale' cannot pass).
-    if ((Get-FileHash -Algorithm SHA256 $msi).Hash -ne $expected -or $signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch $TailscaleSigner) {
-        Remove-Item -Force $msi
-        throw 'The Tailscale MSI failed its hash or signature check; it was not installed.'
+    # Hold the file open, shared for reading only, from the checks until msiexec is done with it:
+    # nothing else in %TEMP% can swap or rewrite it between being checked and being installed.
+    $lock = [IO.File]::Open($msi, 'Open', 'Read', 'Read')
+    try {
+        $signature = Get-AuthenticodeSignature $msi
+        # Both checks or nothing runs: the hash Tailscale published, and a valid signature whose
+        # subject is Tailscale Inc.'s own (anchored, so 'NotTailscale' or 'O=Tailscale' cannot pass).
+        if ((Get-FileHash -Algorithm SHA256 $msi).Hash -ne $expected -or $signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch $TailscaleSigner) {
+            throw 'The Tailscale MSI failed its hash or signature check; it was not installed.'
+        }
+        # A machine-wide install needs elevation, and /quiet shows no UAC prompt of its own.
+        try { $process = Start-Process msiexec.exe -Verb RunAs -ArgumentList @('/i', "`"$msi`"", '/quiet', '/norestart') -Wait -PassThru }
+        catch { throw 'Installing Tailscale needs administrator rights, and they were not given.' }
     }
-    # A machine-wide install needs elevation, and /quiet shows no UAC prompt of its own: RunAs asks.
-    try { $process = Start-Process msiexec.exe -Verb RunAs -ArgumentList @('/i', "`"$msi`"", '/quiet', '/norestart') -Wait -PassThru }
-    catch { Remove-Item -Force $msi; throw 'Installing Tailscale needs administrator rights, and they were not given.' }
-    Remove-Item -Force $msi
+    finally { $lock.Dispose(); Remove-Item -Force $msi -ErrorAction SilentlyContinue }
     if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) { throw "The Tailscale MSI failed (exit $($process.ExitCode))." }
 }
 
@@ -81,14 +84,9 @@ function Get-TailscaleStatus {
 # command line. Unattended: Tailscale stays connected with nobody logged in and reconnects by
 # itself on any network.
 function Join-Tailnet {
+    # Running here means this packet's tagged node (a re-run): Test-OtherTailnet refused any other.
     $status = Get-TailscaleStatus
-    if ($status -and $status.BackendState -eq 'Running') {
-        # Already up: as this packet's tagged node (a re-run), or on some tailnet of its own.
-        if (@($status.Self.Tags) -contains 'tag:hive-device') { Say 'This PC is already on the tailnet.'; return }
-        $script:WasOnTailnet = $true
-        Say 'Tailscale was already signed in on this PC; using that connection, not the packet key.'
-        return
-    }
+    if ($status -and $status.BackendState -eq 'Running') { Say 'This PC is already on the tailnet.'; return }
     if (-not (Test-Path $AuthKeyFile)) { throw 'This packet has been used: its Tailscale key is gone. Ask for a new packet.' }
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     while ((Get-Service Tailscale -ErrorAction SilentlyContinue).Status -ne 'Running') {
@@ -113,7 +111,6 @@ function Wait-HiveStand {
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     while (-not (Test-HiveStand)) {
         if ((Get-Date) -gt $deadline) {
-            if ($script:WasOnTailnet) { throw "The Hive Stand ${HiveHost}:$HivePort does not answer, and this PC was already signed in to Tailscale, perhaps to a different tailnet. Run 'tailscale logout' and use a new packet." }
             throw "The Hive Stand ${HiveHost}:$HivePort does not resolve or answer over the tailnet. Is the Hive running, and does the tailnet policy let tag:hive-device reach it?"
         }
         Start-Sleep -Seconds 3
@@ -138,6 +135,14 @@ function Register-Pollen {
     if ($LASTEXITCODE -ne 0) { throw "pollen enrol failed (exit $LASTEXITCODE)." }
 }
 
+# Signed in already, but not as a Hive device: another Tailscale account. Checked before anything
+# can spend or delete the secrets, so the same packet works after `tailscale logout`.
+function Test-OtherTailnet {
+    if (-not (Test-Path $TailscaleExe)) { return $false }
+    $status = Get-TailscaleStatus
+    return ($status -and $status.BackendState -eq 'Running' -and -not (@($status.Self.Tags) -contains 'tag:hive-device'))
+}
+
 function Invoke-Pollinate {
     Install-Tailscale
     Join-Tailnet
@@ -149,6 +154,10 @@ function Invoke-Pollinate {
     & $Pollen status
 }
 
+if (Test-OtherTailnet) {
+    Write-Host "pollinate: STOPPED: this PC is signed in to another Tailscale account. Run 'tailscale logout', then run this script again. Nothing was used up." -ForegroundColor Red
+    exit 1
+}
 $failed = $false
 try { Invoke-Pollinate }
 catch { $failed = $true; Write-Host "pollinate: FAILED: $($_.Exception.Message)" -ForegroundColor Red }

@@ -21,17 +21,17 @@ AUTH_KEY_FILE="$SECRETS/tailscale-authkey.txt"
 INVITE_FILE="$SECRETS/invite.txt"
 POLLEN="$HOME/.local/bin/pollen"   # Per user: no root needed to run it.
 WAIT_SECONDS=120                   # How long to wait for the tailnet and the Hive Stand.
-WAS_ON_TAILNET=0                   # Set when Tailscale was already up before this packet ran.
 MAC_TAILSCALE=/Applications/Tailscale.app/Contents/MacOS/Tailscale   # The Mac app's own CLI.
 
 say() { printf 'pollinate: %s\n' "$*"; }
 fail() { printf 'pollinate: FAILED: %s\n' "$*" >&2; exit 1; }
+# Before the trap is armed: the secrets stay, and the same packet works once the cause is fixed.
+stop() { printf 'pollinate: STOPPED: %s Nothing was used up.\n' "$*" >&2; exit 1; }
 
-# Whatever happens, the secrets go: a failed run needs a new packet, never a reused key.
+# Whatever happens once the run starts, the secrets go: a failed run needs a new packet.
 remove_secrets() {
   if [ -d "$SECRETS" ]; then rm -rf -- "$SECRETS"; say "Deleted this packet's secrets."; fi
 }
-trap remove_secrets EXIT
 
 as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
 
@@ -39,36 +39,28 @@ as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
 # function, so `sudo` can run it too.
 tailscale_bin() { command -v tailscale 2>/dev/null || printf '%s\n' "$MAC_TAILSCALE"; }
 
+tailscale_installed() { command -v tailscale >/dev/null 2>&1 || [ -x "$MAC_TAILSCALE" ]; }
+
 install_tailscale() {
-  if command -v tailscale >/dev/null 2>&1 || [ -x "$MAC_TAILSCALE" ]; then
-    say 'Tailscale is already installed.'; return
-  fi
-  # Linux: Tailscale's own installer, which adds its signed package repository. macOS has no
-  # unattended install; the standalone app must be installed by hand first.
-  case "$(uname -s)" in
-    Linux) say 'Installing Tailscale...'; curl -fsSL https://tailscale.com/install.sh | sh ;;
-    *) fail 'Install Tailscale from https://tailscale.com/download first; this packet is now spent.' ;;
-  esac
+  if tailscale_installed; then say 'Tailscale is already installed.'; return; fi
+  # Linux only (preflight stopped a Mac without it): Tailscale's own installer, which adds its
+  # signed package repository.
+  say 'Installing Tailscale...'; curl -fsSL https://tailscale.com/install.sh | sh
 }
 
 tailnet_running() {
-  "$(tailscale_bin)" status --json 2>/dev/null | grep -q '"BackendState": *"Running"'
+  "$(tailscale_bin)" status --json --peers=false 2>/dev/null | grep -q '"BackendState": *"Running"'
 }
 
 tagged_hive_device() {
-  "$(tailscale_bin)" status --json 2>/dev/null | grep -q '"tag:hive-device"'
+  "$(tailscale_bin)" status --json --peers=false 2>/dev/null | grep -q '"tag:hive-device"'
 }
 
 # Join with the single-use key read from its file, so it is never on a command line. The node is
 # not ephemeral: it stays in the tailnet while offline and reconnects by itself on any network.
 join_tailnet() {
-  if tailnet_running; then
-    # Already up: as this packet's tagged node (a re-run), or on some tailnet of its own.
-    if tagged_hive_device; then say 'This machine is already on the tailnet.'; return; fi
-    WAS_ON_TAILNET=1
-    say 'Tailscale was already signed in here; using that connection, not the packet key.'
-    return
-  fi
+  # Running here means this packet's tagged node (a re-run): preflight stopped any other account.
+  if tailnet_running; then say 'This machine is already on the tailnet.'; return; fi
   [ -f "$AUTH_KEY_FILE" ] || fail 'This packet has been used: its Tailscale key is gone. Ask for a new packet.'
   say 'Joining the tailnet...'
   local code=0
@@ -89,7 +81,6 @@ wait_hive_stand() {
   local waited=0
   until hive_stand_answers; do
     if [ "$waited" -ge "$WAIT_SECONDS" ]; then
-      [ "$WAS_ON_TAILNET" -eq 0 ] || fail "The Hive Stand $HIVE_HOST:$HIVE_PORT does not answer, and this machine was already signed in to Tailscale, perhaps to a different tailnet. Run 'tailscale logout' and use a new packet."
       fail "The Hive Stand $HIVE_HOST:$HIVE_PORT does not resolve or answer over the tailnet. Is the Hive running, and does the tailnet policy let tag:hive-device reach it?"
     fi
     sleep 3; waited=$((waited + 3))
@@ -111,6 +102,19 @@ enrol_pollen() {
   "$POLLEN" enrol - < "$INVITE_FILE"
 }
 
+# What would make this run fail before it starts, checked before anything can spend or delete
+# the secrets: a Mac with no Tailscale app, or a machine signed in to another Tailscale account.
+preflight() {
+  if [ "$(uname -s)" != Linux ] && ! tailscale_installed; then
+    stop 'Install the Tailscale app from https://tailscale.com/download, then run this script again.'
+  fi
+  if tailscale_installed && tailnet_running && ! tagged_hive_device; then
+    stop "This machine is signed in to another Tailscale account. Run 'tailscale logout', then run this script again."
+  fi
+}
+
+preflight
+trap remove_secrets EXIT
 install_tailscale
 join_tailnet
 wait_hive_stand

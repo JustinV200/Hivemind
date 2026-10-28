@@ -19,5 +19,9 @@ IMPORTANT
   - Until then, secrets/ is a key to the Hive: carry it yourself, never by
     chat, email or a shared drive.
   - Running it again on the same machine is safe; finished steps are skipped.
+  - If the machine is already signed in to another Tailscale account, the
+    script stops before using anything: run "tailscale logout", then run it
+    again.
+  - On a Mac, install the Tailscale app (tailscale.com/download) first.
   - Run it from the copy on the machine, then delete every other copy of this
     folder (the USB stick's too). Or run it straight from the stick.
