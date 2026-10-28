@@ -64,7 +64,7 @@ def backup_command(
     )
     typer.echo(f"Backed up Hive {receipt.index.hive_id} to {receipt.path}")
     typer.echo(f"  sha256: {receipt.sha256}  (keep it; hive restore --sha256 checks it)")
-    typer.echo(f"  {len(receipt.index.files)} files, {receipt.size} bytes")
+    typer.echo(f"  files: {len(receipt.index.files)}, bytes: {receipt.size}")
     typer.echo("The secret store is not in the backup; keep it safe on its own.")
 
 
