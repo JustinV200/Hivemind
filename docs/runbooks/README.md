@@ -31,3 +31,6 @@ whole Hive), and backups. Populated as each of those capabilities lands, mostly 
   freeze, the copy, the held candidate and the handover; the automatic rollback; settling a
   Supersedure a crash left open with `hive supersede --settle`; what the old machine becomes; and
   what is not wired for a real machine yet.
+- [`chaos.md`](chaos.md): the nightly chaos suite (roadmap step 13.6): the bar every scenario meets
+  (nothing hangs, every goal ends explicitly, no lease, grant or Virtual Cell left open), what each
+  scenario breaks, how to run it and the Nuc leg, and what a failure means.

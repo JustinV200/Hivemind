@@ -406,6 +406,16 @@ Drone's grant without a free core.
   the packet no command, the lease's scratch is gone, the operator's directories are as they were
   and the container's layer gained nothing outside the packet's directory. See "A device that is
   moved up the ladder".
+- `chaos/` (`e2e`, `chaos`; nightly in `integration.yml`, never in the push CI) -- roadmap step
+  13.6's chaos suite: `rig.py` bounds every scenario (nothing hangs) and judges, once the Hive is
+  down, that no lease, grant or Virtual Cell is left open; the `test_chaos_*` modules break the
+  model, the Cells and their links, the Queen's inbox and a goal's budget, a Supersedure, the
+  Entrance's invite route, a Drone's inputs (Honey and a tool result) and a Swarm node's trail
+  segment. `docs/runbooks/chaos.md` lists what each breaks and what must hold. Its Nuc leg rides
+  `test_phase11_exit_nuc.py`'s one run (marked `chaos` too).
+- `supersedure_rig.py` -- the two Queens a Supersedure needs (the old Hive and a candidate that
+  takes over, dies before it is ready, or stalls its restore), shared by `test_supersedure.py` and
+  the chaos suite.
 
 ## Budget
 
