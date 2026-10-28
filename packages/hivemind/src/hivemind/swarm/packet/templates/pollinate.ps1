@@ -92,15 +92,11 @@ function Get-TailscaleStatus {
 # itself on any network.
 function Join-Tailnet {
     # Skipped only when this is the packet's own tagged node, up (a re-run); any other signed-in
-    # account was refused by Test-OtherTailnet before the run began.
+    # account was refused by Get-PreflightProblem before the run began.
     $status = Get-TailscaleStatus
     if ($status -and $status.BackendState -eq 'Running' -and (Test-HiveTagged $status)) { Say 'This PC is already on the tailnet.'; return }
     if (-not (Test-Path $AuthKeyFile)) { throw 'This packet has been used: its Tailscale key is gone. Ask for a new packet.' }
-    $deadline = (Get-Date).AddSeconds($WaitSeconds)
-    while ((Get-Service Tailscale -ErrorAction SilentlyContinue).Status -ne 'Running') {
-        if ((Get-Date) -gt $deadline) { throw 'The Tailscale service did not start.' }
-        Start-Sleep -Seconds 2
-    }
+    if (-not (Start-TailscaleService)) { throw 'The Tailscale service did not start.' }
     Say 'Joining the tailnet...'
     # The key is passed as a file: path, so tailscale's own error text cannot contain it.
     $result = Invoke-Captured { & $TailscaleExe up "--auth-key=file:$AuthKeyFile" --unattended --reset "--timeout=$($WaitSeconds)s" }
@@ -150,13 +146,34 @@ function Test-HiveTagged($Status) {
     return ($Status.Self -and (@($Status.Self.Tags) -contains 'tag:hive-device'))
 }
 
-# Signed in means any state but logged out, connected or not (Stopped counts), or a tailnet named.
-function Test-OtherTailnet {
-    if (-not (Test-Path $TailscaleExe)) { return $false }
-    $status = Get-TailscaleStatus
-    if (-not $status) { return $false }
-    $signedIn = ($status.BackendState -notin @('NeedsLogin', 'NoState', '')) -or $status.CurrentTailnet
-    return ($signedIn -and -not (Test-HiveTagged $status))
+# Start the Tailscale service if it is stopped, and wait for it; true once it runs.
+function Start-TailscaleService {
+    if (-not (Get-Service Tailscale -ErrorAction SilentlyContinue)) { return $false }
+    if ((Get-Service Tailscale).Status -ne 'Running') {
+        try { Start-Service Tailscale -ErrorAction Stop } catch { Say 'Waiting for the Tailscale service to start...' }
+    }
+    $deadline = (Get-Date).AddSeconds($WaitSeconds)
+    while ((Get-Service Tailscale).Status -ne 'Running') {
+        if ((Get-Date) -gt $deadline) { return $false }
+        Start-Sleep -Seconds 2
+    }
+    return $true
+}
+
+# What would stop this run, found before anything can spend or delete the secrets, so the same
+# packet works once it is fixed. It fails closed: an installed Tailscale whose state cannot be
+# read is a stop, not a guess. Signed in means any state but logged out, connected or not
+# (Stopped counts), or a tailnet named; only the packet's own tagged node may be signed in.
+function Get-PreflightProblem {
+    if (-not (Test-Path $TailscaleExe)) { return '' }
+    if (-not (Start-TailscaleService)) { return 'The Tailscale service will not start; start it, or reinstall Tailscale, then run this script again.' }
+    $result = Invoke-Quiet { & $TailscaleExe status --json }
+    $status = $null
+    if ($result.Output.Trim()) { try { $status = $result.Output | ConvertFrom-Json } catch { $status = $null } }
+    if (-not $status -or -not $status.BackendState) { return "Tailscale's state could not be read; update Tailscale, then run this script again." }
+    $signedIn = ($status.BackendState -notin @('NeedsLogin', 'NoState')) -or $status.CurrentTailnet
+    if ($signedIn -and -not (Test-HiveTagged $status)) { return "This PC is signed in to another Tailscale account. Run 'tailscale logout', then run this script again." }
+    return ''
 }
 
 # Delete the secrets, retrying once (an antivirus scan can hold a file for a moment); say so
@@ -181,8 +198,9 @@ function Invoke-Pollinate {
     & $Pollen status
 }
 
-if (Test-OtherTailnet) {
-    Write-Host "pollinate: STOPPED: this PC is signed in to another Tailscale account. Run 'tailscale logout', then run this script again. Nothing was used up." -ForegroundColor Red
+$problem = Get-PreflightProblem
+if ($problem) {
+    Write-Host "pollinate: STOPPED: $problem Nothing was used up." -ForegroundColor Red
     exit 1
 }
 $failed = $false

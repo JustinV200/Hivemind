@@ -29,8 +29,17 @@ fail() { printf 'pollinate: FAILED: %s\n' "$*" >&2; exit 1; }
 stop() { printf 'pollinate: STOPPED: %s Nothing was used up.\n' "$*" >&2; exit 1; }
 
 # Whatever happens once the run starts, the secrets go: a failed run needs a new packet.
+# Retried once (a file can be held for a moment); loud if they are still there, since they stay a
+# key to the Hive until they lapse.
 remove_secrets() {
-  if [ -d "$SECRETS" ]; then rm -rf -- "$SECRETS"; say "Deleted this packet's secrets."; fi
+  [ -d "$SECRETS" ] || return 0
+  rm -rf -- "$SECRETS" 2>/dev/null || true
+  if [ -d "$SECRETS" ]; then sleep 1; rm -rf -- "$SECRETS" 2>/dev/null || true; fi
+  if [ -d "$SECRETS" ]; then
+    printf 'pollinate: secrets/ could NOT be deleted; delete it now: %s\n' "$SECRETS" >&2
+  else
+    say "Deleted this packet's secrets."
+  fi
 }
 
 as_root() { if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi; }
@@ -48,6 +57,8 @@ install_tailscale() {
   say 'Installing Tailscale...'; curl -fsSL https://tailscale.com/install.sh | sh
 }
 
+# Without peers, so the only tags in it are this node's own. Empty when the daemon does not
+# answer, or when the CLI is too old to know --peers (preflight tells the two apart).
 ts_status() { "$(tailscale_bin)" status --json --peers=false 2>/dev/null || true; }
 
 backend_state() {
@@ -117,7 +128,16 @@ preflight() {
   if [ "$(uname -s)" != Linux ] && ! tailscale_installed; then
     stop 'Install the Tailscale app from https://tailscale.com/download, then run this script again.'
   fi
-  if tailscale_installed && signed_in && ! tagged_hive_device; then
+  tailscale_installed || return 0
+  # Fail closed: Tailscale answers, but no state can be read from what it said, or it answers
+  # only without --peers (too old to tell this node's tags from its peers').
+  local plain
+  plain="$("$(tailscale_bin)" status --json 2>/dev/null || true)"
+  if { [ -n "$(ts_status)" ] && [ -z "$(backend_state)" ]; } \
+    || { [ -z "$(ts_status)" ] && [ -n "$plain" ]; }; then
+    stop "Tailscale's state could not be read; update Tailscale, then run this script again."
+  fi
+  if signed_in && ! tagged_hive_device; then
     stop "This machine is signed in to another Tailscale account. Run 'tailscale logout', then run this script again."
   fi
 }
