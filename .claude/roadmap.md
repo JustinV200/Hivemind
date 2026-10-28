@@ -3046,9 +3046,25 @@ borrowed device and revoking every grant.
   enabled), `hive run` with no Docker needed, then Docker Desktop for Virtual Cells, then `hive entrance
   expose` plus an invite to enrol a phone and speak a goal into it. Tested on
   clean Windows and Ubuntu machines, once per provider path.
-- [ ] **14.2 `hive init` and `hive doctor`.** Manifest generator with `--provider`; checks for
+- [x] **14.2 `hive init` and `hive doctor`.** Manifest generator with `--provider`; checks for
   scratch root, Docker if enabled, every provider reachable, every slot's model present, Forage
   sanity, sqlite-vec loads, escalation policy file valid.
+  **Built 2026-10-28.** `manifest/starter/` renders the starter from a shipped template per path
+  (`anthropic`, `ollama`, `openai-compatible`; model ids and base URLs only in the templates and
+  that package): fresh ids, every slot bound, `[hive_stand] enabled = true`, `offline = true` for
+  a loopback server, validated before it is returned. `hive init --provider P [DIR]` (`cli/init/`)
+  writes `DIR/hive.toml`, refuses an existing one without `--force`, then sets the operator
+  password through `bootstrap_operator` (10.4's "set at `hive init`"; `--no-password` skips it, a
+  password already set is left alone). `hive doctor` (`cli/doctor/`) runs the seven checks in the
+  order a newcomer fixes them, each PASSED, WARNED, FAILED or SKIPPED, exit 1 only on FAILED:
+  provider health through `hive llm providers`' own rows (only configured providers; offline's
+  refusal before any probe), each `[llm.slots]` row's model against its server's `/models` (a
+  hosted provider that lists none is SKIPPED), Forage as a `[forage.map]` row for every chat
+  binding (WARNED otherwise), sqlite-vec loaded on an in-memory database (WARNED: the Python
+  fallback), the policy loaded as a Warden loads it, Docker through an injected probe only for a
+  Docker backend; 13.2a's `--supersedure NODE` is folded in. Proved by
+  `tests/e2e/test_init_doctor.py` (init, then doctor over real sockets against the scripted
+  OpenAI-compatible server: served, missing model, nothing listening).
 - [ ] **14.3 Docs pass.** Subsystem READMEs, ADRs, protocol spec, runbooks including
   `moving-a-slot-to-local.md`, `real-cells.md`, `wardens-and-alarms.md`, `clustering.md`, `nucs.md`,
   `supersedure.md`, `remote-access.md` (the VPN, enrolling a phone or a program, a lost device, the
