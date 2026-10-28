@@ -25,6 +25,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import tempfile
 from collections.abc import Awaitable, Callable
@@ -107,8 +108,10 @@ async def check_docker(manifest: HiveManifest, probe: DockerProbe) -> Check:
 async def probe_docker() -> None:
     """Connect to the Docker daemon the environment names and list nothing, or raise."""
     # The client imports the optional `docker` SDK only when built, so a Hive without the extra
-    # fails here, as a Check, rather than at import.
-    await SdkDockerClient().list_containers(_PROBE_LABELS)
+    # fails here, as a Check, rather than at import. Building it may dial the daemon to agree an
+    # API version, a blocking call, so it runs on a worker thread.
+    client = await asyncio.to_thread(SdkDockerClient)
+    await client.list_containers(_PROBE_LABELS)
 
 
 def _nearest_existing(path: Path) -> Path:
