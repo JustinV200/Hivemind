@@ -78,20 +78,30 @@ the link is opened again after each start, and in each new tab.
 `stand:<address>`, so a guest flooding `127.0.0.1` can no longer starve the console of the door it
 administers the Hive through.
 
-**Loopback logins that stand for the Hive Stand need the key too.** The gate marks the request
-scope when the key came along, and the arrival carries that mark (`Arrival.stand`). The console
-device is `loopback_bound` (ADR-0041); without the key, its login on loopback is refused as if it
-had come from the remote listener. While the Entrance is reduced, every login without the key is
-refused, loopback included, so a reduction leaves only the Hive Stand able to log in.
+**Wherever loopback stood for the Hive Stand, the key now does.** The gate marks the request
+scope when the key came along; the arrival carries that mark (`Arrival.stand`) and the session it
+opens keeps it (`Session.stand`, a column since migration 0003).
+
+- The console device is `loopback_bound` (ADR-0041): without the key, its login or step-up on
+  loopback is refused as if it had come from the remote listener.
+- While the Entrance is reduced, every login and step-up without the key is refused, loopback
+  included.
+- Reducing ends every session that is not the Hive Stand's (remote, and loopback without the key)
+  and closes their sockets, so a reduction leaves only the Hive Stand logged in.
+- The travel lock (ADR-0041) never judges the Hive Stand itself, which is now loopback with the
+  key. A keyless loopback login has no network anyone can place, so it is judged as unplaceable:
+  it must step up, and every other device is told.
+- A keyless loopback arrival's refused proofs are charged to the address's own bucket, the same
+  one the gate's per-address limit uses; the key holder's bucket stays apart.
 
 The network stays as it is, documented plainly in the backends: QEMU's non-`NONE` policies and
 Docker Desktop still let a guest reach the host's loopback services, the Entrance's public and
 both-listener routes included. A guest there is like a remote client with one factor fewer to
 pass: it skips the network factor a remote device faces (the VPN overlay, or mutual TLS for `lan`
-and `tunnel`), and it reaches the loopback listener even while the remote one is reduced. It
-still needs an enrolled, approved device key and the operator's password to open any session, and
-since this decision it cannot open the console's, nor any session while reduced, nor reach a
-loopback-only row.
+and `tunnel`). It still needs an enrolled, approved device key and the operator's password to
+open any session, and since this decision it cannot open or step up the console's, cannot log in
+or step up while reduced, keeps no session or socket through a reduction, is always flagged by
+the travel lock when it is on, and cannot reach a loopback-only row.
 
 ## Consequences
 
@@ -121,9 +131,12 @@ cannot log in either, though it could before; it reads the key from the serve re
 console does, or waits for the operator to reopen.
 
 A guest that holds an ordinary device's key and the operator's password can log in on loopback
-(while the Entrance is open) without the overlay or mutual TLS a remote copy of that device would
+while the Entrance is open, without the overlay or mutual TLS a remote copy of that device would
 need, and use that device's both-listener routes. Its rights are the device's own, never the
-console's or a loopback-only row's.
+console's or a loopback-only row's; with the travel lock on, it must step up first (which a
+non-interactive device cannot) and every other device is told; and a reduction ends its session
+and sockets. Sessions persisted before migration 0003 read as keyless, so the first reduction
+after upgrading ends their loopback ones too.
 
 Host-loopback services other than the Entrance (Ollama, LM Studio, llama-server or any model server
 bound to `127.0.0.1`, a dev server, anything else the operator runs) remain reachable from QEMU

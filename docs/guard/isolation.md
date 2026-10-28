@@ -187,16 +187,16 @@ A service bound to the Hive Stand's `127.0.0.1` is not out of a Cell's reach:
 - **Native Linux Engine** does not do this: its host gateway is docker0, not loopback.
 
 So on QEMU and Docker Desktop a guest can reach Ollama, LM Studio, llama-server, a dev server or
-anything else listening on the Hive Stand's loopback, and cutting its egress does not change that
-on QEMU. The Hive Entrance's loopback listener is one such service; its loopback-only routes
-(approval, unlock, widening, reopening) also need a per-boot stand key that no Cell is given
-(ADR-0068), and so do a console login and any login while the Entrance is reduced. A guest
-reaching the port still skips the network factor a remote device faces (the overlay, or mutual
-TLS), but it needs an enrolled device's key and the operator's password to log in. Nothing else
-on loopback has that protection: give such services their own authentication, or do not run
-untrusted work in QEMU or Docker Desktop Cells while they listen. Closing this in the network
-(QEMU's control-NIC split with `restrict=on`, and an answer for Docker Desktop) is an open item in
-the roadmap.
+anything else listening on the Hive Stand's loopback, and cutting its egress does not change that on
+QEMU. The Hive Entrance's loopback listener is one such service; its loopback-only routes (approval,
+unlock, widening, reopening) also need a per-boot stand key that no Cell is given (ADR-0068), and so
+do the console's login and step-up and any login or step-up while the Entrance is reduced; a
+reduction also ends every keyless session. A guest reaching the port still skips the network factor
+a remote device faces (the overlay, or mutual TLS), but it needs an enrolled device's key and the
+operator's password to log in. Nothing else on loopback has that protection: give such services
+their own authentication, or do not run untrusted work in QEMU or Docker Desktop Cells while they
+listen. Closing this in the network (QEMU's control-NIC split with `restrict=on`, and an answer for
+Docker Desktop) is an open item in the roadmap.
 
 ## The Hive Stand exception
 
