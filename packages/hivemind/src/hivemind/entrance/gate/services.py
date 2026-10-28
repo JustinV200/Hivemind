@@ -54,6 +54,7 @@ from hivemind.guard import Enforcer
 from hivemind.queen import GoalRequest, HumanInbox
 from hivemind.queen.isolation import IsolationOutcome, LiftOutcome
 from hivemind.queen.sting_cut import StingCutOutcome
+from hivemind.queen.supersedure import PreflightReport, SupersedureStarted
 from hivemind.supervision import Alarm
 from waggle.clock import Clock
 from waggle.ids import CellId, DeviceId, MessageId, TaskId
@@ -152,6 +153,14 @@ class QueenDoor(Protocol):
         self, target: str, device_id: DeviceId, reason: str, report_id: str | None = None
     ) -> StingCutOutcome:
         """Cut a Cell off on the human's order (roadmap 13.4a); see ``Queen.sting_cut``."""
+        ...
+
+    async def supersedure_preflight(self, node_id: str) -> PreflightReport:
+        """Run the Supersedure candidate test (13.2a); see ``Queen.supersedure_preflight``."""
+        ...
+
+    async def supersede(self, node_id: str, device_id: DeviceId) -> SupersedureStarted:
+        """Move the Hive Stand on the human's order (13.2a); see ``Queen.supersede``."""
         ...
 
 

@@ -41,7 +41,7 @@ from hivemind.entrance.routes.hive import (
     WARDEN_ROUTES,
 )
 from hivemind.entrance.routes.isolation import ROUTES as ISOLATION_ROUTES
-from hivemind.entrance.routes.isolation import STING_CUT_ROUTES
+from hivemind.entrance.routes.isolation import STING_CUT_ROUTES, SUPERSEDE_ROUTES
 from hivemind.entrance.routes.later import SWARM_ROUTES, TOOL_ROUTES
 from hivemind.entrance.routes.screens import (
     ATTENDANT_ROUTES,
@@ -84,6 +84,7 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     SWARM_ROUTES,
     ISOLATION_ROUTES,  # Roadmap step 10.6a: the human's isolate and lift levers.
     STING_CUT_ROUTES,  # Roadmap step 13.4a: the human's Sting Cut, break-glass.
+    SUPERSEDE_ROUTES,  # Roadmap step 13.2a: moving the Hive Stand, loopback and break-glass.
     # Roadmap step 12.1: the Observation Hive's aggregated screens and the metrics endpoint.
     SUMMARY_ROUTES,
     FLEET_ROUTES,

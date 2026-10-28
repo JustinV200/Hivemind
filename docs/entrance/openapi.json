@@ -1901,6 +1901,33 @@
         "title": "ChatPost",
         "type": "object"
       },
+      "CheckView": {
+        "description": "One preflight check.",
+        "properties": {
+          "detail": {
+            "description": "One line saying why.",
+            "title": "Detail",
+            "type": "string"
+          },
+          "name": {
+            "description": "What was checked (enrolled, colonized, disk, ...).",
+            "title": "Name",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "PASSED, FAILED or UNVERIFIED.",
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "outcome",
+          "detail"
+        ],
+        "title": "CheckView",
+        "type": "object"
+      },
       "CombShieldLevel": {
         "description": "A Cell's security tier: what network egress a task on that Cell must run through.\n\nBound to the Cell, not the task (codingrules section 8.7): a task inherits the\nCombShieldLevel of the Cell where it runs. Operator-set at enrolment for a Real Cell;\nQueen-chosen at provisioning for a Virtual one, which alone may reach NIGHT_VEIL.",
         "enum": [
@@ -4895,6 +4922,36 @@
         "type": "string",
         "x-hive-open": true
       },
+      "PreflightView": {
+        "description": "The candidate test for one node.",
+        "properties": {
+          "checks": {
+            "description": "Every check, in a fixed order.",
+            "items": {
+              "$ref": "#/components/schemas/CheckView"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "node_id": {
+            "description": "The candidate.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "passed": {
+            "description": "No check failed; a Supersedure onto it may start.",
+            "title": "Passed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "node_id",
+          "passed",
+          "checks"
+        ],
+        "title": "PreflightView",
+        "type": "object"
+      },
       "ProposalRow": {
         "description": "One proposal and the state its newest event reached (observe).",
         "properties": {
@@ -5986,6 +6043,64 @@
           "open_alarms"
         ],
         "title": "SummaryView",
+        "type": "object"
+      },
+      "SupersedeBody": {
+        "additionalProperties": false,
+        "description": "Move the Hive Stand: the candidate and the typed phrase.",
+        "properties": {
+          "node_id": {
+            "description": "The colonized node to move onto.",
+            "pattern": "^node_[0-9A-HJKMNP-TV-Z]{26}$",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "phrase": {
+            "description": "The break-glass phrase, typed: 'supersede my hive stand'.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Phrase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "phrase"
+        ],
+        "title": "SupersedeBody",
+        "type": "object"
+      },
+      "SupersedeView": {
+        "description": "What the order started; the copy and the handover go on on the Queen's loop.",
+        "properties": {
+          "grace_until": {
+            "description": "When the candidate must be ready, ISO 8601.",
+            "title": "Grace Until",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "The candidate.",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "sequence": {
+            "description": "The QueenMoved sequence reserved for the move.",
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "started_id": {
+            "description": "The queen.supersedure_started event.",
+            "title": "Started Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "started_id",
+          "node_id",
+          "sequence",
+          "grace_until"
+        ],
+        "title": "SupersedeView",
         "type": "object"
       },
       "TaskBriefView": {
@@ -12934,6 +13049,214 @@
         "x-hive-listeners": [
           "loopback",
           "remote"
+        ]
+      }
+    },
+    "/v1/hive/supersede": {
+      "post": {
+        "operationId": "supersede_v1_hive_supersede_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SupersedeBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SupersedeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Move the Hive Stand to a node (loopback, after step-up, with the typed phrase).",
+        "tags": [
+          "hive"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/hive/supersede/{node_id}/preflight": {
+      "get": {
+        "operationId": "preflight_v1_hive_supersede__node_id__preflight_get",
+        "parameters": [
+          {
+            "description": "The candidate's node id.",
+            "in": "path",
+            "name": "node_id",
+            "required": true,
+            "schema": {
+              "description": "The candidate's node id.",
+              "pattern": "^node_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Node Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreflightView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Run the Supersedure candidate test for a node (loopback only).",
+        "tags": [
+          "hive"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback"
         ]
       }
     },

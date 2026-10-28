@@ -64,11 +64,13 @@ from hivemind.cli import (
 from hivemind.cli.abscond import abscond_command
 from hivemind.cli.backup import backup_command, restore_command
 from hivemind.cli.entrance import app as entrance_app
+from hivemind.cli.entrance.console import ConsoleCommand
 from hivemind.cli.keys import app as keys_app
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
 from hivemind.cli.remote import app as remote_app
 from hivemind.cli.run import RunCommand, run_command
 from hivemind.cli.serve import serve_command
+from hivemind.cli.supersede import doctor_command, supersede_command
 from hivemind.cli.swarm import app as swarm_app
 from hivemind.cli.version import collect_version_info, format_version
 from hivemind.common.logging import configure_logging
@@ -157,11 +159,13 @@ app.command("abscond")(abscond_command)
 # Roadmap step 13.7: one checksummed archive of the Hive's stores, and putting one back.
 app.command("backup")(backup_command)
 app.command("restore")(restore_command)
+# Roadmap step 13.2a: Supersedure, the human's move of the Hive Stand, and its candidate test. Both
+# act as the console over a running serve's loopback listener (`--settle` alone runs offline).
+app.command("supersede", cls=ConsoleCommand)(supersede_command)
+app.command("doctor", cls=ConsoleCommand)(doctor_command)
 # ──────────────────────────────────────────────────────────────────────────────
-# Command groups added by later roadmap steps. Each is `app.add_typer(<group>.app, name=...)`,
-# registered here so this file stays the single place that assembles the CLI:
-#   doctor     - environment and manifest diagnostics
-#   supersede  - move the Hive Stand to a new machine
+# Added by later roadmap steps, registered here so this file stays the single place that
+# assembles the CLI: the rest of `hive doctor` (environment and manifest diagnostics, 14.2).
 # ──────────────────────────────────────────────────────────────────────────────
 
 

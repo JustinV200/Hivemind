@@ -208,6 +208,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/cells/{target}/sting-cut": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sting Cut a Cell (interactive, after step-up, with the typed phrase). */
+        post: operations["sting_cut_v1_cells__target__sting_cut_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/chat": {
         parameters: {
             query?: never;
@@ -311,6 +328,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/devices/me/certificate/renew": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Renew the calling device's own client certificate, within its last 30 days, from a request for its enrolled key; the one it replaces is revoked. */
+        post: operations["renew_own_certificate_v1_devices_me_certificate_renew_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/devices/{device_id}/capabilities": {
         parameters: {
             query?: never;
@@ -322,6 +356,23 @@ export interface paths {
         put?: never;
         /** Replace what a device may do (loopback only, after step-up). */
         post: operations["regrant_device_v1_devices__device_id__capabilities_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/devices/{device_id}/certificate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Re-issue an approved device's client certificate (loopback only): for one approved while the Hive ran loopback only, or one whose certificate lapsed. */
+        post: operations["reissue_device_certificate_v1_devices__device_id__certificate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -798,6 +849,40 @@ export interface paths {
         put?: never;
         /** Decline a goal held for the human's yes. */
         post: operations["decline_goal_v1_goals__request_id__decline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hive/supersede": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move the Hive Stand to a node (loopback, after step-up, with the typed phrase). */
+        post: operations["supersede_v1_hive_supersede_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/hive/supersede/{node_id}/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run the Supersedure candidate test for a node (loopback only). */
+        get: operations["preflight_v1_hive_supersede__node_id__preflight_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2260,6 +2345,27 @@ export interface components {
              * @description The words.
              */
             text: string;
+        };
+        /**
+         * CheckView
+         * @description One preflight check.
+         */
+        CheckView: {
+            /**
+             * Detail
+             * @description One line saying why.
+             */
+            detail: string;
+            /**
+             * Name
+             * @description What was checked (enrolled, colonized, disk, ...).
+             */
+            name: string;
+            /**
+             * Outcome
+             * @description PASSED, FAILED or UNVERIFIED.
+             */
+            outcome: string;
         };
         /**
          * CombShieldLevel
@@ -4016,6 +4122,27 @@ export interface components {
          */
         PostconditionKind: "FILE_EXISTS" | "FILE_ABSENT" | "COMMAND_EXITS_ZERO" | "TEST_PASSES" | "HTTP_STATUS" | "ELEMENT_TEXT" | "JUDGE_RUBRIC" | "URL_MATCHES" | "REGION_CHANGED";
         /**
+         * PreflightView
+         * @description The candidate test for one node.
+         */
+        PreflightView: {
+            /**
+             * Checks
+             * @description Every check, in a fixed order.
+             */
+            checks: components["schemas"]["CheckView"][];
+            /**
+             * Node Id
+             * @description The candidate.
+             */
+            node_id: string;
+            /**
+             * Passed
+             * @description No check failed; a Supersedure onto it may start.
+             */
+            passed: boolean;
+        };
+        /**
          * ProposalRow
          * @description One proposal and the state its newest event reached (observe).
          */
@@ -4255,6 +4382,28 @@ export interface components {
              * @description Its raw 32-byte Ed25519 public key, 64 lowercase hex: what it logs in with.
              */
             public_key_hex: string;
+        };
+        /**
+         * ReissueBody
+         * @description Re-issue a device's client certificate (loopback only, ADR-0058).
+         */
+        ReissueBody: {
+            /**
+             * Certificate Request
+             * @description A PEM certificate signing request for the device's enrolled key; null uses the one it sent at redemption, or seals a browser's bundle under mutual TLS.
+             */
+            certificate_request?: string | null;
+        };
+        /**
+         * RenewalBody
+         * @description Renew the calling device's own client certificate (ADR-0058).
+         */
+        RenewalBody: {
+            /**
+             * Certificate Request
+             * @description A PEM certificate signing request for the device's own enrolled Ed25519 key: the key it logs in with, never a new one.
+             */
+            certificate_request: string;
         };
         /**
          * RequestOrigin
@@ -4530,6 +4679,83 @@ export interface components {
             stepped_up_until: string;
         };
         /**
+         * StingCutBody
+         * @description Cut one Cell off: why, the typed phrase, and the Guard report it answers, if any.
+         */
+        StingCutBody: {
+            /**
+             * Phrase
+             * @description The break-glass phrase, typed: 'sting cut this cell'.
+             */
+            phrase: string;
+            /**
+             * Reason
+             * @description Why, in a short phrase for the trail (ids, not content).
+             */
+            reason: string;
+            /**
+             * Report Id
+             * @description A Guard report the Queen was sent.
+             */
+            report_id?: string | null;
+        };
+        /**
+         * StingCutView
+         * @description What the Sting Cut did: cut the Cell off, or found it cut already.
+         */
+        StingCutView: {
+            /**
+             * Already Cut
+             * @description It was cut before; nothing changed.
+             */
+            already_cut: boolean;
+            /**
+             * Cell Id
+             * @description The Cell.
+             */
+            cell_id: string;
+            /**
+             * Cut
+             * @description This order cut it (cell.sting_cut recorded).
+             */
+            cut: boolean;
+            /**
+             * Event Id
+             * @description The cell.sting_cut event, when cut now.
+             */
+            event_id: string | null;
+            /**
+             * Isolated Event Id
+             * @description The cell.isolated event it follows.
+             */
+            isolated_event_id: string | null;
+            /**
+             * Key Forgotten
+             * @description Its key is forgotten; its Warden cannot redial.
+             */
+            key_forgotten: boolean;
+            /**
+             * Revoked Grant Ids
+             * @description The grants on it revoked.
+             */
+            revoked_grant_ids: string[];
+            /**
+             * Scrub
+             * @description confirmed, ordered, unconfirmed or unreached.
+             */
+            scrub: string;
+            /**
+             * Snapshot Id
+             * @description The snapshot kept as evidence, if any.
+             */
+            snapshot_id: string | null;
+            /**
+             * Torn Down
+             * @description A Night Veil Cell torn down, its records purged.
+             */
+            torn_down: boolean;
+        };
+        /**
          * SubscribeBody
          * @description Register a push destination for the calling device (``entrance:push``).
          */
@@ -4634,6 +4860,48 @@ export interface components {
              * @description Open Alarms, all severities.
              */
             open_alarms: number;
+        };
+        /**
+         * SupersedeBody
+         * @description Move the Hive Stand: the candidate and the typed phrase.
+         */
+        SupersedeBody: {
+            /**
+             * Node Id
+             * @description The colonized node to move onto.
+             */
+            node_id: string;
+            /**
+             * Phrase
+             * @description The break-glass phrase, typed: 'supersede my hive stand'.
+             */
+            phrase: string;
+        };
+        /**
+         * SupersedeView
+         * @description What the order started; the copy and the handover go on on the Queen's loop.
+         */
+        SupersedeView: {
+            /**
+             * Grace Until
+             * @description When the candidate must be ready, ISO 8601.
+             */
+            grace_until: string;
+            /**
+             * Node Id
+             * @description The candidate.
+             */
+            node_id: string;
+            /**
+             * Sequence
+             * @description The QueenMoved sequence reserved for the move.
+             */
+            sequence: number;
+            /**
+             * Started Id
+             * @description The queen.supersedure_started event.
+             */
+            started_id: string;
         };
         /**
          * TaskBriefView
@@ -6462,6 +6730,87 @@ export interface operations {
             };
         };
     };
+    sting_cut_v1_cells__target__sting_cut_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Cell's id, or the id of a lease on it. */
+                target: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StingCutBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StingCutView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     read_chat_v1_chat_get: {
         parameters: {
             query?: {
@@ -7033,6 +7382,84 @@ export interface operations {
             };
         };
     };
+    renew_own_certificate_v1_devices_me_certificate_renew_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenewalBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CertificateView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     regrant_device_v1_devices__device_id__capabilities_post: {
         parameters: {
             query?: never;
@@ -7056,6 +7483,87 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeviceView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    reissue_device_certificate_v1_devices__device_id__certificate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The device's id. */
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReissueBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApprovedDeviceView"];
                 };
             };
             /** @description Authentication failed: log in again with the device key and password. */
@@ -9208,6 +9716,161 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GoalView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    supersede_v1_hive_supersede_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupersedeBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupersedeView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    preflight_v1_hive_supersede__node_id__preflight_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The candidate's node id. */
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreflightView"];
                 };
             };
             /** @description Authentication failed: log in again with the device key and password. */

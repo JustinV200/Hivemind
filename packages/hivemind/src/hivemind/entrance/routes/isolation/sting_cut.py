@@ -49,7 +49,7 @@ TargetPath = Annotated[
     ),
 ]
 
-__all__ = ["ROUTES", "StingCutBody", "StingCutView", "sting_cut_view"]
+__all__ = ["MAX_PHRASE_CHARS", "ROUTES", "StingCutBody", "StingCutView", "sting_cut_view"]
 
 
 class StingCutBody(BaseModel):

@@ -1,10 +1,11 @@
-"""The Cell isolation resource: the human's levers on a Cell (roadmap steps 10.6a and 13.4a).
+"""The human's levers on a Cell and on the Hive Stand (roadmap steps 10.6a, 13.4a and 13.2a).
 
 ``POST /v1/cells/{cell_id}/isolate`` and ``POST /v1/cells/{cell_id}/lift``, each for an interactive
 device inside its step-up window holding ``entrance:steward``, each through the Queen's door
 (`cells`), with their bodies and views (`views`); and ``POST /v1/cells/{target}/sting-cut``, which
 also needs the typed break-glass phrase (`sting_cut`). The Queen isolates any Cell but the Hive
-Stand's own lease herself; the human alone isolates that one and lifts any isolation.
+Stand's own lease herself; the human alone isolates that one and lifts any isolation. The
+Supersedure rows (`supersede`, roadmap 13.2a) move the Hive Stand itself, from loopback only.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes``. Its rows join
@@ -22,11 +23,20 @@ Public API (roadmap step 10.6a):
     - IsolateBody, CellIsolationView, CellLiftView, isolation_view, lift_view: the bodies (views).
     - STING_CUT_ROUTES, StingCutBody, StingCutView, sting_cut_view: the Sting Cut (sting_cut,
       roadmap step 13.4a).
+    - SUPERSEDE_ROUTES, SupersedeBody, SupersedeView, PreflightView, preflight_view: Supersedure
+      and its candidate test (supersede, roadmap step 13.2a).
 """
 
 from hivemind.entrance.routes.isolation.cells import ROUTES, STEWARD
 from hivemind.entrance.routes.isolation.sting_cut import ROUTES as STING_CUT_ROUTES
 from hivemind.entrance.routes.isolation.sting_cut import StingCutBody, StingCutView, sting_cut_view
+from hivemind.entrance.routes.isolation.supersede import ROUTES as SUPERSEDE_ROUTES
+from hivemind.entrance.routes.isolation.supersede import (
+    PreflightView,
+    SupersedeBody,
+    SupersedeView,
+    preflight_view,
+)
 from hivemind.entrance.routes.isolation.views import (
     CellIsolationView,
     CellLiftView,
@@ -39,12 +49,17 @@ __all__ = [
     "ROUTES",
     "STEWARD",
     "STING_CUT_ROUTES",
+    "SUPERSEDE_ROUTES",
     "CellIsolationView",
     "CellLiftView",
     "IsolateBody",
+    "PreflightView",
     "StingCutBody",
     "StingCutView",
+    "SupersedeBody",
+    "SupersedeView",
     "isolation_view",
     "lift_view",
+    "preflight_view",
     "sting_cut_view",
 ]

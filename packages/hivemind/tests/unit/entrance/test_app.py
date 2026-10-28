@@ -85,8 +85,8 @@ def test_route_table_declares_listeners_and_access_for_every_row() -> None:
         assert route.access.authenticated or route.access.capability is None
     # Exactly ADR-0041's loopback-only set, so a route joins or leaves it only on purpose: invite
     # minting (and cancelling, and registering a device offline by its key), approval, denial,
-    # unlock, capability widening, revocation, a certificate re-issue (ADR-0058), reopening and
-    # operator add.
+    # unlock, capability widening, revocation, a certificate re-issue (ADR-0058), reopening,
+    # operator add, and Supersedure with its candidate test (ADR-0065).
     assert {(route.method, route.path) for route in routes if route.listeners == LOOPBACK_ONLY} == {
         ("POST", "/v1/entrance/invites"),
         ("DELETE", "/v1/entrance/invites/{device_id}"),
@@ -99,6 +99,8 @@ def test_route_table_declares_listeners_and_access_for_every_row() -> None:
         ("POST", "/v1/devices/{device_id}/certificate"),
         ("POST", "/v1/entrance/open"),
         ("POST", "/v1/entrance/operators"),
+        ("POST", "/v1/hive/supersede"),
+        ("GET", "/v1/hive/supersede/{node_id}/preflight"),
     }
 
 
