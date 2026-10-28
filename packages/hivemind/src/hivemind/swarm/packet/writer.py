@@ -50,12 +50,16 @@ from hivemind.swarm.packet.platforms import PacketPlatform
 SECRETS_DIR = "secrets"  # The owner-only folder the installer deletes when it is done.
 INVITE_FILE = "invite.txt"  # The `pollen1.` string, piped to `pollen enrol -`.
 AUTH_KEY_FILE = "tailscale-authkey.txt"  # Read by `tailscale up --auth-key=file:<path>`.
-README_FILE = "README.txt"
+README_FILE = "README.txt"  # One screen of plain instructions for the device's user.
 TEMPLATES = "hivemind.swarm.packet.templates"  # The package the templates ship in.
 DEFAULT_WSS_PORT = 443  # What a `wss://` URL with no port means.
 PACKET_FILE_COUNT = 5  # The build, the installer, the README and the two secrets.
 # A DNS name: dot-separated labels of letters, digits and hyphens; the only text a script embeds.
-_HOST_NAME = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.?)+$")
+# Each label is bounded and the dots are explicit, so a long almost-name fails in linear time.
+_HOST_NAME = re.compile(
+    r"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$"
+)
 # The only characters a host may hold, whatever it is: no quote, `%`, space or shell character can
 # reach an installer, even before each shell's own quoting below.
 _HOST_CHARS = re.compile(r"^[A-Za-z0-9.:-]+$")

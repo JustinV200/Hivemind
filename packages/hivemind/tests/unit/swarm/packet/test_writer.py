@@ -34,6 +34,7 @@ from hivemind.swarm.packet import HiveTarget
         ("wss://[fe80::1%25';calc;']:8720", None),  # A scope id carrying a script breakout.
         ("wss://127.0.0.1:8720", None),  # Loopback: the device's own machine.
         ("wss://0.0.0.0:8720", None),  # Unspecified: no machine at all.
+        ("wss://" + "a" * 40 + "-:8720", None),  # A label ending in `-`, answered in linear time.
     ],
 )
 def test_from_url_accepts_reachable_hosts_and_refuses_unsafe_ones(
