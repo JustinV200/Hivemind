@@ -2,10 +2,11 @@
 
 Roadmap 13.6's pressure half, on the Hive Stand. Flooded: a rogue Warden link is attached to the
 running Queen and pours thousands of Alarms at her while a goal runs; her per-link queue holds the
-line (the flood waits, it is never dropped silently or allowed to starve her tick), the goal still
-succeeds and every Alarm is eventually read. Exhausted: every Drone call reports a cost far past
-the goal's spend cap; the Queen's cost-cap trigger must cluster the provider, so the task pauses at
-a Handoff rather than spending on, and stopping the Hive then leaves nothing open.
+line (the flood waits on its own link, which is never cut for it, and never starves her tick), the
+goal still succeeds and she reads and decides on the flood's Alarms beside it. Exhausted: every
+Drone call reports a cost far past the goal's spend cap; the Queen's cost-cap trigger must cluster
+the provider, so the task pauses at a Handoff rather than spending on, and stopping the Hive then
+leaves nothing open.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.2), not shipped.
@@ -43,8 +44,8 @@ from hivemind.cell import CellKind, HoneyClearance
 from hivemind.cli.compose import GoalReport, Hive, run_goal, run_hive
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import LLMRequest, LLMResponse, Usage
-from hivemind.pheromone import TrailQuery
-from waggle.ids import new_alarm_id, new_warden_id, new_worker_id
+from hivemind.pheromone import MAX_QUERY_LIMIT, TrailQuery
+from waggle.ids import WardenId, new_alarm_id, new_warden_id, new_worker_id
 from waggle.messages import AlarmSeverity
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 from waggle.messages.supervision import AlarmContext, AlarmKind, AlarmRaised
@@ -62,35 +63,42 @@ _OVER_CAP_USD = 1_000.0  # Each Drone call's reported cost: far past the default
 def test_a_flood_of_alarms_mid_goal_neither_starves_the_queen_nor_hangs(tmp_path: Path) -> None:
     hive = hive_on(fake_manifest(tmp_path), HaikuScript(default_worker_turn).responder)
 
-    report, sent = asyncio.run(bounded("inbox flood", _flooded(hive)))
+    report, attached, handled = asyncio.run(bounded("inbox flood", _flooded(hive)))
 
     assert report.succeeded, report
-    assert sent == _FLOOD  # Every Alarm went in: the queue held it back, never dropped the sender.
+    assert attached  # The flood was held back on its own link; the link was never cut for it.
+    assert handled  # The Queen read the flood's Alarms and decided on them, beside the goal.
     asyncio.run(assert_nothing_left_open(hive))
 
 
-async def _flooded(hive: Hive) -> tuple[GoalReport, int]:
-    """Attach a rogue Warden, flood her from it while the goal runs, then detach it."""
+async def _flooded(hive: Hive) -> tuple[GoalReport, bool, int]:
+    """Flood her from a rogue Warden while the goal runs.
+
+    Returns the report, whether the rogue was still attached once the flood was in, and how many
+    Alarm events she recorded meanwhile.
+    """
     async with run_hive(hive):
-        end = await _rogue(hive)
+        rogue, end = await _rogue(hive)
         flood = asyncio.ensure_future(_pour(hive, end))
         report = await run_goal(hive, _GOAL, clearance=HoneyClearance.C1, timeout_s=_RUN_S)
-        sent = await flood
+        await flood
+        attached = rogue in [link.warden_id for link in hive.queen.wardens]
+        decided = await hive.stores.trail.query(TrailQuery(limit=MAX_QUERY_LIMIT))
         await end.close()
-        return report, sent
+        return report, attached, sum(e.kind.startswith("alarm.") for e in decided)
 
 
-async def _rogue(hive: Hive) -> WardenEnd:
+async def _rogue(hive: Hive) -> tuple[WardenId, WardenEnd]:
     """A Warden on a Cell of its own, attached to the running Queen, never placed on."""
     clock, ids = hive.clock, hive.manifest.hive
     cell = make_cell(kind=CellKind.REAL, clock=clock)
     link, end = make_warden_link(ids.id, new_warden_id(clock), ids.node_id, cell, clock)
     await hive.queen.attach_warden(link)
-    return end
+    return link.warden_id, end
 
 
-async def _pour(hive: Hive, end: WardenEnd) -> int:
-    """Send `_FLOOD` Alarms about no task, as fast as the link takes them; count them."""
+async def _pour(hive: Hive, end: WardenEnd) -> None:
+    """Send `_FLOOD` Alarms about no task, as fast as the link takes them."""
     clock = hive.clock
     for sent in range(_FLOOD):
         alarm = AlarmRaised(
@@ -110,7 +118,6 @@ async def _pour(hive: Hive, end: WardenEnd) -> int:
         await end.send(alarm)
         if sent % 100 == 0:
             await asyncio.sleep(0)  # Let the goal's own work interleave, as a socket would.
-    return _FLOOD
 
 
 def test_a_goal_that_spends_its_whole_grant_is_clustered_and_leaves_nothing_open(
