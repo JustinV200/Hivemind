@@ -22,6 +22,7 @@ INVITE_FILE="$SECRETS/invite.txt"
 POLLEN="$HOME/.local/bin/pollen"   # Per user: no root needed to run it.
 WAIT_SECONDS=120                   # How long to wait for the tailnet and the Hive Stand.
 DAEMON_WAIT_SECONDS="${POLLINATE_DAEMON_WAIT:-15}"  # Preflight's wait for tailscaled to report a state.
+case $DAEMON_WAIT_SECONDS in ''|*[!0-9]*) DAEMON_WAIT_SECONDS=15 ;; esac  # A typo is the default.
 MAC_TAILSCALE=/Applications/Tailscale.app/Contents/MacOS/Tailscale   # The Mac app's own CLI.
 
 say() { printf 'pollinate: %s\n' "$*"; }
