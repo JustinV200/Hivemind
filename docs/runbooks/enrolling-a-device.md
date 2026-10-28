@@ -164,15 +164,15 @@ In the Tailscale admin console:
        "tag:hive-device": ["autogroup:admin"]
      },
      "grants": [
-       {"src": ["tag:hive-device"],  "dst": ["tag:hive-stand"], "ip": ["tcp:8720", "tcp:8443"]},
+       {"src": ["tag:hive-device"],  "dst": ["tag:hive-stand"], "ip": ["tcp:8720"]},
        {"src": ["autogroup:member"], "dst": ["tag:hive-stand"], "ip": ["*"]}
      ]
    }
    ```
 
-   `tag:hive-device` reaches only the Hive Stand, on the swarm listener's port (8720) and the
-   Entrance's remote port (8443 here; use whatever port `[entrance] remote_bind` names). The second
-   grant keeps your own signed-in devices able to reach the Hive Stand; keep whatever other rules
+   `tag:hive-device` reaches only the Hive Stand, and there only the swarm listener's port (8720;
+   use whatever `[swarm] listen_port` names). A borrowed device has no business with the Entrance,
+   whose phones and laptops are your own signed-in devices. The second grant keeps your own signed-in devices able to reach the Hive Stand; keep whatever other rules
    you had for them. Nothing needs to reach a device: the packet dials out.
 3. Tag the Hive Stand: on it, `tailscale up --advertise-tags=tag:hive-stand`, or edit its tags under
    Machines.

@@ -27,9 +27,11 @@ holds a Tailscale OAuth client with the `auth_keys` write scope, read from the s
 `env:<prefix>` for two environment variables; never the secret itself). Each packet gets a fresh
 key that is single use (it admits one device), preauthorized (no admin click), not ephemeral (the
 device stays in the tailnet while offline, so it reconnects by itself from any network) and tagged
-`tag:hive-device`. The tailnet policy grants that tag the Hive Stand's swarm and Entrance ports and
-nothing else, so a packet's device can reach the Hive and no other machine in the tailnet. The key
-lapses with the invite (`[swarm] invite_ttl_minutes`).
+`tag:hive-device`. The tailnet policy grants that tag the Hive Stand's swarm listener port and
+nothing else, so a packet's device can reach the Hive and no other port or machine in the tailnet.
+The key lapses with the invite (`[swarm] invite_ttl_minutes`). A tagged node's own node key has
+expiry off by default, so the device does not fall off the tailnet months later; it stays until
+it is removed in the admin console.
 
 **The invite is the same invite.** It is minted through the enrolment door exactly as `hive swarm
 invite` mints one, so its token, its pins and its trail event are those of ADR-0051 and the
@@ -38,13 +40,17 @@ gets it into the Hive.
 
 **Nothing minted outlives a failed build.** The key is minted first, because the API call is the
 likeliest step to fail and a refusal there has minted nothing. If the invite or the folder then
-fails, the invite is revoked, the key deleted and the folder removed before the error is shown. A
-built packet is recorded as `swarm.packet_built` with the key's id, the invite's hash, the platform
+fails, the folder is removed first (it holds the secrets), then the invite is revoked and the key
+deleted, each step attempted whatever happened to the one before, cancellation included, before the
+error is shown. One gap is accepted: a build cancelled while the key's mint request is in flight
+never learns the key's id, so it cannot delete it; that key was never written anywhere and lapses
+at its TTL. A built packet is recorded as `swarm.packet_built` with the key's id, the invite's hash, the platform
 and a file count; the secrets are never printed, logged or recorded.
 
 **The installer spends the secrets and deletes them.** It installs Tailscale if it is missing
-(winget, else the official MSI checked against its published SHA-256 and its Authenticode
-signature), brings the device up with the key read from its file (`--auth-key=file:`, never on a
+(winget, else the official MSI, installed elevated, checked against its published SHA-256 and an
+Authenticode signature whose subject is Tailscale Inc.'s; on Linux, Tailscale's install script,
+where trust rests on TLS to tailscale.com and the signed package repository it adds), brings the device up with the key read from its file (`--auth-key=file:`, never on a
 command line), waits until the Hive Stand's advertised host resolves and answers, installs pollen
 for the user, enrols with the invite on standard input, sets pollen to start at login and prints
 its status. It is idempotent, and it deletes `secrets/` when it ends, whether it worked or not.
@@ -54,7 +60,7 @@ its status. It is idempotent, and it deletes `secrets/` when it ends, whether it
 Positive: one folder and one command take a device from nothing to an enrolled Real Cell that
 reconnects by itself, and the operator never signs in to Tailscale on it. The device's reach is
 bounded by the tailnet policy, not by trusting the device: a tagged node reaches the Hive Stand's
-two ports and nothing else, and revoking it in the Hive (`hive swarm revoke`) and in the Tailscale
+swarm port and nothing else, and revoking it in the Hive (`hive swarm revoke`) and in the Tailscale
 admin console are two independent off switches. Both secrets are single use and short-lived, so a
 packet lost after use or after its window is worthless.
 

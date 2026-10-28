@@ -18,7 +18,10 @@ Fits into the Hive:
 
 Key invariants:
     - The key is minted before the invite; a failed key mint leaves no invite in the registry.
-    - Any failure after a mint revokes what was minted (best effort) and removes the folder.
+    - Any failure after a mint removes the folder, then revokes the invite and the key (best
+      effort, each step attempted whatever happened to the one before). A key whose mint was
+      still in flight when the build was cancelled is never seen here; it was never written
+      anywhere and lapses at its TTL.
     - No secret is returned, logged or recorded: `BuiltPacket` holds the folder and the ids only.
 
 See Also:
@@ -151,14 +154,20 @@ def _built_event(
 async def _undo(
     deps: PacketDeps, folder: Path, key: TailnetKey | None, minted: MintedInvite | None
 ) -> None:
-    """Revoke what was minted and remove the folder this build made, keeping the original error."""
-    # Each step is best effort: the error that brought us here is the one the operator must see,
-    # and a key or invite that could not be revoked still lapses within the invite's lifetime.
-    if key is not None:
-        with contextlib.suppress(HiveMindError, OSError):
-            await deps.keys.revoke(key.key_id)
-    if minted is not None:
-        with contextlib.suppress(HiveMindError, OSError):
-            await deps.invites.revoke_invite(minted.code_hash)
-    # The folder is this build's own (`_claim` made it); a small tree, removed on a worker thread.
-    await asyncio.to_thread(shutil.rmtree, folder, ignore_errors=True)
+    """Remove the folder, then revoke the invite, then the key, keeping the original error."""
+    # The secrets on disk go first: they are the copy someone could walk off with. Each later step
+    # runs in a `finally`, so an error or a cancellation in one never skips the next; each is best
+    # effort, because the error that brought us here is the one the operator must see, and a key or
+    # invite that could not be revoked still lapses within the invite's lifetime.
+    try:
+        # The folder is this build's own (`_claim` made it); a small tree, on a worker thread.
+        await asyncio.to_thread(shutil.rmtree, folder, ignore_errors=True)
+    finally:
+        try:
+            if minted is not None:
+                with contextlib.suppress(HiveMindError, OSError):
+                    await deps.invites.revoke_invite(minted.code_hash)
+        finally:
+            if key is not None:
+                with contextlib.suppress(HiveMindError, OSError):
+                    await deps.keys.revoke(key.key_id)
