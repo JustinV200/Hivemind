@@ -3314,7 +3314,7 @@ in daily use.
   processes, keep the lease"), from the Queen or the Cell's Warden, answered with the count it
   killed: gateway-contract section 9 gains it and the conformance suite a case for it; Pollen
   implements it (creating a cgroup v2 scope per lease at lease open on Linux where the account has
-  delegation, so the kill can take the scope whole), the colonized or Nuc Warden sends it for its own sub-bees' leases, and the
+  delegation, so the kill takes the scope rather than one group), the colonized or Nuc Warden sends it for its own sub-bees' leases, and the
   in-Cell Warden carries it out through its session's process tracking.
   *Exit:* contract suite covers open, resize, input, close and a replayed or out-of-order frame
   refused; an `inspect.open` signed by the Cell's Warden (on a colonized device or a Nuc) is
@@ -3405,12 +3405,22 @@ in daily use.
   15.2's `cell.lease_stop`, and the lease stays open: its scratch, restore records and grants
   are untouched, as an isolated Cell keeps its lease (codingrules.md:1849). The kill reaches what
   the lease contains, never the account at large, since on a real device that would kill the
-  owner's own apps: on Windows the lease's Job Object, which never allows breakaway, so every
-  descendant is in it and dies with it; on Linux a cgroup v2 scope per lease, created at lease
-  open (a `systemd --user` scope) where the account has delegation, killed whole, and where it
-  has none, the process-group kill, with the residual that a process that left its group
-  (`setsid`, a double fork, a tmux or screen server) may survive; on macOS the process-group
-  kill, with the same residual; inside a Virtual Cell, the session's tracked processes. While
+  owner's own apps: on Windows the lease's Job Object, which never allows breakaway; on Linux a
+  cgroup v2 scope per lease, created at lease open (a `systemd --user` scope) where the account
+  has delegation, else the process-group kill, so a process that left its group (`setsid`, a
+  double fork, a tmux or screen server) may survive; on macOS the process-group kill, with the
+  same residual; inside a Virtual Cell, the session's tracked processes. The Hive Stand's own
+  leases get the same containment, which they lack today (`cell/local/releaser.py:202-245` and
+  `cell/local/process.py:262` kill the group the root process leads): `LocalProcessSession` gains a Job Object
+  per lease on Windows, without breakaway and tracked apart from the root process so a
+  descendant that outlives its root is still in it, and a cgroup v2 scope per lease on Linux
+  where delegation exists, else the group kill. Containment stops ordinary and accidental
+  descendants; it does not stop a deliberate, live escape by the same account, which survives
+  Smoke on every platform: on Linux a bee moving itself within its delegated subtree or calling
+  `systemd-run --user`, on Windows `Win32_Process.Create` through WMI, a COM server or a run-now
+  Scheduled Task, on macOS `launchctl submit`. That is accepted, and tied to the operator
+  guidance: on a device or Cell that has hosted `FULL` leases, treat the session as observable
+  and never type an elevation secret there. While
   the Inspection is open the Queen and the Warden refuse new dispatch to the Cell and new
   non-operator leases on it, and every `CellSession` kind (`LocalProcessSession`,
   `InCellSession` and the Pollen session) refuses exec, process `START` and file operations on
@@ -3430,8 +3440,8 @@ in daily use.
   (codingrules 8.15 and 15), saying only that an Inspection opened and on which Cell; the idle and
   hard timeouts, and Absconding, ending every open Inspection. *Exit:* on the Hive Stand, a Pollen
   device and a Nuc, opening on a Cell with a running task kills its lease's processes, a child
-  started with `setsid` included where the lease has a cgroup scope or a Job Object, before the
-  shell starts while the lease stays open with its scratch and a touched outside path, and
+  started with `setsid` included where the lease has a cgroup scope or a Job Object, and on a
+  Windows Hive Stand a descendant that outlived its root process, before the shell starts while the lease stays open with its scratch and a touched outside path, and
   closing resumes the task on the same lease with no work redone; a bee that ignores the Handoff
   request is retired after `handoff_patience_s`, starts no process for the rest of the
   Inspection (on the Hive Stand and, in 15.5, on Docker), and its task resumes from its last
@@ -3445,7 +3455,7 @@ in daily use.
   -psecret` and edited a file, nothing from either (command line, process, log line or file
   change) is in Bee Bread and no Warden episode or Patrol ran meanwhile, and the same holds for
   an `--alongside` Inspection on the Nuc; a Cell routed to the Nuc's model server falls back
-  during the Inspection and returns after it. *Size:* large, 4 agent-days.
+  during the Inspection and returns after it. *Size:* large, 5 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs the separate guest-loopback fix landed
   first. Docker: an exec with a tty attached from the Hive Stand. QEMU: a virtio console whose
   socket (a named pipe on Windows) is created for each Inspection and exists only while it is
@@ -3513,7 +3523,7 @@ in daily use.
   with a retention window, announced in the client; refused on Night Veil. *Exit:* a recorded
   session replays; an unrecorded one leaves no bytes anywhere. *Size:* small, 1.5 agent-days.
 
-Track A total: about 31 agent-days.
+Track A total: about 32 agent-days.
 
 Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
 Cell's screen, and every Real Cell exit below is run with it up; until it lands, 15.11a and 15.11b
@@ -3657,7 +3667,7 @@ Track B total: about 35 agent-days, plus about 3 more if the spike chooses own c
 
 Steps are sized for one PR each. 15.3a stays whole because the executor must never ship without
 its opt-in and lease walls, 15.4b because the kill, the refusals and the trail events only make
-sense landed together, and 15.14a because capture and input are proven together.
+sense landed together (its Hive Stand containment may land first as a preparatory PR), and 15.14a because capture and input are proven together.
 
 ### Exit criteria
 
@@ -3702,21 +3712,25 @@ sense landed together, and 15.14a because capture and input are proven together.
   chosen over freezing processes or a second account on a borrowed device, with un-handed-off
   sub-bees retired and every `CellSession` kind refusing work on non-operator leases; the kill by
   containment (a Job Object without breakaway, a cgroup v2 scope, else the process group), never
-  by account; the five capability fields (`hive_owned`, `operator_account_isolation`,
+  by account, extended to the Hive Stand's own leases; the five capability fields (`hive_owned`, `operator_account_isolation`,
   `host_side_attach`, `bee_account_privileged`, `opt_in_source`) that replace any branch on a
   Cell's kind, and the loopback-only `hive_stand_shell` key. Disclosed and accepted residuals: persistence
   planted earlier runs outside any lease and survives Smoke (cron, `systemd --user` units,
   LaunchAgents, Scheduled Tasks, `PATH` shims, and root-in-container tampering on a Docker Cell),
   though the clean shell does not load it; `--alongside` leaves bees running beside the operator;
   a bee retired at `handoff_patience_s` redoes the work since its last checkpoint; on Linux
-  without cgroup delegation and on macOS, a descendant that left its process group (`setsid`, a
-  double fork, a tmux or screen server) may survive the kill, as may one that escaped a Virtual
-  Cell session's tracking; a Nuc's model
+  without cgroup delegation (the Hive Stand included) and on macOS, a descendant that left its
+  process group (`setsid`, a double fork, a tmux or screen server) may survive the kill, as may
+  one that escaped a Virtual Cell session's tracking; containment stops ordinary and accidental
+  descendants only, and a deliberate, live escape by the same account (a self-move within a
+  delegated cgroup subtree or `systemd-run --user`; WMI `Win32_Process.Create`, a COM server or
+  a run-now Scheduled Task; `launchctl submit`) survives Smoke on every platform; a Nuc's model
   servers may be down for the Inspection; on a Docker Cell, without `hidepid`, the in-Cell
   Warden process can see the operator's command lines; on a Virtual Cell screen Inspection, the
   in-Cell Warden process can talk X to the Exoskeleton's display; where `bee_account_privileged`
   is true and the Cell is idle, the in-Cell Warden can read the operator's terminal. Operator
-  guidance: never type an elevation secret on a device or Cell that has hosted `FULL` leases).
+  guidance: on a device or Cell that has hosted `FULL` leases, treat the session as observable
+  and never type an elevation secret there).
 - `inspection-channel-on-waggle.md` (the keyed byte channel inside a signed open; sequence numbers
   instead of the replay window; never queued; the amendments to gateway-contract section 6, making
   the `inspect.*` open kinds for shell and screen Queen-only under rule 3 so a Warden's signature
