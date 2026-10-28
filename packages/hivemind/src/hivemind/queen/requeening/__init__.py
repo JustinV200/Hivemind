@@ -31,8 +31,9 @@ See Also:
 Public API:
     - begin_requeening, settle_requeening, RequeeningStart, REQUEENED_KIND: the two halves
       (recover).
-    - RequeeningBook, PendingRecovery, RequeenCounts, DEFAULT_REQUEENING_GRACE_S,
-      DEFAULT_SNAPSHOT_INTERVAL_S: the in-memory state on `QueenDeps.requeening` (book).
+    - RequeeningBook, PendingRecovery, RequeenCounts, RequeeningHold, DEFAULT_REQUEENING_GRACE_S,
+      DEFAULT_SNAPSHOT_INTERVAL_S: the in-memory state on `QueenDeps.requeening`, and what may
+      hold a Requeening from settling (a Supersedure's candidate, ADR-0065) (book).
     - is_replay, note_handled, note_question, restore_handled: handled Alarms and questions
       (handled).
     - take_snapshot_when_due, take_snapshot, current_leases: the Queen's own Handoff (snapshot).
@@ -48,6 +49,7 @@ from hivemind.queen.requeening.book import (
     PendingRecovery,
     RequeenCounts,
     RequeeningBook,
+    RequeeningHold,
 )
 from hivemind.queen.requeening.handled import (
     is_replay,
@@ -98,6 +100,7 @@ __all__ = [
     "QuestionWiring",
     "RequeenCounts",
     "RequeeningBook",
+    "RequeeningHold",
     "RequeeningStart",
     "RequeeningStore",
     "SqliteRequeeningStore",

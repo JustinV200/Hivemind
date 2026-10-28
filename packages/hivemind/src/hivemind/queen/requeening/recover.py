@@ -38,7 +38,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -151,6 +151,16 @@ async def settle_requeening(deps: QueenDeps, wardens: Sequence[WardenLink]) -> R
     pending = deps.requeening.pending
     if pending is None:
         return None
+    if deps.requeening.hold is not None:
+        if await deps.requeening.hold.holds():
+            return None  # ADR-0065: a Supersedure's candidate waits for the old Queen's word.
+        deps.requeening.hold = None
+        # The Wardens learn her address only now, from the notice sent after the hold lifts, so
+        # their redial grace starts now too: none counts as missing for time spent on hold.
+        pending = replace(
+            pending, deadline=deps.clock.now() + timedelta(seconds=deps.requeening.grace_s)
+        )
+        deps.requeening.pending = pending
     attached = {link.warden_id for link in wardens}
     missing = await _missing(deps, pending.expected, attached)
     if missing and deps.clock.now() < pending.deadline:

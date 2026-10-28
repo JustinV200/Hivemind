@@ -84,7 +84,7 @@ from hivemind.queen.cluster.triggers import (
     every_bee_has_a_fallback,
     providers_of,
 )
-from hivemind.queen.state import ClusterState
+from hivemind.queen.state import ClusterState, is_frozen
 from waggle.envelope import wrap
 from waggle.ids import CellId
 from waggle.messages.forage.values import RevocationCause
@@ -117,6 +117,10 @@ async def run_cluster_tick(
         wardens: Every Warden currently attached (see `hivemind.queen.cluster.protocol.cluster`'s
             own docstring for why this is a parameter here too, not a `deps` field).
     """
+    if is_frozen(state.mode):
+        # ADR-0065: while the Hive Stand moves, nothing is probed, ordered awake or resumed; a
+        # rollback returns her to CLUSTERED and the next tick resumes from there.
+        return
     await check_cost_caps(deps, state, wardens)
     await _drain_orders(deps, state, wardens)
     await _probe_bound(deps, state, wardens)

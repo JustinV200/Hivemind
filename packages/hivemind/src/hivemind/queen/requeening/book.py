@@ -32,6 +32,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Protocol
 
 from hivemind.queen.requeening.store import MemoryRequeeningStore, RequeeningStore
 from waggle.ids import WardenId
@@ -45,6 +46,7 @@ __all__ = [
     "PendingRecovery",
     "RequeenCounts",
     "RequeeningBook",
+    "RequeeningHold",
 ]
 
 
@@ -85,6 +87,14 @@ class PendingRecovery:
     snapshot_at: datetime | None  # The snapshot recovery started from; None when there was none.
 
 
+class RequeeningHold(Protocol):
+    """Something that keeps a Requeening from settling: a Supersedure's candidate (ADR-0065)."""
+
+    async def holds(self) -> bool:
+        """Return True while the Queen may not leave REQUEENING, nor place anything."""
+        ...
+
+
 @dataclass(slots=True)
 class RequeeningBook:
     """The Queen's Requeening state in this process (codingrules 8.5: owned and mutated here)."""
@@ -95,3 +105,4 @@ class RequeeningBook:
     replayed: frozenset[tuple[str, str]] = frozenset()  # (Warden, envelope) handled before.
     last_snapshot_at: datetime | None = None  # None until her first snapshot in this life.
     pending: PendingRecovery | None = None  # Set while recovery is still settling.
+    hold: RequeeningHold | None = None  # Armed by the composition root; cleared once it lifts.

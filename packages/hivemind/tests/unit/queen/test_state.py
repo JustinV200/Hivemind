@@ -22,6 +22,7 @@ from hivemind.queen.state import (
     QueenMode,
     assert_transition,
     can_transition,
+    is_frozen,
     is_terminal,
 )
 
@@ -154,3 +155,27 @@ def test_only_a_fresh_running_queen_begins_requeening() -> None:
 
     with pytest.raises(InvalidQueenModeTransitionError):
         state.begin_requeening()
+
+
+def test_a_supersedure_freezes_her_until_it_finishes_or_rolls_back() -> None:
+    # ADR-0065: nothing resumes while the Hive Stand moves, a provider clustered meanwhile leaves
+    # the mode alone, and only the rollback returns her to CLUSTERED (then RUNNING as usual).
+    state = ClusterState()
+    with pytest.raises(InvalidQueenModeTransitionError):
+        state.begin_supersedure()  # The freeze clusters every provider first.
+    state.mark_clustered("p1")
+    state.begin_supersedure()
+    state.mark_clustered("p2")
+    assert state.mode is QueenMode.SUPERSEDING and is_frozen(state.mode)
+    with pytest.raises(InvalidQueenModeTransitionError):
+        state.mark_resumed("p1")
+    state.abort_supersedure()
+    state.mark_resumed("p1")
+    state.mark_resumed("p2")
+    assert state.mode is QueenMode.RUNNING
+    state.mark_clustered("p1")
+    state.begin_supersedure()
+    state.finish_supersedure()
+    assert state.mode is QueenMode.SUPERSEDED
+    with pytest.raises(InvalidQueenModeTransitionError):
+        state.abort_supersedure()  # A Queen that stood down never comes back.

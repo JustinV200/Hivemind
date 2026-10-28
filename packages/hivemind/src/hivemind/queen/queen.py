@@ -101,6 +101,7 @@ from hivemind.queen.guard_requests.decision import decide_guard_item
 from hivemind.queen.human_inbox import HumanInbox
 from hivemind.queen.inbox import LinkReaders, TaskClaims, queen_attendant
 from hivemind.queen.isolation import IsolationDoor
+from hivemind.queen.state import QueenMode, is_frozen
 from hivemind.queen.sting_cut import StingCutDoor
 from hivemind.queen.ticks.alarms import AlarmHandling
 from hivemind.queen.ticks.liveness import WardenLiveness
@@ -325,6 +326,12 @@ class Queen(GoalDoor, ChatDoor, GuardDoor, IsolationDoor, StingCutDoor, TickLoop
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _places_nothing(queen: Queen) -> bool:
+    """Whether a Supersedure keeps her from planning and placing (ADR-0065)."""
+    deps = queen._deps
+    return is_frozen(deps.cluster_state.mode) or deps.requeening.hold is not None
+
+
 async def _stop_queen(queen: Queen) -> None:
     """End `queen`'s loop, then reap every attached Warden's own reader task (`Queen.stop`'s body).
 
@@ -386,6 +393,13 @@ async def _run_tick(queen: Queen) -> None:
         ordered = await queen._attendant.order(tuple(items))
         for item in ordered:
             await _handle_item(queen, item)
+    if _places_nothing(queen):
+        # ADR-0065: a Queen whose Hive Stand is moving, or a candidate held for the old Queen's
+        # word, hears her Wardens and keeps her own books but plans, resumes and places nothing.
+        await ticks.housekeeping.run_housekeeping(deps, queen.wardens, deps.cluster_state)
+        if deps.cluster_state.mode is QueenMode.SUPERSEDED:
+            TickLoop.stop(queen)  # Stood down: this loop ends; the new Queen has the Hive.
+        return
     # Roadmap step 10.5: settle, hold or start planning goal requests before dispatch below places
     # whatever a just-finished plan made ready.
     await ticks.human.intake.drain_goal_requests(queen._deps, queen.wardens)

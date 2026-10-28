@@ -5,7 +5,7 @@ The Queen (the Hive's single orchestrator) has a mode of her own, distinct from 
 (`REQUEENING`, roadmap step 4.14), running normally (`RUNNING`), paused because one or more model
 providers are unavailable (`CLUSTERED`, this module's own reason for existing -- Clustering, the
 pause-and-preserve protocol of `hivemind.queen.cluster`), or moving the Hive Stand to a new host
-(`SUPERSEDING`/`SUPERSEDED`, roadmap step 8.16, docs/adr not yet written for that phase). This
+(`SUPERSEDING`/`SUPERSEDED`, roadmap step 13.2a, ADR-0065). This
 module is the state machine codingrules section 9 requires for every machine in the Hive: one
 `Enum` (`QueenMode`) plus one transition table (`TRANSITIONS`), mirroring
 `hivemind.wardens.state.WardenState`'s own shape (`can_transition`, `assert_transition`) field for
@@ -29,9 +29,11 @@ Key invariants:
     - TRANSITIONS has exactly one entry per QueenMode member; `SUPERSEDED` maps to an empty
       frozenset, the one mode a Queen never leaves once she reaches it (the old Queen, after a
       completed Supersedure).
-    - `SUPERSEDING`/`SUPERSEDED` are declared members with their own table rows present (this
-      dispatch's own instruction), even though nothing in roadmap phase 4 ever drives a `Queen`
-      into either: Supersedure is roadmap step 8.16, not this one.
+    - Supersedure (ADR-0065) moves her only through `begin_supersedure` (CLUSTERED ->
+      SUPERSEDING), `finish_supersedure` (-> SUPERSEDED) and `abort_supersedure` (-> CLUSTERED).
+      While SUPERSEDING or SUPERSEDED no provider resumes (`mark_resumed` refuses) and a provider
+      clustered meanwhile leaves the mode alone: the old Queen never leaves the freeze but by
+      those three.
     - `can_transition`, `assert_transition` and `is_terminal` read TRANSITIONS only; none
       hard-codes an edge.
     - `ClusterState.mode` is `QueenMode.CLUSTERED` exactly while `clustered_providers` is
@@ -68,6 +70,7 @@ __all__ = [
     "QueenMode",
     "assert_transition",
     "can_transition",
+    "is_frozen",
     "is_terminal",
 ]
 
@@ -78,7 +81,7 @@ class QueenMode(Enum):
     REQUEENING = "REQUEENING"  # Coming up after a restart, reading her own copied stores back.
     RUNNING = "RUNNING"  # Normal operation: every event is autopilot then awake, per event.
     CLUSTERED = "CLUSTERED"  # At least one bound provider is down; that provider's bees are paused.
-    SUPERSEDING = "SUPERSEDING"  # Moving the Hive Stand to a new host (roadmap step 8.16).
+    SUPERSEDING = "SUPERSEDING"  # Moving the Hive Stand to a new host (roadmap 13.2a).
     SUPERSEDED = "SUPERSEDED"  # Terminal: the old Queen, once a Supersedure has completed.
 
 
@@ -101,7 +104,7 @@ TRANSITIONS: Mapping[QueenMode, frozenset[QueenMode]] = {
     QueenMode.CLUSTERED: frozenset(
         {
             QueenMode.RUNNING,  # The last clustered provider recovered or was woken.
-            QueenMode.SUPERSEDING,  # A Supersedure may start while paused (roadmap step 8.16).
+            QueenMode.SUPERSEDING,  # The human's Supersedure, once every provider is clustered.
         }
     ),
     QueenMode.SUPERSEDING: frozenset(
@@ -184,6 +187,18 @@ def is_terminal(mode: QueenMode) -> bool:
     return not TRANSITIONS[mode]
 
 
+def is_frozen(mode: QueenMode) -> bool:
+    """Return whether `mode` is a Supersedure's: she places, plans and resumes nothing in it.
+
+    Args:
+        mode: The Queen's mode.
+
+    Returns:
+        True for SUPERSEDING and SUPERSEDED (ADR-0065: never two Queens running).
+    """
+    return mode in (QueenMode.SUPERSEDING, QueenMode.SUPERSEDED)
+
+
 @dataclass(slots=True)
 class ClusterState:
     """The Queen's own mode, plus which providers are currently clustered (per provider set).
@@ -226,6 +241,11 @@ class ClusterState:
         """
         if provider in self._clustered_providers:
             return  # Already clustered; module docstring's idempotence contract.
+        if is_frozen(self._mode):
+            # A Supersedure's freeze already holds every bee; the provider is noted so a rollback
+            # resumes it, and the mode stays where only the Supersedure may move it.
+            self._clustered_providers.add(provider)
+            return
         if self._mode is not QueenMode.CLUSTERED:
             assert_transition(self._mode, QueenMode.CLUSTERED)
             self._mode = QueenMode.CLUSTERED
@@ -246,6 +266,10 @@ class ClusterState:
         """
         if provider not in self._clustered_providers:
             return  # Never clustered (or already resumed); module docstring's idempotence rule.
+        if is_frozen(self._mode):
+            # ADR-0065: nothing resumes while the Hive Stand moves; a rollback first returns her
+            # to CLUSTERED (`abort_supersedure`) and resumes from there.
+            raise InvalidQueenModeTransitionError(self._mode, QueenMode.RUNNING)
         self._clustered_providers.discard(provider)
         if not self._clustered_providers and self._mode is QueenMode.CLUSTERED:
             assert_transition(self._mode, QueenMode.RUNNING)
@@ -276,3 +300,32 @@ class ClusterState:
             return  # Clustered meanwhile (or already RUNNING): recovery is over all the same.
         assert_transition(self._mode, QueenMode.RUNNING)
         self._mode = QueenMode.RUNNING
+
+    def begin_supersedure(self) -> None:
+        """Move CLUSTERED -> SUPERSEDING: the copy of her stores is about to start (ADR-0065).
+
+        Raises:
+            InvalidQueenModeTransitionError: She is not CLUSTERED (the freeze clusters every
+                provider first), or is already moving.
+        """
+        assert_transition(self._mode, QueenMode.SUPERSEDING)
+        self._mode = QueenMode.SUPERSEDING
+
+    def finish_supersedure(self) -> None:
+        """Move SUPERSEDING -> SUPERSEDED: the new Queen is acknowledged and this one stands down.
+
+        Raises:
+            InvalidQueenModeTransitionError: She is not SUPERSEDING.
+        """
+        assert_transition(self._mode, QueenMode.SUPERSEDED)
+        self._mode = QueenMode.SUPERSEDED
+
+    def abort_supersedure(self) -> None:
+        """Move SUPERSEDING -> CLUSTERED: a rollback, every provider still clustered underneath.
+
+        Raises:
+            InvalidQueenModeTransitionError: She is not SUPERSEDING (a SUPERSEDED Queen never
+                comes back).
+        """
+        assert_transition(self._mode, QueenMode.CLUSTERED)
+        self._mode = QueenMode.CLUSTERED

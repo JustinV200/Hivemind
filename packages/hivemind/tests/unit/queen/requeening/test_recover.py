@@ -157,6 +157,39 @@ async def test_a_virtual_cells_task_waits_for_its_warden_until_the_grace_is_over
     assert len(await _requeened(deps)) == 1
 
 
+class _Hold:
+    """A RequeeningHold the test lifts by hand, as a Supersedure's acknowledgement would."""
+
+    def __init__(self) -> None:
+        self.held = True
+
+    async def holds(self) -> bool:
+        """Hold while `held`."""
+        return self.held
+
+
+async def test_a_held_requeening_never_settles_and_its_wardens_grace_starts_when_it_lifts() -> None:
+    # ADR-0065: a Supersedure's candidate places nothing and stays REQUEENING until the old Queen
+    # acknowledges her; the Wardens only learn her address then, so no time on hold counts.
+    clock = FakeClock()
+    queen, task, _old = await _restarted(clock)
+    deps, hold = queen._deps, _Hold()
+    assert task.cell_id is not None
+    deps.requeening.hold = hold
+    await begin_requeening(queen, RequeeningStart(virtual_cells=(_listed(task.cell_id, clock),)))
+    clock.advance(deps.requeening.grace_s * 3)
+    held = await settle_requeening(deps, queen.wardens)
+    hold.held = False
+    lifted = await settle_requeening(deps, queen.wardens)
+    clock.advance(deps.requeening.grace_s + 1.0)
+    counts = await settle_requeening(deps, queen.wardens)
+
+    assert (held, lifted) == (None, None)
+    assert deps.requeening.hold is None
+    assert counts is not None and counts.wardens_missing == 1
+    assert deps.cluster_state.mode is QueenMode.RUNNING
+
+
 async def test_a_grant_whose_task_ended_is_released_and_one_for_an_unknown_task_is_left(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
