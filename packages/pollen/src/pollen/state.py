@@ -187,17 +187,10 @@ class QueenMove(BaseModel):
     new_url: str = Field(description="The new Queen's address, dialled from effective_at.")
     new_node_id: NodeIdField = Field(description="The new Hive Stand's node.")
     new_key_hex: _KeyHex = Field(description="The new node's key, the Hive key from grace_until.")
-    effective_at: UtcDatetime = Field(
-        description="When the packet starts dialling the new address."
-    )
+    effective_at: UtcDatetime = Field(description="When the packet starts dialling the new one.")
     grace_until: UtcDatetime = Field(description="Until when either address and key are honoured.")
-    previous_pin: _Pin | None = Field(
-        default=None, description="The old address's certificate pin; None for ws://."
-    )
-    new_pin: _Pin | None = Field(
-        default=None,
-        description="The new address's certificate pin, from the notice; None for ws://.",
-    )
+    previous_pin: _Pin | None = Field(default=None, description="The old address's TLS pin.")
+    new_pin: _Pin | None = Field(default=None, description="The new address's TLS pin (1.16).")
 
 
 class InstallSettings(BaseModel):
@@ -250,10 +243,8 @@ class PacketState(BaseModel):
     )
     device_id: DeviceIdField = Field(description="This device's bee address, minted at enrolment.")
     node_id: NodeIdField = Field(description="The node whose key (node.ed25519) signs every frame.")
-    queen_url: str = Field(
-        description="The only address the packet dials (ws:// only on loopback)."
-    )
-    tls_pin_sha256: Annotated[str, Field(pattern=SHA256_HEX_PATTERN)] | None = Field(
+    queen_url: str = Field(description="The address the packet dials (ws:// only on loopback).")
+    tls_pin_sha256: _Pin | None = Field(
         description="SHA-256 of the listener's certificate pinned from the invite; None for ws://."
     )
     hive_id: HiveIdField = Field(description="The Queen's bee address, recipient of what goes up.")
