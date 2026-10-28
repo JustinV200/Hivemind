@@ -58,7 +58,7 @@ _ALL = [
 def test_every_swarm_error_has_a_code_of_its_own_under_the_swarm_namespace() -> None:
     codes = [error.code for error in _ALL]
 
-    assert len(codes) == len(set(codes)) and len(_ALL) == 17
+    assert len(codes) == len(set(codes)) and len(_ALL) == 18
     assert all(code.startswith("hive.swarm.") for code in codes)
 
 
