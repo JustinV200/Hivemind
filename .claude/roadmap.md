@@ -3213,7 +3213,12 @@ neither track changes it, and 15.3a rebases on it once it merges.
   tasks (the Clustering lever, selected by Cell), stays up and marks the Cell `INSPECTED`; closing
   the Inspection resumes them from their Handoffs. `--alongside` keeps the bees running for a
   terminal only, under its own operator lease. Screen control always Smokes, because a human mouse
-  and an Exoskeleton mouse on the same display corrupt each other.
+  and an Exoskeleton mouse on the same display corrupt each other. While a Cell is `INSPECTED` its
+  Warden suspends Watch observations and the Patrol episode (codingrules 8.7's watch mode), so the
+  operator's command lines, logs and touched files never reach Bee Bread or a model; with
+  `--alongside`, the bees still running can see the operator's processes and files like any
+  other process on the Cell, and an in-Cell Warden on a Virtual Cell always can. The operator
+  is told so before an `--alongside` Inspection opens.
 - **Authorisation.** A new human-only family `entrance:inspect` with scopes `shell`, `screen_view`
   and `screen_control`, never in a bee's set and never in the UI's default credentials; widened only
   on loopback. Opening needs an interactive device and a fresh step-up (`ActionKind.INSPECT`), every
@@ -3230,12 +3235,15 @@ neither track changes it, and 15.3a rebases on it once it merges.
   `host-gateway` probably do the same, and `entrance/expose/loopback.py:58-80` checks only the
   `Host` and proxy headers, so `curl -H 'Host: localhost:<port>' http://10.0.2.2:<port>/` from
   inside the Cell is treated as loopback. That is the `hive_stand_remote` hole, on by default. The
-  rule holds once the listener rejects guest-originated connections (a binding or peer check) or
-  the backends stop forwarding to host loopback (SLIRP `restrict` with only the Queen's port
-  forwarded, no host-gateway alias). Until it holds for a backend, remote Inspection of that
+  rule cannot be met by checking the peer address, because SLIRP and Docker Desktop's proxy both
+  connect from `127.0.0.1`. It holds once the backends stop forwarding to host loopback (SLIRP
+  `restrict=on` with only the Queen's `guestfwd`, and no host-gateway alias), or once the listener
+  is somewhere guests cannot reach (a Unix socket or named pipe, or an address SLIRP does not
+  map). Until it holds for a backend, remote Inspection of that
   backend's Cells is refused (loopback-only, like the Hive Stand). The same exposure exists today
   for bees on QEMU and Docker Desktop Cells, independent of this phase; it is fixed separately
-  (raised as its own fix on 2026-10-28), and 15.5 only verifies it.
+  (raised as its own fix on 2026-10-28). That fix is a prerequisite of 15.5, which only verifies
+  it, and it gates the phase exit.
 - **Limits.** `READ_ONLY` Cells: screen view only, if opted in. `SCRATCH`: screen view only; no
   shell, since a PTY cannot be held to scratch. `FULL`: everything opted in. Meadow and Propolis
   alike. **Night Veil: terminal only, never the screen, never recorded.** A Night Veil Cell is
@@ -3265,7 +3273,9 @@ neither track changes it, and 15.3a rebases on it once it merges.
 
 ### Steps
 
-Track A (terminal)
+Track A (terminal). Until the opt-in (15.3a) and the notice and local end (15.3c) have both
+landed, the PTY executor runs only on the operator's lab devices, never on an enrolled device
+in daily use.
 
 - [ ] **15.1 ADRs, vocabulary and manifest.** Write the four ADRs below before any code; add
   Inspection, operator lease and Smoke to the README glossary; amend codingrules 8.11, 12 (the two
@@ -3289,22 +3299,26 @@ Track A (terminal)
   (`pty`); the shell is the device's own default, never text from a request; window resize; the
   process group recorded in the lease table before the first byte; the operator lease kind, exempt
   from left-as-found restore and named so on the trail; idle and hard timeouts; kill on release,
-  Sting Cut and dead-man. *Exit:* through a Waggle-level test harness standing in for the operator's
-  terminal (the clients arrive in 15.7 and 15.8), on Ubuntu and Arch, `vim` and `htop` render and
-  resize; killing the link ends the shell after the grace. *Size:* medium, 2 agent-days.
+  Sting Cut and dead-man. The device-side opt-in lands here, with the executor, so no build of the
+  packet ever carries an ungated shell: `pollen allow inspect --shell|--screen` and `--revoke`,
+  typed on the device and kept in its state, and the executor refusing with
+  `pollen.capability_denied` without it. *Exit:* through a Waggle-level test harness standing in
+  for the operator's terminal (the clients arrive in 15.7 and 15.8), on Ubuntu and Arch, a device
+  that has not opted in refuses; one that has renders and resizes `vim` and `htop`; killing the
+  link ends the shell after the grace. *Size:* medium, 2.5 agent-days.
 - [ ] **15.3b Windows ConPTY.** The same executor on Windows through `pywinpty` (MIT), added to the
   packet build on every platform's CI; the Job Object recorded before the first byte. *Exit:* the
   15.3a run on Windows 11 in PowerShell and `cmd`, from the single-file packet. *Size:* medium, 2
   agent-days.
-- [ ] **15.3c Device-side opt-in, notice and local end.** `pollen allow inspect --shell|--screen`
-  and its revoke, typed on the device and kept in its state; a system notification when an
+- [ ] **15.3c Device notice and local end.** A system notification when an
   Inspection opens and closes (a Windows toast, `notify-send`, `osascript`; a headless device
   prints to the packet's console and log instead); `pollen inspect end` ends every open Inspection
-  from the device; `pollen status` lists them. *Exit:* through the Waggle-level harness, a device that
-  has not opted in refuses with `pollen.capability_denied`; `pollen inspect end` closes the
-  harness's terminal within five seconds with reason `DEVICE_ENDED`. *Size:* medium, 2 agent-days.
+  from the device; `pollen status` lists them. *Exit:* through the Waggle-level harness, every open
+  and close raises the notification; `pollen inspect end` closes the harness's terminal within
+  five seconds with reason `DEVICE_ENDED`. *Size:* small, 1.5 agent-days.
 - [ ] **15.4 Queen door, Smoke and the trail.** `QueenDoor.open_inspection` and
-  `close_inspection`; Clustering's lever selected by Cell; the Warden's `INSPECTED` mode; the access
+  `close_inspection`; Clustering's lever selected by Cell; the Warden's `INSPECTED` mode, which
+  suspends Watch observations and the Patrol episode until the Inspection closes; the access
   level, tier and Hive Stand checks; the `cell.inspection_*` events and their Night Veil boundary
   rows; a `guard.entrance_inspection_opened` push event sent to every other enrolled device
   (codingrules 8.15 and 15), saying only that an Inspection opened and on which Cell; the idle and
@@ -3312,11 +3326,15 @@ Track A (terminal)
   running task pauses it, closing resumes it from its Handoff with no work redone; `--alongside`
   leaves it running; a `SCRATCH` Cell refuses a shell; every other enrolled device receives the
   push; an Inspection idle past `idle_minutes`, and one open during `hive abscond`, each end within
-  five seconds with one `cell.inspection_closed` carrying the right reason.
+  five seconds with one `cell.inspection_closed` carrying the right reason; after an Inspection
+  that ran `mysql -psecret` and edited a file, nothing from it (command line, process, log line
+  or file change) is in Bee Bread and no Patrol episode ran meanwhile.
   *Size:* medium to large, 3 agent-days.
-- [ ] **15.5 Virtual Cells and the Hive Stand.** Docker: an exec with a tty attached from the Hive
-  Stand; QEMU: a virtio console on a Unix socket (a named pipe on Windows) with a getty from
-  cloud-init; the Hive Stand: a local PTY. A Night Veil Cell uses the same host-side attach, which
+- [ ] **15.5 Virtual Cells and the Hive Stand.** Needs the separate guest-loopback fix landed
+  first. Docker: an exec with a tty attached from the Hive Stand; QEMU: a virtio console on a
+  Unix socket (a named pipe on Windows) with a getty from cloud-init; the Hive Stand: a local PTY
+  in `hivemind/cell/local/`, beside `LocalProcessSession`, since `cell/` is where subprocess is
+  allowed. A Night Veil Cell uses the same host-side attach, which
   crosses no network. A remote Inspection of a Virtual Cell is refused until its backend meets the
   loopback-listener rule above. *Exit:* through the same harness, the shell works on a Docker
   Cell, a QEMU Cell, a Night Veil Docker Cell and the Hive Stand; from an Inspection shell on a
@@ -3439,6 +3457,8 @@ events only make sense landed together, and 15.14a because capture and input are
 - A Sting Cut, Absconding, the Entrance Reducer, the idle timeout, `pollen inspect end` and the
   notice's "end now" each end an open Inspection within five seconds, and the trail has exactly one
   `cell.inspection_closed` with the right reason and no content.
+- The separate guest-loopback fix has landed, and 15.5's forged-`Host` check passes on every
+  Virtual Cell backend that allows remote Inspection.
 
 ### ADRs to write
 
@@ -3451,7 +3471,8 @@ events only make sense landed together, and 15.14a because capture and input are
   and CLAUDE.md; and, if `hive_stand_remote` is kept, the plain statement that it ends
   loopback-only approval in practice; the rule that the Entrance's loopback listener is
   unreachable from any Virtual Cell guest, and that remote Inspection of a backend's Cells is
-  refused until it holds).
+  refused until it holds; `INSPECTED` suspending Watch and the Patrol, and the plain statement
+  that `--alongside` lets the Cell's bees see the operator's processes and files).
 - `inspection-channel-on-waggle.md` (the keyed byte channel inside a signed open; sequence numbers
   instead of the replay window; never queued; the amendment to gateway-contract section 16).
 - `remote-desktop-transport.md` (RFB through loopback servers and an outbound data socket, against
@@ -3535,8 +3556,8 @@ events only make sense landed together, and 15.14a because capture and input are
    shell or screen on the Hive Stand itself is ever reachable remotely (default no; yes would let a
    remote session reach the loopback listener, so a stolen phone plus the password and a step-up
    could enrol a new device; Justin's call); how the loopback listener is kept unreachable from
-   Virtual Cell guests (a peer check on the listener, or SLIRP `restrict` and no host-gateway
-   alias), without which remote Inspection of those Cells stays refused; a Night Veil terminal
+   Virtual Cell guests (SLIRP `restrict=on` with only the Queen's `guestfwd` and no host-gateway
+   alias, or a listener on a Unix socket, named pipe or address SLIRP does not map), without which remote Inspection of those Cells stays refused; a Night Veil terminal
    (attached from the host side) or none at all; whether recordings are offered at all.
 19. Remote desktop transport (phase 15.10): RFB through bundled loopback VNC servers and noVNC,
    own capture in the packet, or WebRTC; which VNC server per OS and its licence (x11vnc,
