@@ -3379,6 +3379,16 @@ attached to the Entrance relay by a test harness.
   `Duplex` view at `/v1/cells/{cell}/inspect/screen` behind `screen_view` or `screen_control`; a
   view-only session drops input frames at the relay. *Exit:* a Sting Cut or a reduction closes both
   ends; a view-only device's input never reaches the device. *Size:* medium, 2 agent-days.
+- [ ] **15.11c Screen door and gates.** `QueenDoor.open_inspection` learns the screen modes and
+  checks each before any lease opens: `screen_view` only on `READ_ONLY` and `SCRATCH` Cells,
+  `screen_control` only on `FULL`; never on Night Veil; and only when the device opted in with
+  `--screen`. The screen executor on the device refuses with `pollen.capability_denied` without
+  the `--screen` opt-in too, whatever the Hive asks. The screen route takes the same
+  `ActionKind.INSPECT` fresh step-up as 15.6 and gains its own route-test allow-list row.
+  *Exit:* `screen_control` is refused on a `READ_ONLY` and on a `SCRATCH` Cell; a device that
+  opted in with `--shell` only refuses the screen, both at the door and at the executor; a Night
+  Veil Cell refuses the screen; a device without a fresh step-up gets `step_up_required` on
+  `/inspect/screen`, and one without the scope gets 403. *Size:* small, 1.5 agent-days.
 - [ ] **15.12 On-device notice and local end for the screen.** An always-on-top notice on the
   device's screen ("the HiveMind operator is controlling this device") with an "end now" button,
   plus a tray or menu bar icon, on Windows, X11 and macOS; Wayland and macOS also show their own
@@ -3436,7 +3446,7 @@ attached to the Entrance relay by a test harness.
   unrecorded one leaves no bytes anywhere; a Night Veil Cell refuses to record. *Size:* small, 1.5
   agent-days.
 
-Track B total: about 31 agent-days, plus about 3 more if the spike chooses own capture over RFB.
+Track B total: about 32 agent-days, plus about 3 more if the spike chooses own capture over RFB.
 
 Steps are sized for one PR each. 15.4 stays whole because the door, the pause and the trail
 events only make sense landed together, and 15.14a because capture and input are proven together.
@@ -3450,8 +3460,9 @@ events only make sense landed together, and 15.14a because capture and input are
 - The same operator sees and drives the desktop of the Windows device and of a headless
   `desktop-ubuntu` Virtual Cell from the browser and from a desktop VNC viewer, and the Windows
   device shows the notice the whole time.
-- A device that never ran `pollen allow inspect` refuses both tracks; a `SCRATCH` Cell refuses a
-  shell; a Night Veil Cell refuses the screen and recording; a device without `entrance:inspect` or
+- A device that never ran `pollen allow inspect` refuses both tracks, and one that opted in with
+  `--shell` only refuses the screen; a `SCRATCH` Cell refuses a shell; `READ_ONLY` and `SCRATCH`
+  Cells refuse `screen_control`; a Night Veil Cell refuses the screen and recording; a device without `entrance:inspect` or
   without a fresh step-up is refused before any lease opens; every open is pushed to every other
   enrolled device.
 - A Sting Cut, Absconding, the Entrance Reducer, the idle timeout, `pollen inspect end` and the
