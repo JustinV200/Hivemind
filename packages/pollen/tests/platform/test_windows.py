@@ -281,6 +281,32 @@ async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_bre
         await _reap(process)
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="windowless consoles exist on Windows only")
+@pytest.mark.parametrize(
+    ("code", "signal_"),
+    [
+        # A break to a program in a console of its own reported success and did nothing.
+        ("import time; print('ready', flush=True); time.sleep(60)", ProcessSignal.INTERRUPT),
+        # That console's host outlived a program that ended by itself, so its job looked alive.
+        ("print('ready', flush=True)", None),
+    ],
+)
+async def test_a_windowless_program_ends_and_its_group_is_gone_once_reaped(
+    tmp_path: Path, code: str, signal_: ProcessSignal | None
+) -> None:
+    shim = WindowsShim(tmp_path, {})  # The real taskkill, which refuses a console program.
+    process = await _spawn(shim, code, tmp_path)
+    ref = shim.process_ref(process.pid)
+    try:
+        if signal_ is not None:
+            assert shim.signal_group(ref, signal_) is True
+        await _reap(process)
+        assert process.returncode is not None
+        assert shim.group_alive(ref) is False
+    finally:
+        shim.signal_group(ref, ProcessSignal.KILL)
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="Job Objects exist on Windows only")
 async def test_a_job_keeps_a_child_its_leader_left_behind_and_a_kill_ends_it(
     tmp_path: Path,

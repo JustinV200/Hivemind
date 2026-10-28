@@ -20,6 +20,8 @@ Key invariants:
       (the packet restarted, or another process asks) is reported as unknown, never as empty.
     - The console host Windows starts for a program with no window joins that program's job and
       outlives it by a moment; it never counts as a running member.
+    - A job does not kill its members when its handle closes (no KILL_ON_JOB_CLOSE): a lease's
+      program outlives a packet restart, and the restarted packet finds it by its tree instead.
     - Nothing here builds a command or reads request text.
 
 See Also:
@@ -32,8 +34,10 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import functools
+import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import psutil
 
@@ -46,7 +50,9 @@ _PROCESS_TERMINATE = 0x0001  # ...and this one, too, per its documentation.
 _BASIC_ACCOUNTING = 1  # JobObjectBasicAccountingInformation, the class that counts live members.
 _PROCESS_ID_LIST = 3  # JobObjectBasicProcessIdList, the class that names them.
 _LISTED_MAX = 256  # A job with more members than this is not named, only counted.
-_CONSOLE_HOST = "conhost.exe"  # The host of a windowless console, which ends with its programs.
+# The host of a windowless console, which ends with its programs; matched by its full path so a
+# lease's own program that is merely named conhost.exe still counts as running.
+_CONSOLE_HOST = ("System32", "conhost.exe")
 _KILLED_EXIT_CODE = 1  # What every process a job ends exits with, as taskkill /F gives it.
 _CREATE_TIME_TOLERANCE_S = 1.0  # As the shims': psutil's creation time is stable per process.
 
@@ -250,11 +256,19 @@ def _busy(job: int) -> bool:
 
 
 def _is_console_host(pid: int) -> bool:
-    """Say whether ``pid`` is a console host, or has ended (neither is a member that runs)."""
+    """Say whether ``pid`` is the system's console host, or has ended (neither runs for a lease).
+
+    Anything that cannot be read is counted as running: a member hidden by a refused query would
+    escape the lease's tracking, while one counted wrongly only keeps the lease's record a while.
+    """
+    host = Path(os.environ.get("SYSTEMROOT", r"C:\Windows"), *_CONSOLE_HOST)
     try:
-        return bool(psutil.Process(pid).name().lower() == _CONSOLE_HOST)
+        exe = psutil.Process(pid).exe()
+    except psutil.NoSuchProcess:
+        return True  # Ended between the listing and this look.
     except psutil.Error:
-        return True
+        return False
+    return os.path.normcase(exe) == os.path.normcase(str(host))
 
 
 def _terminate(job: int) -> bool:
