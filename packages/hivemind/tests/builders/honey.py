@@ -371,6 +371,7 @@ async def store_ripened(
     clock: Clock,
     draft: NectarDraft,
     reading: RipenerReading | None,
+    summary: HoneyDraft | None = None,
 ) -> Nectar:
     """Add `draft` and ripen it into one SUMMARY row with `reading`; return the RIPENED Nectar.
 
@@ -379,13 +380,15 @@ async def store_ripened(
         clock: Mints the event ids and times.
         draft: The deposit; its content must be distinct from every other the test stores.
         reading: The Ripener's reading to store with it; None as for a heuristic summary.
+        summary: The Honey row itself; `make_honey_draft` at the draft's clearance when None.
 
     Returns:
         The stored Nectar as it now stands (RIPENED, its facts and reading set).
     """
     content_sha = hashlib.sha256(draft.content).hexdigest()
     added = await store.add_nectar(draft, content_sha, lambda _added: ())
-    summary = make_honey_draft(clearance=draft.clearance)
+    if summary is None:
+        summary = make_honey_draft(clearance=draft.clearance)
     await store.ripen(
         added.nectar.id, (summary,), _ripened_event(clock, added.nectar.id), reading=reading
     )
