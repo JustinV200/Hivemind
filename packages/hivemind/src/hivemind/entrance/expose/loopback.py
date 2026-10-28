@@ -19,8 +19,10 @@ its host alias (``10.0.2.2``) to the host's ``127.0.0.1``, and Docker Desktop's
 ``127.0.0.1`` with whatever loopback ``Host`` the guest wrote (ADR-0068). So the loopback-only
 rows also need the **stand key**: a random per-boot secret ``mint_stand_key`` draws, which only
 the Hive Stand holds (the serve record beside the database, which no Cell mounts, and the link
-``hive serve`` prints). A program presents it in the ``X-Hive-Stand`` header; the Hive Stand's
-browser gets it as an HttpOnly, SameSite=Strict cookie by opening the stand link once.
+``hive serve`` prints). Every client presents it in the ``X-Hive-Stand`` header and nowhere else:
+a program reads it from the serve record, and the Observation Hive takes it from the link's
+fragment (``/stand#key=<key>``, never sent to any server) into the tab's ``sessionStorage``. No
+cookie carries it, because a browser sends a ``localhost`` cookie to every port on the machine.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.expose``. Called by the
@@ -60,12 +62,10 @@ _PROXY_HEADERS = frozenset({"forwarded", "x-real-ip", "via"})
 _PROXY_HEADER_PREFIXES = ("x-forwarded-", "tailscale-")  # Families: X-Forwarded-For/Host/...
 
 STAND_HEADER = "x-hive-stand"  # Where a program on the Hive Stand presents the stand key.
-STAND_COOKIE = "hive_stand"  # Where the Hive Stand's browser holds it, once the stand link set it.
-STAND_LINK_PATH = "/stand"  # The link `hive serve` prints: `/stand?key=<key>` sets the cookie.
+STAND_LINK_PATH = "/stand"  # The page `hive serve` links to; the key rides its fragment.
 _STAND_KEY_BYTES = 32  # 256 bits: no guest guesses it within any rate limit.
 
 __all__ = [
-    "STAND_COOKIE",
     "STAND_HEADER",
     "STAND_LINK_PATH",
     "loopback_request_allowed",
@@ -110,7 +110,7 @@ def loopback_request_allowed(
 
 
 def mint_stand_key() -> str:
-    """Draw a fresh stand key: URL-safe text, so it fits a header, a cookie and a query alike.
+    """Draw a fresh stand key: URL-safe text, so it fits a header and a URL fragment alike.
 
     Returns:
         43 characters of base64url over 256 random bits.
@@ -118,38 +118,21 @@ def mint_stand_key() -> str:
     return secrets.token_urlsafe(_STAND_KEY_BYTES)
 
 
-def stand_key_presented(key: str, header: str | None, cookie_header: str | None) -> bool:
-    """Return whether a request carries the stand key, in its header or in its cookie.
+def stand_key_presented(key: str, header: str | None) -> bool:
+    """Return whether a request carries the stand key in its ``X-Hive-Stand`` header.
 
     Args:
         key: This boot's stand key.
         header: The request's ``X-Hive-Stand`` value, or None when absent.
-        cookie_header: The request's ``Cookie`` value, or None when absent.
 
     Returns:
-        True when either holds exactly ``key``.
+        True when the header holds exactly ``key``.
 
     Example:
-        ``stand_key_presented("k", None, "a=1; hive_stand=k")`` is True;
-        ``stand_key_presented("k", "j", None)`` is False.
+        ``stand_key_presented("k", "k")`` is True; ``stand_key_presented("k", "j")`` is False.
     """
-    offered = (header, _cookie(cookie_header, STAND_COOKIE))
     # compare_digest: a guest timing the refusal learns nothing about the key's prefix.
-    return any(
-        value is not None and hmac.compare_digest(value.encode(), key.encode()) for value in offered
-    )
-
-
-def _cookie(cookie_header: str | None, name: str) -> str | None:
-    """Return the first value of cookie ``name`` in a ``Cookie`` header, or None."""
-    if cookie_header is None:
-        return None
-    # RFC 6265: "name=value" pairs separated by "; "; a pair without "=" is no cookie at all.
-    for pair in cookie_header.split(";"):
-        found, equals, value = pair.strip().partition("=")
-        if equals and found == name:
-            return value
-    return None
+    return header is not None and hmac.compare_digest(header.encode(), key.encode())
 
 
 def _is_proxy_header(name: str) -> bool:

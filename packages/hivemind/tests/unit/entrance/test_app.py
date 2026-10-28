@@ -235,14 +235,19 @@ async def test_both_listeners_serve_the_observation_hive_build_and_every_route_w
 async def test_the_invite_path_serves_the_page_so_a_minted_link_opens_the_join_screen(
     tmp_path: Path,
 ) -> None:
-    # An invite is `<base>/enrol#code=<code>`: the page must answer there, on both listeners, with
-    # the same build as `/`, and no other deep path does (the app routes by hash, ADR-0049).
+    # An invite is `<base>/enrol#code=<code>` and the Hive Stand browser link `/stand#key=<key>`
+    # (ADR-0068): the page must answer at both, on both listeners, with the same build as `/`, and
+    # no other deep path does (the app routes by hash, ADR-0049).
     (tmp_path / "index.html").write_text("<title>Observation Hive</title>", encoding="utf-8")
     async with serving(RigOptions(remote=True, web_root=tmp_path)) as rig:
-        pages = [await rig.client(remote=side).http.get("/enrol") for side in (False, True)]
+        pages = [
+            await rig.client(remote=side).http.get(path)
+            for path in ("/enrol", "/stand")
+            for side in (False, True)
+        ]
         elsewhere = await rig.client().http.get("/fleet")
 
-    assert [page.status_code for page in pages] == [200, 200]
+    assert [page.status_code for page in pages] == [200, 200, 200, 200]
     assert all("Observation Hive" in page.text for page in pages)
     assert all(page.headers["content-type"].startswith("text/html") for page in pages)
     assert elsewhere.status_code == 404

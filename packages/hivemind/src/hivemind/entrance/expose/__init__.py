@@ -41,8 +41,8 @@ Public API:
     - public_host, public_origin, certificate_covers, is_same_or_parent_domain, is_dns_name: the
       name rules.
     - loopback_request_allowed: the loopback listener's Host and forwarding-header check.
-    - mint_stand_key, stand_key_presented, STAND_HEADER, STAND_COOKIE, STAND_LINK_PATH: the
-      per-boot stand key the loopback-only rows need (ADR-0068).
+    - mint_stand_key, stand_key_presented, STAND_HEADER, STAND_LINK_PATH: the per-boot stand
+      key the loopback-only rows need (ADR-0068).
     - TunnelSupervisor, tunnel_environment: the supervised tunnel client.
     - HiveAuthority, load_or_create_authority, issue_client_certificate, issue_pkcs12,
       check_certificate_request, DeviceCertificate, DeviceBundle, build_crl, RevokedSerial,
@@ -79,7 +79,6 @@ from hivemind.entrance.expose.interfaces import (
     SystemInterfaces,
 )
 from hivemind.entrance.expose.loopback import (
-    STAND_COOKIE,
     STAND_HEADER,
     STAND_LINK_PATH,
     loopback_request_allowed,
@@ -120,7 +119,6 @@ from hivemind.entrance.expose.tunnel import TunnelSupervisor, tunnel_environment
 __all__ = [
     "DEFAULT_OVERLAY_INTERFACES",
     "MAX_TLS_FILE_BYTES",
-    "STAND_COOKIE",
     "STAND_HEADER",
     "STAND_LINK_PATH",
     "CertificateAuthorityError",

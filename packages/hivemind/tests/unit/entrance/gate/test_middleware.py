@@ -2,8 +2,8 @@
 
 Every body is read whole before a route sees it, within ``MAX_BODY_BYTES``; a route that takes a
 raw body (the voice clip) declares its own allowance, which applies to that method and path alone.
-A loopback-only row needs this boot's stand key, in a header or the stand link's cookie, because
-a Virtual Cell's guest forwarded onto loopback is otherwise indistinguishable (ADR-0068).
+A loopback-only row needs this boot's stand key in the ``X-Hive-Stand`` header, because a
+Virtual Cell's guest forwarded onto loopback is otherwise indistinguishable (ADR-0068).
 
 Fits into the Hive:
     Mirrors src/hivemind/entrance/gate/middleware.py (codingrules section 3); its other wrappers
@@ -21,7 +21,7 @@ from starlette.routing import compile_path
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from hivemind.entrance.auth.limits import RateLimiter
-from hivemind.entrance.expose import STAND_COOKIE, STAND_HEADER
+from hivemind.entrance.expose import STAND_HEADER
 from hivemind.entrance.gate import MAX_BODY_BYTES, AddressLimit, BodyLimit, LoopbackGate, RawBody
 from hivemind.manifest import EntranceSection
 from waggle.clock import FakeClock
@@ -86,7 +86,8 @@ def _gate(app: ASGIApp = _echo_length) -> httpx.AsyncClient:
         ("POST", _APPROVE, {STAND_HEADER: "a-guess"}, 403),
         ("POST", _APPROVE + "/", {}, 404),  # Not the row (the echo app's 404 stands for routing).
         ("POST", _APPROVE, {STAND_HEADER: _KEY}, 200),  # The console's CLI.
-        ("POST", _APPROVE, {"Cookie": f"theme=dark; {STAND_COOKIE}={_KEY}"}, 200),  # Its browser.
+        # No cookie channel: a localhost cookie reaches every port, so the key is a header alone.
+        ("POST", _APPROVE, {"Cookie": f"hive_stand={_KEY}"}, 403),
         ("POST", "/v1/auth/challenge", {}, 200),  # A row on both listeners needs no stand key.
         ("GET", _APPROVE, {}, 200),  # Another method is another row.
     ],
@@ -104,26 +105,6 @@ async def test_a_loopback_only_row_is_refused_without_the_stand_key(
         response = await client.request(method, path, headers={**_GUEST, **extra})
 
     assert response.status_code == status
-
-
-@pytest.mark.parametrize(
-    ("method", "key", "status"),
-    [("GET", _KEY, 303), ("GET", "a-guess", 403), ("GET", "", 403), ("POST", _KEY, 403)],
-)
-async def test_the_stand_link_sets_the_cookie_for_the_right_key_alone(
-    method: str, key: str, status: int
-) -> None:
-    async with _gate() as client:
-        response = await client.request(method, f"/stand?key={key}", headers=_GUEST)
-
-    assert response.status_code == status
-    if status == 303:
-        assert response.headers["location"] == "/"
-        cookie = response.headers["set-cookie"]
-        assert cookie.startswith(f"{STAND_COOKIE}={_KEY};")
-        assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
-    else:
-        assert "set-cookie" not in response.headers
 
 
 async def test_a_guest_flooding_loopback_cannot_starve_the_stand_key_holder() -> None:

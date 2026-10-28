@@ -51,6 +51,7 @@ from starlette.types import ASGIApp
 from hivemind.entrance.android import serve_asset_links
 from hivemind.entrance.auth.session.models import Listener
 from hivemind.entrance.enrol.invite import INVITE_PATH
+from hivemind.entrance.expose import STAND_LINK_PATH
 from hivemind.entrance.gate import (
     LOOPBACK_ONLY,
     AddressLimit,
@@ -295,10 +296,12 @@ def _serve_observation(app: FastAPI, web_root: Path) -> None:
     """Serve the Observation Hive's build, with its one deep link answered by the app itself.
 
     The build is static files with ``index.html`` at ``/`` only, and the app routes by hash
-    (ADR-0049), so no other path needs the page except ``/enrol``: an invite link is
-    ``<base>/enrol#code=<code>`` (``enrol.invite.INVITE_PATH``) and a new device opens it before
-    it has anything else, so that path serves the page too and the app reads the code from the
-    fragment. Every ``/v1/`` row was mounted before this, so a build file never shadows a route.
+    (ADR-0049), so no other path needs the page except two links opened from outside: an invite
+    link is ``<base>/enrol#code=<code>`` (``enrol.invite.INVITE_PATH``), which a new device opens
+    before it has anything else, and the Hive Stand browser link ``hive serve`` prints is
+    ``/stand#key=<key>`` (``STAND_LINK_PATH``, ADR-0068). Both paths serve the page and the app
+    reads the fragment, which never reaches a server. Every ``/v1/`` row was mounted before this,
+    so a build file never shadows a route.
 
     Args:
         app: The listener's application.
@@ -306,11 +309,12 @@ def _serve_observation(app: FastAPI, web_root: Path) -> None:
     """
     index = web_root / "index.html"
 
-    async def enrol_page() -> Response:
-        # The same page as `/`; the app shows the join screen when the fragment carries a code.
+    async def linked_page() -> Response:
+        # The same page as `/`; the app reads the invite code or the stand key off the fragment.
         return FileResponse(index, media_type="text/html")
 
-    app.add_api_route(INVITE_PATH, enrol_page, methods=["GET"], include_in_schema=False)
+    for path in (INVITE_PATH, STAND_LINK_PATH):
+        app.add_api_route(path, linked_page, methods=["GET"], include_in_schema=False)
     app.mount("/", StaticFiles(directory=web_root, html=True), name="observation")
 
 
