@@ -3233,9 +3233,10 @@ neither track changes it, and 15.3a rebases on it once it merges.
   on the Hive Stand itself, or on any Cell the Queen derives as `shares_hive_stand_host` (15.5), is
   loopback-only, and its screen is refused at the door in this phase. Whether a request is
   remote is read from the `StepUpProof` (15.4a), never from anything the client says, and the
-  proof says `LOOPBACK` only when the step-up carried ADR-0068's stand key: arriving on the
-  loopback listener is not enough, because a guest reaches it too. `[inspection] hive_stand_remote` defaults to
-  false and is **Justin's decision** (open decision 17): turning it on means a remote session can
+  proof says `LOOPBACK` only when the step-up arrived on the loopback listener and carried
+  ADR-0068's stand key: arriving on the loopback listener is not enough, because a guest reaches
+  it too. `[inspection] hive_stand_remote` defaults to
+  false and is **Justin's decision** (open decision 18): turning it on means a remote session can
   reach the Entrance's loopback listener from the Hive Stand's own shell, so device approval,
   capability widening and reopening stop being loopback-only in practice, and a stolen phone plus
   the password and a step-up could enrol a new device. If the option is kept at all, the
@@ -3252,7 +3253,8 @@ neither track changes it, and 15.3a rebases on it once it merges.
   listeners), still answers a guest that tunnels to the loopback listener, and records it as
   arriving on loopback. So loopback is never trusted by listener alone: a step-up counts as
   `LOOPBACK` only with the stand key (15.4a), and opening a shell on the Hive Stand or a Cell
-  sharing its host is itself a stand-key row (15.5). With those two, a guest, or an attacker in
+  sharing its host needs the stand key on the open itself, an HTTP `POST` the door checks per
+  Cell (15.6), since a browser WebSocket cannot carry the key. With those two, a guest, or an attacker in
   a remote shell on a Virtual Cell, can do no more there than any remote client, and remote
   shell Inspection of a Virtual Cell needs no refusal per backend. Unreachability is still needed for two arbitrary ports the stand key does not
   cover, 15.13b's VNC servers and 15.17's loopback TCP bridge, and no current backend gives it:
@@ -3376,8 +3378,8 @@ in daily use.
 - [ ] **15.4a Inspection authority.** Human authority is a `StepUpProof` that only the Entrance's
   step-up verifier (`entrance/auth/step_up/`) can construct, naming the device, the session, the
   moment of the step-up and whether it was local (`LOOPBACK` or `REMOTE`). It is `LOOPBACK` only
-  when the step-up request carried a valid ADR-0068 stand key, and `REMOTE` otherwise, whatever
-  listener it arrived on: the arrival the Entrance records
+  when the step-up both arrived on the loopback listener and carried a valid ADR-0068 stand key,
+  compared in constant time, and `REMOTE` otherwise: the arrival the Entrance records
   (`entrance/auth/step_up/ceremony.py:104,181`) says loopback for a guest that tunnelled through
   `10.0.2.2` or `host.docker.internal` too, so the door never trusts the listener alone. `QueenDoor.open_inspection` requires one and records the Inspection
   in the door's live table with an unguessable nonce that only the door holds; an
@@ -3397,8 +3399,10 @@ in daily use.
   warrant does not match the door's live table. On the way in, every device-to-Hive `inspect.*`
   frame (output, closed, and later 15.18's `get_file` responses) goes only to the door's relay;
   a late or unmatched one is dropped and never reaches `on_frame` or the hub's
-  listeners (`hub.py:1-12`), the Queen's swarm gate included. *Exit:* a Queen awake episode
-  cannot open an Inspection; neither a Level-0 Warden nor Queen autopilot can send
+  listeners (`hub.py:1-12`), the Queen's swarm gate included. *Exit:* a step-up on the loopback
+  listener with the stand key gives a `LOOPBACK` proof; one on the loopback listener without it,
+  and one on the remote listener with a valid key, give `REMOTE`; a Queen awake episode cannot
+  open an Inspection; neither a Level-0 Warden nor Queen autopilot can send
   `inspect.open`; an `inspect.input` or `inspect.resize` sent by a Warden for an *open*
   Inspection, with the right id, is dropped at `FrameSender.send`; an `inspect.input` without a
   warrant is dropped; an idle-timeout close reaches the device through the guard; an
@@ -3514,13 +3518,15 @@ in daily use.
   A Night Veil Cell uses the same host-side attach, which crosses no network. The Hive Stand rule
   is enforced here, at the door, from the proof's stand-key remoteness (15.4a): with
   `hive_stand_remote = false` the door refuses a remote shell on the Hive Stand, and on any Cell
-  sharing its host, before any lease opens, and the open row for such a shell is itself a
-  stand-key row, refused without the key whatever listener it arrives on. `shares_hive_stand_host` is not a reported capability, since a
-  reported field flipping when the Hive Stand moves would trip 13.4a's dire pattern: the Queen
-  derives it at open time by comparing the machine id the device reports (15.2) with the Hive
-  Stand's own, and recomputes it whenever the Hive Stand moves. It fails closed: a Cell whose
-  machine id is missing, empty or unreadable is treated as sharing the host, so its remote shell
-  and its screen are refused. It covers a Pollen packet
+  sharing its host, before any lease opens; it also requires the stand key on the open itself
+  (15.6's `POST`), checked per Cell by the door, not by ADR-0068's path gate. `shares_hive_stand_host` is not a reported capability, since a
+  reported field flipping when the Hive Stand moves would trip 13.4a's dire pattern: for a Cell
+  whose `opt_in_source` is `PACKET`, the Queen derives it at open time by comparing the machine
+  id the device reports (15.2) with the Hive Stand's own, and recomputes it whenever the Hive
+  Stand moves. For those Cells it fails closed: a missing, empty or unreadable machine id counts
+  as sharing the host, so the remote shell and the screen are refused. A Cell with
+  `host_side_attach` derives false, since ADR-0068's stand key and the absence of any mount of
+  the Hive's state cover it. The rule reads those two fields, never the Cell's kind. It covers a Pollen packet
   installed on the Hive Stand, and after a Supersedure the *new* Hive Stand, the former
   candidate, whose packet and Warden keep running there (13.2a); the old, superseded machine no
   longer shares the host. The door reads the derived fact, never the Cell's kind. ADR-0068's
@@ -3546,18 +3552,25 @@ in daily use.
   task kills that lease's processes before the shell starts and closing resumes the task on the
   same lease, a bee that ignores the Handoff request is retired and starts no process while the
   Inspection is open, and after an Inspection there that ran `mysql -psecret` and edited a file,
-  nothing from it is in Bee Bread and no Warden episode or Patrol ran meanwhile; with
-  `hive_stand_remote = false`, a remote open of a Hive Stand shell is refused before any lease
-  opens while a loopback one succeeds; a remote shell on a Pollen Cell co-located with the Hive
-  Stand is refused, and after a Supersedure the same holds for the new Hive Stand's packet and
-  not for the old machine's; a step-up followed by a Hive Stand shell open, both made from inside
-  a QEMU guest and a Docker Desktop guest through the loopback listener, is refused; a Pollen
-  Cell reporting no, an empty or an unreadable machine id has its remote shell refused. *Size:*
-  medium, 4 agent-days.
-- [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
-  behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
-  gains its allow-list row. *Exit:* a device without the scope gets 403, one without fresh step-up
-  gets `step_up_required`, a reduction closes an open terminal. *Size:* medium, 2 agent-days.
+  nothing from it is in Bee Bread and no Warden episode or Patrol ran meanwhile; the Queen derives
+  `shares_hive_stand_host` true for a `PACKET` Cell with the Hive Stand's machine id or with none,
+  false for a `host_side_attach` Cell, and recomputes it after a Supersedure, when it holds for
+  the new Hive Stand's packet and not for the old machine's (the remote refusals themselves are
+  15.6's exits, once the open route exists). *Size:* medium, 3.5 agent-days.
+- [ ] **15.6 Entrance terminal route.** Open and attach are split, because a browser WebSocket
+  cannot set the `X-Hive-Stand` header. `POST /v1/cells/{cell}/inspect/terminal` behind
+  `entrance:inspect:shell` and `ActionKind.INSPECT` opens the Inspection through the door and
+  returns its id and a one-time attach token; the stand key, when present, rides this `POST`,
+  and the door checks it per Cell (15.5), not ADR-0068's path gate. A `Duplex` WebSocket then
+  attaches by that id and token, which it spends. OpenAPI regenerated; the route test gains its
+  allow-list rows. *Exit:* a device without the scope gets 403, one without fresh step-up gets
+  `step_up_required`, a reduction closes an open terminal; an attach with a wrong, reused or
+  other Inspection's token is refused; with `hive_stand_remote = false`, a remote open of a Hive
+  Stand shell is refused before any lease opens while a loopback one with the stand key
+  succeeds; a remote shell on a Pollen Cell co-located with the Hive Stand, or reporting no, an
+  empty or an unreadable machine id, is refused; a step-up followed by a Hive Stand shell open,
+  both made from inside a QEMU guest and a Docker Desktop guest through the loopback listener, is
+  refused. *Size:* medium, 2.5 agent-days.
 - [ ] **15.7 `hive inspect` in the terminal.** `hive inspect <cell> [--alongside]` locally and with
   `--remote`; raw mode on Windows and POSIX, resize on `SIGWINCH` or console events, `~.` to leave.
   *Exit:* the 15.3a run from a laptop over the VPN overlay. *Size:* medium, 2 agent-days.
@@ -3607,8 +3620,9 @@ attached to the Entrance relay by a test harness.
   second local connection is refused and a password scraped from the process list does not work.
   *Size:* medium, 3 agent-days.
 - [ ] **15.11b Screen door and relay at the Entrance.** The swarm listener's `/inspect/` path, which
-  hands the socket in process to a binary `Duplex` view at `/v1/cells/{cell}/inspect/screen` behind `screen_view` or
-  `screen_control`, landing together with its gates so no build ever serves an ungated screen:
+  hands the socket in process to a binary `Duplex` view, opened and attached the 15.6 way: `POST
+  /v1/cells/{cell}/inspect/screen` behind `screen_view` or `screen_control` opens it and returns
+  an id and one-time attach token, and the WebSocket attaches by them, landing together with its gates so no build ever serves an ungated screen:
   `QueenDoor.open_inspection` learns the screen modes and checks each before any lease opens
   (`screen_view` at every access level, `screen_control` only on `FULL`; never on Night Veil; never
   the Hive Stand's own screen or that of a Cell sharing its host; only with the device's `--screen` opt-in, unless the Cell's
@@ -3619,9 +3633,9 @@ attached to the Entrance relay by a test harness.
   reaches the device; `screen_view` on a `FULL` Cell succeeds; `screen_control` is refused on a
   `READ_ONLY` and on a `SCRATCH` Cell; a shell-only opt-in refuses the screen at the door; a
   Night Veil Cell refuses the screen; a device without a fresh step-up gets `step_up_required` on
-  `/inspect/screen`, and one without the scope gets 403; a screen on the Hive Stand is refused,
-  and so is one on a Pollen Cell co-located with it, or reporting no, an empty or an unreadable
-  machine id, from anywhere;
+  `/inspect/screen`, and one without the scope gets 403; an attach with a wrong or reused token is
+  refused; a screen on the Hive Stand is refused, and so is one on a `PACKET` Cell co-located
+  with it or reporting no, an empty or an unreadable machine id, from anywhere;
   `--alongside` with `screen_view` is refused, and a screen Inspection on a Cell with a running
   task pauses it; a screen socket with a bad signature, a wrong or reused token, or another
   Inspection's id is closed before any byte is relayed. *Size:* medium, 3 agent-days.
@@ -3745,9 +3759,11 @@ sense landed together (its Hive Stand containment may land first as a preparator
   may carry an Inspection for a device the operator widened, opened through the Queen's door
   like a Sting Cut; the device's own default shell allowed by gateway-contract `:633-634` inside
   an operator lease only; the Capping exemption for a human's keystrokes; if `hive_stand_remote`
-  is kept, the plain statement that it ends loopback-only approval in practice; remoteness read
-  from the listener the `StepUpProof` carries, and the Hive Stand rule applied to any Cell the
-  Queen derives as `shares_hive_stand_host` from the device's machine id (a packet on the Hive
+  is kept, the plain statement that it ends loopback-only approval in practice; remoteness from
+  the `StepUpProof`, `LOOPBACK` only when the step-up arrived on the loopback listener and carried
+  the stand key, and the stand key also required on the open `POST` (15.6), checked per Cell by
+  the door; the Hive Stand rule applied to any `PACKET` Cell the Queen derives as
+  `shares_hive_stand_host` from the device's machine id (a packet on the Hive
   Stand, or the new Hive Stand after a Supersedure), recomputed when the Hive Stand moves, since
   a same-account shell can read the serve record despite ADR-0068's per-boot stand key, failing
   closed on a missing or unreadable machine id; loopback trusted only with the stand key, never by
