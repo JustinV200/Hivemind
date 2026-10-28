@@ -56,6 +56,16 @@ grows domain logic of its own.
   mints and persists it, so the Queen signs Virtual Cell frames with the same key across
   restarts. `SecretStoreError` (in `hivemind.common.errors`) names a secret and its store, never
   a value.
+- **Backups** (`hivemind.common.backup`, a sub-package, roadmap 13.7): `write_backup(source, out,
+  clock)` snapshots the Hive's database through SQLite's online backup API (never a file copy of a
+  live `hive.sqlite3`) and copies named file trees (the Basket's blobs) into one gzip'd tar whose
+  first member, `backup.json` (`BackupIndex`), lists every other member with its size and SHA-256,
+  the Hive id, the public half of the Hive's identity key and the secret store's names, never a
+  secret's value. `open_backup(archive, workdir, expect_sha256)` trusts nothing in an archive: the
+  index must come first, every member must be a regular file it lists, once, at its size and
+  digest, extracted to a path built from the validated name, and the snapshot must pass `PRAGMA
+  integrity_check`. `restore_backup(opened, db, trees)` writes the database back through the same
+  backup API and copies tree files in atomically, never deleting. `BackupError` is its error.
 - **Tasks** (`hivemind.common.tasks`): `reap(task)` cancels `task` if still pending and awaits it,
   so a tick's own throwaway waiter is never destroyed pending once the event loop closes;
   `reap_all(tasks)` does the same over a whole collection, for a `stop()`/`aclose()` that owns

@@ -30,6 +30,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 __all__ = [
+    "BackupError",
     "ConfigurationError",
     "ConflictError",
     "DeadlineExceededError",
@@ -137,3 +138,16 @@ class SecretStoreError(HiveMindError):
     """
 
     code: ClassVar[str] = "hivemind.secret_store_error"
+
+
+class BackupError(HiveMindError):
+    """Raise when a Hive backup cannot be written, or an archive is refused on restore.
+
+    Covers what `hivemind.common.backup` checks on purpose: a database that is not there to back
+    up, an archive whose checksum, member list or layout does not match its own index (a damaged
+    or hand-edited file), and a snapshot that fails SQLite's integrity check. Its message names
+    the member or the file, never the data. Specific to `hivemind.common.backup` for the same
+    reason `MigrationError` is specific to `hivemind.common.migrations`.
+    """
+
+    code: ClassVar[str] = "hivemind.backup_error"

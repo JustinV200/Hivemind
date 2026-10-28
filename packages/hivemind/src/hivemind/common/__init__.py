@@ -19,12 +19,15 @@ See Also:
       API.
     - hivemind.common.secrets for the secret store (its own sub-package and face): one
       owner-only file per secret, and the Hive's persisted Ed25519 signing key.
+    - hivemind.common.backup for backups (its own sub-package and face): one checksummed archive
+      of the database and file trees, checked end to end before a restore.
 
 Public API:
     - HiveMindError: root of every error a hivemind subsystem raises on purpose.
     - ConfigurationError, NotFoundError, ConflictError, PermissionDeniedError,
-      DeadlineExceededError, InvariantViolationError, MigrationError, SecretStoreError: the base
-      error categories subsystems extend, plus the migrations- and secret-store-specific errors.
+      DeadlineExceededError, InvariantViolationError, MigrationError, SecretStoreError,
+      BackupError: the base error categories subsystems extend, plus the migrations-,
+      secret-store- and backup-specific errors.
     - configure_logging: one-time structlog configuration, called only by a composition root.
     - get_logger: hand a subsystem its own bound structlog logger.
     - Ok, Err, Result, ResultUnwrapError: the Result type used only at the LLM boundary.
@@ -35,6 +38,7 @@ Public API:
 """
 
 from hivemind.common.errors import (
+    BackupError,
     ConfigurationError,
     ConflictError,
     DeadlineExceededError,
@@ -62,6 +66,7 @@ __all__ = [
     "BUSY_TIMEOUT_MS",
     "MIGRATION_FILE_PATTERN",
     "SCHEMA_TABLE",
+    "BackupError",
     "ConfigurationError",
     "ConflictError",
     "DeadlineExceededError",
