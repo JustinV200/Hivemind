@@ -3311,7 +3311,9 @@ in daily use.
   dropped; flipping a device's opt-in shows in the next heartbeat and raises no Guard request or
   Sting Cut. *Size:* medium, 3 agent-days.
 - [ ] **15.3a Pollen PTY on POSIX and the operator lease.** A PTY executor on Linux and macOS
-  (`pty`); the shell is the device's own default, never text from a request; window resize; the
+  (`pty`); the shell is the device's own default, never text from a request, started with no rc
+  or profile files and a clean, minimal environment (`bash --noprofile --norc`, `zsh -f`, and on
+  Windows in 15.3b PowerShell `-NoProfile` and `cmd /d`); window resize; the
   process group recorded in the lease table before the first byte; the operator lease kind, exempt
   from left-as-found restore and named so on the trail; idle and hard timeouts; kill on release,
   Sting Cut and dead-man. The device-side opt-in lands here, with the executor, so no build of the
@@ -3346,49 +3348,76 @@ in daily use.
   five seconds with reason `DEVICE_ENDED`. *Size:* small, 1.5 agent-days.
 - [ ] **15.4a Inspection authority.** Human authority is a `StepUpProof` that only the Entrance's
   step-up verifier (`entrance/auth/step_up/`) can construct, naming the device, the session and
-  the moment of the step-up. `QueenDoor.open_inspection` and `close_inspection` require one and
-  mint an `InspectionWarrant` bound to the Inspection id. An import-linter contract keeps
-  `StepUpProof` out of every `queen/` module except the door, above all `queen/awake` (which holds
-  the Queen) and `queen/guard_requests` (whose `decision/act.py:47,135` already calls Sting Cut
-  from model-driven decisions), and out of every Warden and autopilot. The guard sits at the one
-  outbound point to devices, the swarm gateway listener's send (`swarm/gateway/`, already at the
-  ten-module cap, so the check joins `listener.py` or a sub-package), not at a Queen-side sender:
-  Level-0 Wardens hand ready-made envelopes to `transport.send` (`wardens/links.py`
-  `send_guarded`) as `hive_id`, and the `inspect.*` payload models live in `waggle`, which
-  Wardens import. The listener refuses every `inspect.*` frame (open, input, resize, close, all of
-  them) that carries no valid warrant for its Inspection. *Exit:* a Queen awake episode cannot open
-  an Inspection; neither a Level-0 Warden nor Queen autopilot can send `inspect.open`; an
-  `inspect.input` without a warrant is dropped at the listener; the lint contract fails on any
-  module that imports `StepUpProof` outside the door. *Size:* medium, 2 agent-days.
+  the moment of the step-up. `QueenDoor.open_inspection` requires one and records the Inspection
+  in the door's live table with an unguessable nonce that only the door holds; an
+  `InspectionWarrant` is the Inspection id plus that nonce, and is valid only while it matches a
+  live row. An import-linter contract keeps `StepUpProof` and the warrant's constructor out of
+  every `queen/` module except the door, above all `queen/awake` (which holds the Queen) and
+  `queen/guard_requests` (whose `decision/act.py:47,135` already calls Sting Cut from
+  model-driven decisions), and out of every Warden and autopilot. **Closing never needs a
+  proof:** most closes have no human behind them (the idle and hard timeouts, the link-drop
+  grace, the Entrance Reducer, a revocation, a session expiry, a Sting Cut, model-driven ones
+  included, and Absconding), and a close only narrows, so `inspect.close` is the system-close
+  path: anything may send it and the guard always lets it through. The guard sits at the one
+  path every Hive-to-device frame takes, `FrameSender.send` (`swarm/gateway/frames.py:149`,
+  reached through `DeviceLink.send`, `request` and `stream`, `link.py:79,184`), where the caller
+  picks the sender string, so a Level-0 Warden in the same process, signing as `hive_id`, passes
+  it too. It drops every `inspect.*` frame except `inspect.close` (open, input, resize) whose
+  warrant does not match the door's live table. On the way in, `inspect.output` frames go only to
+  the door's relay; a late or unmatched one is dropped and never reaches `on_frame` or the hub's
+  listeners (`hub.py:1-12`), the Queen's swarm gate included. *Exit:* a Queen awake episode
+  cannot open an Inspection; neither a Level-0 Warden nor Queen autopilot can send
+  `inspect.open`; an `inspect.input` or `inspect.resize` sent by a Warden for an *open*
+  Inspection, with the right id, is dropped at `FrameSender.send`; an `inspect.input` without a
+  warrant is dropped; an idle-timeout close reaches the device through the guard; an
+  `inspect.output` for a closed Inspection reaches no hub listener; the lint contract fails on any
+  module outside the door that imports `StepUpProof` or builds a warrant. *Size:* medium, 2.5
+  agent-days.
 - [ ] **15.4b Smoke, the trail and the timeouts.** Clustering's lever selected by Cell; the
   `INSPECTED` mode on every Warden, the Hive Stand's, an in-Cell one and an on-device one on a
   colonized device or Nuc alike: no Watch observations, no Patrol, no awake episode, nothing
-  written to Bee Bread until the Inspection closes. Smoke also freezes every background process
-  the Cell's leases started (`session.process`, gateway-contract 9.3: `SIGSTOP` to its process
-  group, the Job Object suspended on Windows) and thaws them on close, because they and an
-  on-device Warden run as the same account as the operator's PTY and could read it, attach to
-  it or log its keys, a `sudo` password included, which would then open the opt-in store. Freezing
-  is chosen over running the operator shell as another account, because creating an account on a
-  borrowed device needs admin rights and breaks left-as-found; the on-device Warden itself is
-  Hive code that, in `INSPECTED`, runs only its autopilot and never reads the operator lease's
-  processes. The access level, tier and Hive Stand checks; the `cell.inspection_*` events and
-  their Night Veil boundary rows; a `guard.entrance_inspection_opened` push event sent to every
-  other enrolled device (codingrules 8.15 and 15), saying only that an Inspection opened and on
-  which Cell; the idle and hard timeouts, and Absconding, ending every open Inspection. *Exit:*
-  opening on a Cell with a running task pauses it, closing resumes it from its Handoff with no
-  work redone; `--alongside` leaves it running; a `SCRATCH` Cell refuses a shell; every other
-  enrolled device receives the push; an Inspection idle past `idle_minutes`, and one open during
-  `hive abscond`, each end within five seconds with one `cell.inspection_closed` carrying the
-  right reason; after an Inspection on the Hive Stand and one on a Nuc that ran `mysql -psecret`
-  and edited a file, nothing from either (command line, process, log line or file change) is in
-  Bee Bread and no Warden episode or Patrol ran meanwhile; on the Nuc, the lease's background
-  processes were stopped for the whole Inspection and running again after it.
-  *Size:* medium to large, 3.5 agent-days.
+  written to Bee Bread until the Inspection closes. While a Cell is `INSPECTED` the Queen and its
+  Warden refuse new task dispatch to it, new leases on it other than the operator's, and the
+  packet refuses every `session.*` request on its other leases. Smoke also freezes every process
+  the Cell's other leases started, background processes (`session.process`, gateway-contract
+  9.3) and in-flight `session.exec` runs alike, and thaws them on close: on Linux through the
+  cgroup freezer on a cgroup per lease, on Windows by suspending the lease's Job Object, created
+  without breakaway so no child escapes it; on macOS, which has neither, by `SIGSTOP` to each
+  recorded process group, with the residual that a process that left its group is not frozen,
+  disclosed in the operator-lease ADR. The reason: those processes and an on-device Warden run as
+  the same account as the operator's PTY and could read it, attach to it or log its keys, a
+  `sudo` password included, which would then open the opt-in store. Freezing is chosen over
+  running the operator shell as another account, because creating an account on a borrowed
+  device needs admin rights and breaks left-as-found; the on-device Warden itself is Hive code
+  that, in `INSPECTED`, runs only its autopilot and never reads the operator lease's processes.
+  The access level, tier and Hive Stand checks; the `cell.inspection_*` events and their Night
+  Veil boundary rows; a `guard.entrance_inspection_opened` push event sent to every other
+  enrolled device (codingrules 8.15 and 15), saying only that an Inspection opened and on which
+  Cell; the idle and hard timeouts, and Absconding, ending every open Inspection. *Exit:* opening
+  on a Cell with a running task pauses it, closing resumes it from its Handoff with no work
+  redone; `--alongside` leaves it running; a `SCRATCH` Cell refuses a shell; every other enrolled
+  device receives the push; an Inspection idle past `idle_minutes`, and one open during `hive
+  abscond`, each end within five seconds with one `cell.inspection_closed` carrying the right
+  reason; while an Inspection is open, a task dispatch, a new non-operator lease and a
+  `session.exec` on another lease of that Cell are all refused; after an Inspection on the Hive
+  Stand and one on a Nuc that ran `mysql -psecret` and edited a file, nothing from either
+  (command line, process, log line or file change) is in Bee Bread and no Warden episode or
+  Patrol ran meanwhile; on the Nuc, a lease's background process and an in-flight exec, including
+  a child that tried to leave its process group, were frozen for the whole Inspection and running
+  again after it. *Size:* large, 4 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs the separate guest-loopback fix landed
   first. Docker: an exec with a tty attached from the Hive Stand; QEMU: a virtio console on a
   Unix socket (a named pipe on Windows) with a getty from cloud-init; the Hive Stand: a local PTY
   in a new sub-package `hivemind/cell/local/pty/`, since `cell/` is where subprocess is allowed and
-  `cell/local/` already holds the ten modules codingrules 5.6 allows. A Night Veil Cell uses the same host-side attach, which
+  `cell/local/` already holds the ten modules codingrules 5.6 allows. Smoke on a Docker Cell
+  freezes every process in the container except the operator's exec and its children, by
+  `SIGSTOP` sent from the host to each process `docker top` lists, and `SIGCONT` on close;
+  the in-Cell Warden is among them, so the Queen expects its silence while the Cell is
+  `INSPECTED`. On a QEMU Cell the guest's processes are not frozen: there is no guest agent to do
+  it, so bees there stop only through the task pause, and the residual (a background process in
+  the guest could read the operator's terminal) is disclosed in the operator-lease ADR; the Hive
+  owns the machine and holds nothing of the operator's on it unless he types it. A Night Veil Cell
+  uses the same host-side attach, which
   crosses no network. A remote Inspection of a Virtual Cell is refused until its backend meets the
   loopback-listener rule above. *Exit:* through the same harness, the shell works on a Docker
   Cell, a QEMU Cell, a Night Veil Docker Cell and the Hive Stand; from an Inspection shell on a
@@ -3396,7 +3425,9 @@ in daily use.
   `10.0.2.2` or `host.docker.internal`, with a forged `Host: localhost`, is refused, and a backend
   that fails this check refuses remote Inspection; after an Inspection on a Docker Cell that ran
   `mysql -psecret`, nothing from it is in Bee Bread and the in-Cell Warden ran no episode
-  meanwhile; `--alongside` on a Virtual Cell is refused. *Size:* medium, 3 agent-days.
+  meanwhile; `--alongside` on a Virtual Cell is refused; on the Docker Cell a bee's background
+  process is stopped for the whole Inspection and running after it, and the Queen raised no
+  stalled-Warden Alarm. *Size:* medium, 3.5 agent-days.
 - [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
   behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
   gains its allow-list row. *Exit:* a device without the scope gets 403, one without fresh step-up
@@ -3412,7 +3443,7 @@ in daily use.
   with a retention window, announced in the client; refused on Night Veil. *Exit:* a recorded
   session replays; an unrecorded one leaves no bytes anywhere. *Size:* small, 1.5 agent-days.
 
-Track A total: about 28 agent-days.
+Track A total: about 30 agent-days.
 
 Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
 Cell's screen, and every Real Cell exit below is run with it up; until it lands, 15.11a and 15.11b
@@ -3542,11 +3573,11 @@ attached to the Entrance relay by a test harness.
   unrecorded one leaves no bytes anywhere; a Night Veil Cell refuses to record. *Size:* small, 1.5
   agent-days.
 
-Track B total: about 36 agent-days, plus about 3 more if the spike chooses own capture over RFB.
+Track B total: about 35 agent-days, plus about 3 more if the spike chooses own capture over RFB.
 
 Steps are sized for one PR each. 15.3a stays whole because the executor must never ship without
-its opt-in and lease walls, 15.4b because the pause, the freeze and the trail events only make
-sense landed together, and 15.14a because capture and input are proven together.
+its opt-in and lease walls, 15.4b because the pause, the freeze, the refusals and the trail
+events only make sense landed together, and 15.14a because capture and input are proven together.
 
 ### Exit criteria
 
@@ -3585,9 +3616,14 @@ sense landed together, and 15.14a because capture and input are proven together.
   opt-in as human-on-device only, behind OS elevation in a store the packet cannot write; the
   operator lease closed to every `cell.request` and `session.*` request; `inspect.open` built
   only by the Queen's door from an Entrance-built `StepUpProof`, and every `inspect.*` frame
-  checked for its warrant at the swarm listener; Smoke freezing the leases' background processes
-  and silencing every Warden of the Cell, chosen over a second account; the heartbeat opt-in
-  field, outside 13.4a's dire pattern).
+  checked against the door's live table at `FrameSender.send`, with `inspect.close` as the
+  system-close path that never needs a proof; Smoke freezing the leases' processes and silencing
+  every Warden of the Cell, chosen over a second account; the heartbeat opt-in field, outside
+  13.4a's dire pattern. Disclosed and accepted residuals: on macOS a process that left its group
+  is not frozen; on a QEMU Cell the guest's processes are not frozen; persistence planted before
+  the Inspection (cron, `systemd --user` units, LaunchAgents, Scheduled Tasks, `PATH` shims) runs
+  outside any lease and is not frozen, though the clean shell does not load it. Operator
+  guidance: never type an elevation secret on a device that has hosted `FULL` leases).
 - `inspection-channel-on-waggle.md` (the keyed byte channel inside a signed open; sequence numbers
   instead of the replay window; never queued; the amendments to gateway-contract section 6, making
   the `inspect.*` open kinds for shell and screen Queen-only under rule 3 so a Warden's signature
