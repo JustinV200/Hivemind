@@ -1,10 +1,22 @@
 # Runbooks
 
-Operational how-tos for running a Hive: requeening a crashed Queen, Supersedure (moving the Hive
-Stand to another machine), remote access, Absconding (the human-only break-glass teardown of the
-whole Hive), and backups. Populated as each of those capabilities lands, mostly in phase 13
-(Resilience).
+How-tos for running a Hive day to day and for the rare bad day. Each one says what to type, what
+the Hive does on its own, and what to check when it does not work. `docs/security.md` is the
+security model they all sit inside.
 
+- [`real-cells.md`](real-cells.md): running work on the Hive Stand and other borrowed machines: the
+  access levels, what a lease does and leaves behind, Leavings (`hive cells leavings`), and what to
+  do with a stuck lease or a Cell that misbehaves (release, isolate, sting-cut, abscond).
+- [`wardens-and-alarms.md`](wardens-and-alarms.md): how an Alarm climbs from a Worker to you, what
+  the shipped escalation policy does with each kind, answering `hive inbox`, and swapping in your
+  own policy file.
+- [`clustering.md`](clustering.md): what the Hive does when a model provider goes away, clustering
+  and waking by hand (`hive cluster`, `hive wake`, `hive cluster status`), and a goal that stays
+  paused.
+- [`nucs.md`](nucs.md): giving a Swarm device its own Warden and model server, what it does while
+  its link is down, and taking it back down.
+- [`remote-access.md`](remote-access.md): exposing the Entrance over Tailscale, enrolling a phone, a
+  laptop or a program, a lost device, and the Entrance Reducer.
 - [`moving-a-slot-to-local.md`](moving-a-slot-to-local.md): moving one model slot (worker, ripener,
   judge, embedder, transcriber) from a hosted provider to a local server with manifest edits only:
   add the provider and its Forage map entry, bind the slot with the hosted binding as fallback, set
@@ -34,3 +46,5 @@ whole Hive), and backups. Populated as each of those capabilities lands, mostly 
 - [`chaos.md`](chaos.md): the nightly chaos suite (roadmap step 13.6): the bar every scenario meets
   (nothing hangs, every goal ends explicitly, no lease, grant or Virtual Cell left open), what each
   scenario breaks, how to run it and the Nuc leg, and what a failure means.
+- [`phase6-windows-exit-check.md`](phase6-windows-exit-check.md): the one-time check, run by hand on
+  a Windows Hive Stand, that a browser-only goal succeeds through Playwright with no display.
