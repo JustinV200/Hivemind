@@ -16,10 +16,10 @@ See Also:
 
 Public API:
     - supersede_command, Verdict: `hive supersede` (command).
-    - doctor_command: `hive doctor --supersedure` (doctor).
+    - supersedure_doctor: `hive doctor --supersedure`, called by `hivemind.cli.doctor` (doctor).
 """
 
 from hivemind.cli.supersede.command import Verdict, supersede_command
-from hivemind.cli.supersede.doctor import doctor_command
+from hivemind.cli.supersede.doctor import supersedure_doctor
 
-__all__ = ["Verdict", "doctor_command", "supersede_command"]
+__all__ = ["Verdict", "supersede_command", "supersedure_doctor"]

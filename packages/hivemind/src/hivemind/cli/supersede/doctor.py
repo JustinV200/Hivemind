@@ -4,13 +4,14 @@ Roadmap 13.2a (codingrules 8.16: "`hive doctor --supersedure <node>` checks all 
 anything starts"). It acts as the Hive Stand's console over the running `hive serve`'s loopback
 listener and reads `GET /v1/hive/supersede/{node}/preflight`, which runs the same test `hive
 supersede` runs first. Each check prints as PASSED, FAILED or UNVERIFIED with one line of why; the
-command exits 0 only when nothing failed. The rest of `hive doctor` (the environment and manifest
-checks) is roadmap 14.2's and is not built yet, so the command asks for `--supersedure`.
+command exits 0 only when nothing failed. `hive doctor` itself (roadmap 14.2,
+`hivemind.cli.doctor`) runs the environment and manifest checks and hands `--supersedure NODE`
+here.
 
 Fits into the Hive:
-    Layer 7 (the terminal), inside `hivemind.cli.supersede`. Registered as `hive doctor` by
-    `hivemind.cli.app`. Calls into `hivemind.cli.entrance.console`, `hivemind.cli.landing`,
-    `hivemind.cli.stores` (the JSON flag) and the route's view only.
+    Layer 7 (the terminal), inside `hivemind.cli.supersede`. Called by
+    `hivemind.cli.doctor.command` for `hive doctor --supersedure`. Calls into
+    `hivemind.cli.entrance.console`, `hivemind.cli.landing` and the route's view only.
 
 Key invariants:
     - Read-only: nothing on the Hive changes.
@@ -21,33 +22,25 @@ See Also:
 
 from __future__ import annotations
 
-from typing import Annotated
-
 import typer
 
 from hivemind.cli.entrance.console import Stand, run_console
 from hivemind.cli.landing import SignedIn
-from hivemind.cli.stores import JsonOption
 from hivemind.entrance.routes.isolation import PreflightView
 
 GROUP = "doctor"
 
-SupersedureOption = Annotated[
-    str | None,
-    typer.Option("--supersedure", help="Run the Supersedure candidate test for this node."),
-]
-
-__all__ = ["doctor_command"]
+__all__ = ["supersedure_doctor"]
 
 
-def doctor_command(
-    ctx: typer.Context, supersedure: SupersedureOption = None, as_json: JsonOption = False
-) -> None:
-    """Check the Hive; today, whether NODE can become its Hive Stand (`--supersedure NODE`)."""
-    if supersedure is None:
-        typer.echo("hive doctor: only --supersedure NODE is built yet (roadmap 14.2).", err=True)
-        raise typer.Exit(code=2)
-    node = supersedure
+def supersedure_doctor(ctx: typer.Context, node: str, as_json: bool) -> None:
+    """Print whether NODE can become the Hive Stand; exit 1 when any check failed.
+
+    Args:
+        ctx: The command's context, carrying the console's `--manifest` and `--password-stdin`.
+        node: The candidate Swarm node.
+        as_json: Print the route's view as JSON instead of one line per check.
+    """
 
     async def check(board: SignedIn, _stand: Stand) -> PreflightView:
         """Read the candidate test on loopback."""

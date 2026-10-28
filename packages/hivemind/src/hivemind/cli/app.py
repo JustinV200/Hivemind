@@ -13,8 +13,8 @@ Fits into the Hive:
     hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run, hivemind.cli.memory,
     hivemind.cli.forage, hivemind.cli.readback (cells, inbox, wardens, cluster) and
     hivemind.cli.recordings, hivemind.cli.honey, hivemind.cli.serve (`hive serve`, roadmap
-    step 10.5) and hivemind.cli.swarm (`hive swarm`, step 11.12) now; later phases add friends
-    through their own public APIs.
+    step 10.5), hivemind.cli.swarm (`hive swarm`, step 11.12), and hivemind.cli.doctor
+    (`hive doctor`, step 14.2).
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -63,6 +63,7 @@ from hivemind.cli import (
 )
 from hivemind.cli.abscond import abscond_command
 from hivemind.cli.backup import backup_command, restore_command
+from hivemind.cli.doctor import doctor_command
 from hivemind.cli.entrance import app as entrance_app
 from hivemind.cli.entrance.console import ConsoleCommand
 from hivemind.cli.keys import app as keys_app
@@ -70,7 +71,7 @@ from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_comman
 from hivemind.cli.remote import app as remote_app
 from hivemind.cli.run import RunCommand, run_command
 from hivemind.cli.serve import serve_command
-from hivemind.cli.supersede import doctor_command, supersede_command
+from hivemind.cli.supersede import supersede_command
 from hivemind.cli.swarm import app as swarm_app
 from hivemind.cli.version import collect_version_info, format_version
 from hivemind.common.logging import configure_logging
@@ -159,14 +160,13 @@ app.command("abscond")(abscond_command)
 # Roadmap step 13.7: one checksummed archive of the Hive's stores, and putting one back.
 app.command("backup")(backup_command)
 app.command("restore")(restore_command)
-# Roadmap step 13.2a: Supersedure, the human's move of the Hive Stand, and its candidate test. Both
-# act as the console over a running serve's loopback listener (`--settle` alone runs offline).
+# Roadmap step 13.2a: Supersedure, the human's move of the Hive Stand. It acts as the console over
+# a running serve's loopback listener (`--settle` alone runs offline).
 app.command("supersede", cls=ConsoleCommand)(supersede_command)
+# Roadmap step 14.2: the pre-flight check. `hive doctor` carries the console's options because
+# `--supersedure NODE` (13.2a's candidate test) runs as the console; its own checks only read the
+# manifest those options name.
 app.command("doctor", cls=ConsoleCommand)(doctor_command)
-# ──────────────────────────────────────────────────────────────────────────────
-# Added by later roadmap steps, registered here so this file stays the single place that
-# assembles the CLI: the rest of `hive doctor` (environment and manifest diagnostics, 14.2).
-# ──────────────────────────────────────────────────────────────────────────────
 
 
 def _print_version(show_version: bool) -> None:

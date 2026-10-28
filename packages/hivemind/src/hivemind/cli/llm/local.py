@@ -68,7 +68,7 @@ ProviderOption = Annotated[
     str, typer.Option("--provider", help="The [llm.providers.<name>] key of the server.")
 ]
 
-__all__ = ["LocalCliDeps", "deps_from_context", "register_local_commands"]
+__all__ = ["LocalCliDeps", "ModelListing", "deps_from_context", "register_local_commands"]
 
 
 @dataclass(frozen=True, slots=True)
