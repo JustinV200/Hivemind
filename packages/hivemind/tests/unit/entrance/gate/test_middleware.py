@@ -1,7 +1,9 @@
-"""Test hivemind.entrance.gate.middleware's body limit: small JSON, or a row's own allowance.
+"""Test hivemind.entrance.gate.middleware's body limit and the loopback gate's stand key.
 
 Every body is read whole before a route sees it, within ``MAX_BODY_BYTES``; a route that takes a
 raw body (the voice clip) declares its own allowance, which applies to that method and path alone.
+A loopback-only row needs this boot's stand key, in a header or the stand link's cookie, because
+a Virtual Cell's guest forwarded onto loopback is otherwise indistinguishable (ADR-0067).
 
 Fits into the Hive:
     Mirrors src/hivemind/entrance/gate/middleware.py (codingrules section 3); its other wrappers
@@ -14,9 +16,15 @@ Key invariants:
 from __future__ import annotations
 
 import httpx
-from starlette.types import Receive, Scope, Send
+import pytest
+from starlette.routing import compile_path
+from starlette.types import ASGIApp, Receive, Scope, Send
 
-from hivemind.entrance.gate import MAX_BODY_BYTES, BodyLimit, RawBody
+from hivemind.entrance.auth.limits import RateLimiter
+from hivemind.entrance.expose import STAND_COOKIE, STAND_HEADER
+from hivemind.entrance.gate import MAX_BODY_BYTES, AddressLimit, BodyLimit, LoopbackGate, RawBody
+from hivemind.manifest import EntranceSection
+from waggle.clock import FakeClock
 
 _BIG = RawBody(media_types=("audio/wav",), max_bytes=4 * MAX_BODY_BYTES, read_timeout_s=5.0)
 
@@ -52,3 +60,78 @@ async def test_a_raw_body_row_is_still_bounded_by_its_own_allowance() -> None:
         refused = await client.post("/v1/chat/audio", content=b"\x00" * (_BIG.max_bytes + 1))
 
     assert refused.status_code == 413
+
+
+# The stand key's tests (ADR-0067). A Virtual Cell's guest reaches the loopback listener through
+# QEMU's SLIRP host alias or Docker Desktop's host gateway: the forwarder connects from 127.0.0.1
+# and the guest writes a loopback Host itself, so these requests look exactly like the guest's.
+_PORT = 8710
+_KEY = "stand-key-for-this-boot"
+_GUEST = {"Host": f"localhost:{_PORT}"}
+_APPROVE = "/v1/entrance/pending/device_0000000000000000000000000A/approve"
+
+
+def _gate(app: ASGIApp = _echo_length) -> httpx.AsyncClient:
+    """A client of the loopback gate guarding the approve row, as SLIRP or Docker forwards it."""
+    rows = [("POST", compile_path("/v1/entrance/pending/{device_id}/approve")[0])]
+    gate = LoopbackGate(app, _PORT, _KEY, rows)
+    transport = httpx.ASGITransport(app=gate, client=("127.0.0.1", 50000))
+    return httpx.AsyncClient(transport=transport, base_url=f"http://localhost:{_PORT}")
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "extra", "status"),
+    [
+        ("POST", _APPROVE, {}, 403),  # The guest: loopback in every way it can show.
+        ("POST", _APPROVE, {STAND_HEADER: "a-guess"}, 403),
+        ("POST", _APPROVE + "/", {}, 404),  # Not the row (the echo app's 404 stands for routing).
+        ("POST", _APPROVE, {STAND_HEADER: _KEY}, 200),  # The console's CLI.
+        ("POST", _APPROVE, {"Cookie": f"theme=dark; {STAND_COOKIE}={_KEY}"}, 200),  # Its browser.
+        ("POST", "/v1/auth/challenge", {}, 200),  # A row on both listeners needs no stand key.
+        ("GET", _APPROVE, {}, 200),  # Another method is another row.
+    ],
+)
+async def test_a_loopback_only_row_is_refused_without_the_stand_key(
+    method: str, path: str, extra: dict[str, str], status: int
+) -> None:
+    async def echo_or_404(scope: Scope, receive: Receive, send: Send) -> None:
+        """Answer 404 for a path no row has, else 200, as the router would."""
+        found = scope["path"] != _APPROVE + "/"
+        await send({"type": "http.response.start", "status": 200 if found else 404, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    async with _gate(echo_or_404) as client:
+        response = await client.request(method, path, headers={**_GUEST, **extra})
+
+    assert response.status_code == status
+
+
+@pytest.mark.parametrize(
+    ("method", "key", "status"),
+    [("GET", _KEY, 303), ("GET", "a-guess", 403), ("GET", "", 403), ("POST", _KEY, 403)],
+)
+async def test_the_stand_link_sets_the_cookie_for_the_right_key_alone(
+    method: str, key: str, status: int
+) -> None:
+    async with _gate() as client:
+        response = await client.request(method, f"/stand?key={key}", headers=_GUEST)
+
+    assert response.status_code == status
+    if status == 303:
+        assert response.headers["location"] == "/"
+        cookie = response.headers["set-cookie"]
+        assert cookie.startswith(f"{STAND_COOKIE}={_KEY};")
+        assert "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    else:
+        assert "set-cookie" not in response.headers
+
+
+async def test_a_guest_flooding_loopback_cannot_starve_the_stand_key_holder() -> None:
+    section = EntranceSection(rate_limit_per_address=2)
+    limited = AddressLimit(_echo_length, RateLimiter.from_section(section, FakeClock()))
+    async with _gate(limited) as client:
+        guest = [(await client.get("/v1/devices", headers=_GUEST)).status_code for _ in range(3)]
+        console = await client.get("/v1/devices", headers={**_GUEST, STAND_HEADER: _KEY})
+
+    assert guest == [200, 200, 429]
+    assert console.status_code == 200

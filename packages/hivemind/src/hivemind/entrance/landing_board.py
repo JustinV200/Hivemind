@@ -267,7 +267,9 @@ def _bare_refusals() -> list[JsonValue]:
             "status": 403,
             "listeners": ["loopback"],
             "when": "The Host is not a loopback name on this listener's port, or the request "
-            "carries Forwarded, Via, X-Real-IP, X-Forwarded-* or Tailscale-*.",
+            "carries Forwarded, Via, X-Real-IP, X-Forwarded-* or Tailscale-*, or it names a "
+            "loopback-only operation without this boot's stand key in X-Hive-Stand or the "
+            "hive_stand cookie.",
         },
         {
             "status": 429,

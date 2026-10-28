@@ -30,7 +30,7 @@ from waggle.clock import SystemClock
 runner = CliRunner()
 
 # A listener nobody answers on: every refusal below comes before anything is sent to it.
-_RECORD = ServeRecord(pid=1, host="127.0.0.1", port=9, started_at=datetime.now(UTC))
+_RECORD = ServeRecord(pid=1, host="127.0.0.1", port=9, stand_key="k", started_at=datetime.now(UTC))
 
 
 def _devices(path: Path, password: str = PASSWORD) -> Result:

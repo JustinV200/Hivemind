@@ -9,7 +9,9 @@ tables, the session book, the push stack, the limits and the seams are shared. T
 the socket really got shapes the loopback origin, relying party and Host check, which is why the
 socket is bound first and the applications are built here, afterwards. Voice (roadmap step 10.5f)
 is handed in built, or not at all: with it, the voice route is mounted (``Switch.VOICE``) and the
-rate limiter carries each device's audio budget; without it, the route is never mounted.
+rate limiter carries each device's audio budget; without it, the route is never mounted. The
+listeners draw a fresh stand key per build (ADR-0067): the loopback application refuses every
+loopback-only row without it, and ``hive serve`` publishes it on the Hive Stand alone.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.runtime``. Called by the
@@ -161,7 +163,7 @@ def build_entrance(parts: EntranceParts, loopback: socket.socket) -> BuiltEntran
         images=parts.images,
         voice=parts.voice,
     )
-    listeners.mount(_apps(parts, services, port))
+    listeners.mount(_apps(parts, services, port, listeners.stand_key))
     follower = ReduceOrderFollower(hub, reducer, shared.records.trail)
     workers = EntranceWorkers(hub, push.outbox, follower)
     return BuiltEntrance(HiveEntrance(services, listeners, workers), PushHumanChannel(push.outbox))
@@ -345,7 +347,9 @@ def _remote_setup(parts: EntranceParts) -> RemoteSetup | None:
     return RemoteSetup(plan.remote, tls, tunnel)
 
 
-def _apps(parts: EntranceParts, services: EntranceServices, port: int) -> dict[Listener, ASGIApp]:
+def _apps(
+    parts: EntranceParts, services: EntranceServices, port: int, stand_key: str
+) -> dict[Listener, ASGIApp]:
     """Build each served listener's application from the one route table."""
     settings = parts.settings
     table, document = route_table(), render_document()
@@ -363,6 +367,7 @@ def _apps(parts: EntranceParts, services: EntranceServices, port: int) -> dict[L
                 switches,
                 document,
                 bound_port=port,
+                stand_key=stand_key,
                 cors_origins=webview,
                 asset_links=links,
                 web_root=settings.web_root,

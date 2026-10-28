@@ -43,7 +43,12 @@ from hivemind.entrance.auth import SoftPasskey
 from hivemind.entrance.auth.limits import ByteBudget
 from hivemind.entrance.auth.session import SOCKET_HELLO_DEADLINE_S
 from hivemind.entrance.enrol import CONSOLE_CAPABILITIES, DeviceStatus, EntranceIdentity
-from hivemind.entrance.expose import ExposurePlan, ListenerPlan, load_or_create_authority
+from hivemind.entrance.expose import (
+    STAND_HEADER,
+    ExposurePlan,
+    ListenerPlan,
+    load_or_create_authority,
+)
 from hivemind.entrance.gate import HiveReads, HoneyReads, LlmReads
 from hivemind.entrance.images import ImageRules, ImageServices
 from hivemind.entrance.notify import HumanChannelRelay
@@ -202,7 +207,9 @@ class ServingRig:
     def client(self, remote: bool = False) -> LandingClient:
         """Return a device client for one listener; the rig closes it on exit."""
         base = self.remote_url if remote else self.loopback_url
-        http = httpx.AsyncClient(base_url=base, timeout=5.0)
+        # On loopback the rig is the Hive Stand, so it holds the stand key, as the console does.
+        stand = {} if remote else {STAND_HEADER: self.entrance.listeners.stand_key}
+        http = httpx.AsyncClient(base_url=base, timeout=5.0, headers=stand)
         self.http.append(http)
         return LandingClient(http, self.hive_id, self.clock)
 

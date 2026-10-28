@@ -11,7 +11,10 @@ and a crash leaves no trace), so the proof is a lock: the **serve lock**, an exc
 operating system holds on ``<db>.serve.lock`` for as long as its holder's process has it open
 (``fcntl.flock`` on POSIX, ``msvcrt.locking`` on Windows), released by the kernel even when the
 holder is killed. ``hive serve`` holds it for its whole life and publishes the **serve record**
-(``<db>.serve.json``: its pid and its loopback listener's host and port) once the listener serves;
+(``<db>.serve.json``: its pid, its loopback listener's host and port, and this boot's stand key,
+which the loopback-only routes need, ADR-0067) once the listener serves: a file beside the
+database, which no Virtual Cell mounts, because the stand key is what tells the Hive Stand apart
+from a Cell's guest forwarded onto loopback;
 an offline operation holds the same lock for its duration, so neither can run beside the other.
 The lock file also names its holder, for the refusal a second holder gets.
 
@@ -57,7 +60,7 @@ from hivemind.common.logging import get_logger
 
 LOCK_SUFFIX = ".serve.lock"  # Beside the Hive's database: one lock per Hive, whatever the manifest.
 QUEEN_LOCK_SUFFIX = ".queen.lock"  # Beside it too: one running Queen per Brood Chamber.
-RECORD_SUFFIX = ".serve.json"  # The running serve's pid and loopback listener.
+RECORD_SUFFIX = ".serve.json"  # Its pid, listener and stand key; the bee floor names it too.
 SERVE_HOLDER = "hive serve"  # What a running serve's lock file says.
 # Windows locks bytes, and a locked byte cannot be read by anyone else: the lock sits far past the
 # holder's name, so a refused process can still read who holds it.
@@ -98,6 +101,9 @@ class ServeRecord(BaseModel):
     pid: int = Field(ge=1, description="The serving process.")
     host: str = Field(min_length=1, description="The loopback listener's host, as bound.")
     port: int = Field(ge=1, le=65_535, description="The loopback listener's port, as bound.")
+    stand_key: str = Field(
+        min_length=1, repr=False, description="This boot's stand key (ADR-0067); never logged."
+    )
     started_at: datetime = Field(description="When the listener started serving.")
 
     @property
@@ -181,6 +187,7 @@ def publish_serve_record(db: Path, record: ServeRecord) -> Iterator[None]:
     """
     path = db.with_name(db.name + RECORD_SUFFIX)
     # Atomic: a reader sees the old file, no file, or the whole new one, never half of one.
+    # mkstemp creates it 0600 on POSIX, so the stand key inside is the operator account's alone.
     handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     with os.fdopen(handle, "w", encoding="utf-8") as stream:
         stream.write(record.model_dump_json())

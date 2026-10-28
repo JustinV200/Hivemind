@@ -39,7 +39,7 @@ import typer
 
 from hivemind.cli.compose.entrance import ServedHive, build_served_hive, serve_hive
 from hivemind.cli.stores import DEFAULT_MANIFEST, ManifestOption, load_manifest_or_exit
-from hivemind.entrance.expose import ExposureRefusedError
+from hivemind.entrance.expose import STAND_LINK_PATH, ExposureRefusedError
 from hivemind.entrance.runtime import HiveEntrance
 from waggle.clock import SystemClock
 
@@ -128,7 +128,11 @@ def _loop_takes_signals(loop: asyncio.AbstractEventLoop, stop: asyncio.Event) ->
 def _announce(entrance: HiveEntrance) -> None:
     """Print where the Entrance answers."""
     listeners = entrance.listeners
-    typer.echo(f"Hive Entrance on http://localhost:{listeners.loopback_port} (loopback)")
+    origin = f"http://localhost:{listeners.loopback_port}"
+    typer.echo(f"Hive Entrance on {origin} (loopback)")
+    # The browser on the Hive Stand opens this once to administer devices (ADR-0067); a Cell
+    # never sees this terminal, and the key changes with every serve.
+    typer.echo(f"Hive Stand browser link: {origin}{STAND_LINK_PATH}?key={listeners.stand_key}")
     # The remote socket is bound before start returns, while uvicorn may still be finishing its
     # own startup: a bound port is the listener, whereas `remote_listening` read here once told an
     # operator an Entrance that was only starting had been reduced (a real `hive serve` run).

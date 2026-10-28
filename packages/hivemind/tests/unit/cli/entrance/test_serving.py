@@ -61,7 +61,7 @@ def test_the_lock_is_free_again_once_its_holder_leaves(tmp_path: Path) -> None:
 
 def test_a_published_record_is_read_back_and_removed_on_exit(tmp_path: Path) -> None:
     db = tmp_path / "hive.sqlite3"
-    record = ServeRecord(pid=4242, host="127.0.0.1", port=8710, started_at=_STARTED)
+    record = ServeRecord(pid=4242, host="127.0.0.1", port=8710, stand_key="k", started_at=_STARTED)
 
     with publish_serve_record(db, record):
         during = read_serve_record(db)
@@ -79,7 +79,7 @@ def test_a_torn_or_foreign_record_reads_as_none(tmp_path: Path) -> None:
 
 
 def test_an_ipv6_loopback_record_brackets_its_host() -> None:
-    record = ServeRecord(pid=1, host="::1", port=8710, started_at=_STARTED)
+    record = ServeRecord(pid=1, host="::1", port=8710, stand_key="k", started_at=_STARTED)
 
     assert record.origin == "http://[::1]:8710"
 

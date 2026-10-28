@@ -204,6 +204,7 @@ async def serve_hive(served: ServedHive) -> AsyncIterator[HiveEntrance]:
                 pid=os.getpid(),
                 host=split_host_port(manifest.entrance.bind)[0],
                 port=entrance.listeners.loopback_port,
+                stand_key=entrance.listeners.stand_key,
                 started_at=served.hive.clock.now(),
             )
             with publish_serve_record(db, record):

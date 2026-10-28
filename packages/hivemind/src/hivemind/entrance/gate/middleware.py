@@ -7,8 +7,13 @@ frame-ancestors 'none'`` (and ``nosniff``, ``no-referrer``) to every response, s
 foreign script in the Entrance's origin or frame it; ``LoopbackGate`` (loopback listener only)
 answers a bare 403 to any request whose ``Host`` is not a loopback name on this listener's port or
 that carries a forwarding header, so no proxy or DNS-rebinding page can front the routes that
-approve devices; ``AddressLimit`` holds every peer address to ``rate_limit_per_address``,
-unauthenticated routes and WebSocket handshakes included, and answers 429 past it; ``BodyLimit``
+approve devices, and to a request for a loopback-only row without this boot's stand key, so no
+Virtual Cell guest forwarded onto loopback reaches them either (ADR-0067); it also answers the
+stand link (``/stand?key=``) by setting the stand cookie for the Hive Stand's browser.
+``AddressLimit`` holds every peer address to ``rate_limit_per_address``, unauthenticated routes
+and WebSocket handshakes included, and answers 429 past it; a request carrying the stand key is
+counted in a bucket of its own, so a guest flooding ``127.0.0.1`` cannot starve the operator's
+console of the door it administers the Hive through; ``BodyLimit``
 reads a request body in full, within ``BODY_READ_TIMEOUT_S`` and ``MAX_BODY_BYTES`` (413 or 408
 past them), so no client can hold a connection open or fill memory with an endless body, and the
 route's signature check hashes exactly the bytes that were read. A route that takes a raw body
@@ -21,24 +26,34 @@ Fits into the Hive:
 
 Key invariants:
     - The loopback check and the address limit run before routing, on HTTP and WebSocket alike.
+    - A loopback-only row is never reached without the stand key, whatever else the request holds.
     - A refused WebSocket is closed before it is accepted (the server answers 403).
     - No header value is logged.
 
 See Also:
     - docs/adr/0041-landing-board-enrolment-two-factor-login-and-exposure.md, "Exposure never means
       the open internet" and "Browsers get nothing that can run foreign script".
-    - hivemind.entrance.expose.loopback for the Host and forwarding-header rule.
+    - hivemind.entrance.expose.loopback for the Host and forwarding-header rule and the stand key.
+    - docs/adr/0067-loopback-only-rows-need-the-stand-key.md for why loopback alone is not enough.
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
+from urllib.parse import parse_qs
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from hivemind.entrance.auth.limits import RateLimiter
-from hivemind.entrance.expose import loopback_request_allowed
+from hivemind.entrance.expose import (
+    STAND_COOKIE,
+    STAND_HEADER,
+    STAND_LINK_PATH,
+    loopback_request_allowed,
+    stand_key_presented,
+)
 from hivemind.entrance.gate.spec import RawBody
 
 CONTENT_SECURITY_POLICY = "default-src 'self'; object-src 'none'; frame-ancestors 'none'"
@@ -55,6 +70,13 @@ _TOO_SLOW = 408  # A body that did not arrive in time.
 MAX_BODY_BYTES = 262_144  # 256 KiB: every Landing Board body is small JSON (a held one is 64 KiB).
 BODY_READ_TIMEOUT_S = 30.0  # A small body arrives in well under a second; this is a stalled one.
 _POLICY_VIOLATION = 1008  # RFC 6455: a WebSocket refused for policy (sent before accepting).
+_SEE_OTHER = 303  # The stand link's answer: the cookie is set, now open the app at "/".
+_STAND_SCOPE_KEY = "hivemind.entrance.stand"  # True in the scope when the stand key came along.
+_STAND_BUCKET = "stand:"  # Prefixes a stand-key holder's address: its own rate bucket.
+# The stand cookie: script never reads it, and no other site's page makes the browser send it.
+_STAND_COOKIE_ATTRIBUTES = "Path=/; HttpOnly; SameSite=Strict"
+# A loopback-only row as the gate matches it before routing: its method and its compiled path.
+StandRow = tuple[str, re.Pattern[str]]
 
 __all__ = [
     "BODY_READ_TIMEOUT_S",
@@ -64,6 +86,7 @@ __all__ = [
     "BodyLimit",
     "LoopbackGate",
     "SecurityHeaders",
+    "StandRow",
 ]
 
 
@@ -94,28 +117,59 @@ class SecurityHeaders:
 
 
 class LoopbackGate:
-    """Refuse a loopback request with a foreign ``Host`` or any forwarding header: a bare 403."""
+    """Refuse a foreign ``Host``, any forwarding header, or a stand row without the stand key."""
 
-    def __init__(self, app: ASGIApp, bound_port: int) -> None:
+    def __init__(
+        self, app: ASGIApp, bound_port: int, stand_key: str, stand_rows: Sequence[StandRow]
+    ) -> None:
         """Wrap ``app``.
 
         Args:
             app: The loopback application.
             bound_port: The port the loopback listener actually bound (an OS-chosen 0 resolved).
+            stand_key: This boot's stand key (``hivemind.entrance.expose.mint_stand_key``).
+            stand_rows: The loopback-only rows, each refused without the stand key.
         """
         self._app = app
         self._port = bound_port
+        self._key = stand_key
+        self._rows = tuple(stand_rows)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Forward an allowed request; refuse any other before it reaches a route."""
         if scope["type"] not in _GATED_SCOPES:
             await self._app(scope, receive, send)
             return
-        names, host = _header_names_and_host(scope)
-        if loopback_request_allowed(host, names, self._port):
-            await self._app(scope, receive, send)
+        names, headers = _header_names_and_values(scope)
+        if not loopback_request_allowed(headers.get("host"), names, self._port):
+            await _refuse(scope, send, _FORBIDDEN)
             return
-        await _refuse(scope, send, _FORBIDDEN)
+        if scope["type"] == "http" and scope.get("path") == STAND_LINK_PATH:
+            await self._stand_link(scope, send)
+            return
+        presented = stand_key_presented(self._key, headers.get(STAND_HEADER), headers.get("cookie"))
+        # Loopback is not proof of the Hive Stand: a Cell's forwarded guest looks the same.
+        if not presented and self._stand_only(scope):
+            await _refuse(scope, send, _FORBIDDEN)
+            return
+        await self._app({**scope, _STAND_SCOPE_KEY: presented}, receive, send)
+
+    def _stand_only(self, scope: Scope) -> bool:
+        """Return whether the request names a loopback-only row (a socket never does)."""
+        method, path = str(scope.get("method", "")), str(scope.get("path", ""))
+        return any(method == row and pattern.fullmatch(path) for row, pattern in self._rows)
+
+    async def _stand_link(self, scope: Scope, send: Send) -> None:
+        """Answer the stand link: set the stand cookie for the right key, refuse any other."""
+        query = parse_qs(bytes(scope.get("query_string", b"")).decode("latin-1"))
+        offered = query.get("key", [""])[0]
+        if scope.get("method") != "GET" or not stand_key_presented(self._key, offered, None):
+            await _refuse(scope, send, _FORBIDDEN)
+            return
+        cookie = f"{STAND_COOKIE}={self._key}; {_STAND_COOKIE_ATTRIBUTES}"
+        headers = [(b"location", b"/"), (b"set-cookie", cookie.encode("ascii"))]
+        await send({"type": "http.response.start", "status": _SEE_OTHER, "headers": headers})
+        await send({"type": "http.response.body", "body": b""})
 
 
 class AddressLimit:
@@ -138,6 +192,9 @@ class AddressLimit:
             return
         client = scope.get("client")
         address = str(client[0]) if client else ""
+        # The stand key's holder is the operator: a guest on the same address cannot exhaust it.
+        if scope.get(_STAND_SCOPE_KEY):
+            address = _STAND_BUCKET + address
         if self._limiter.allow_address(address):
             await self._app(scope, receive, send)
             return
@@ -217,16 +274,16 @@ def _replay(body: bytes, receive: Receive) -> Receive:
     return replay
 
 
-def _header_names_and_host(scope: Scope) -> tuple[list[str], str | None]:
-    """Return every header name (lower-cased) and the first ``Host`` value, as received."""
+def _header_names_and_values(scope: Scope) -> tuple[list[str], dict[str, str]]:
+    """Return every header name (lower-cased) and each name's first value, as received."""
     names: list[str] = []
-    host: str | None = None
+    values: dict[str, str] = {}
     for raw_name, raw_value in scope.get("headers", ()):
         name = bytes(raw_name).decode("latin-1").lower()
         names.append(name)
-        if name == "host" and host is None:
-            host = bytes(raw_value).decode("latin-1")
-    return names, host
+        # The first value wins, as it did for Host: a repeated header never overrides it.
+        values.setdefault(name, bytes(raw_value).decode("latin-1"))
+    return names, values
 
 
 async def _refuse(scope: Scope, send: Send, status: int) -> None:

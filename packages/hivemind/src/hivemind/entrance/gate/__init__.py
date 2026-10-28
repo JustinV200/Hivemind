@@ -27,7 +27,7 @@ Public API:
     - RouteSpec, SocketSpec, RouteTable, Access, RouteEffect, Switch, RawBody, PUBLIC,
       session_with, LOOPBACK_ONLY, BOTH_LISTENERS, C2_CAPABILITY, API_PREFIX, Endpoint: the
       table's rows (spec).
-    - SecurityHeaders, LoopbackGate, AddressLimit, BodyLimit, CONTENT_SECURITY_POLICY,
+    - SecurityHeaders, LoopbackGate, StandRow, AddressLimit, BodyLimit, CONTENT_SECURITY_POLICY,
       MAX_BODY_BYTES: the application wrappers (middleware).
     - Caller, gate_for, police, authorise, current_caller, current_arrival, arrival_of,
       CALLER_KEY: admission (admit).
@@ -74,6 +74,7 @@ from hivemind.entrance.gate.middleware import (
     BodyLimit,
     LoopbackGate,
     SecurityHeaders,
+    StandRow,
 )
 from hivemind.entrance.gate.params import ArrivalParam, CallerParam, Here, Services
 from hivemind.entrance.gate.reads import (
@@ -159,6 +160,7 @@ __all__ = [
     "SecurityHeaders",
     "Services",
     "SocketSpec",
+    "StandRow",
     "StepUpRequiredError",
     "StreamServices",
     "SwarmReads",

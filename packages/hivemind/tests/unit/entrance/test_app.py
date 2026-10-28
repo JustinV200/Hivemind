@@ -20,6 +20,8 @@ from pathlib import Path
 
 import httpx
 import pytest
+from builders.entrance.auth import PASSWORD
+from builders.entrance.landing import LandingClient
 from builders.entrance.serving import (
     PUBLIC_ORIGIN,
     RIG_SECTION,
@@ -30,6 +32,7 @@ from builders.entrance.serving import (
 
 from hivemind.entrance.app import OPENAPI_PATH, route_table
 from hivemind.entrance.auth.session import Listener
+from hivemind.entrance.expose import STAND_HEADER
 from hivemind.entrance.gate import (
     API_PREFIX,
     CONTENT_SECURITY_POLICY,
@@ -284,3 +287,26 @@ async def test_an_address_past_its_rate_is_answered_429_before_any_route() -> No
 
     assert statuses == [200, 200, 429]
     assert last.headers["content-security-policy"] == CONTENT_SECURITY_POLICY
+
+
+@pytest.mark.parametrize("holds_stand_key", [False, True])
+async def test_a_loopback_only_row_needs_the_stand_key_even_with_both_login_factors(
+    holds_stand_key: bool,
+) -> None:
+    # A Virtual Cell guest reaches the loopback listener through QEMU's SLIRP host alias or Docker
+    # Desktop's host gateway: the forwarder connects from 127.0.0.1 and the guest writes a
+    # loopback Host itself, so neither tells it apart. Worst case: it also holds the console's
+    # key and the password. Only the stand key, which never enters a Cell, keeps it out.
+    async with serving() as rig:
+        port = rig.entrance.listeners.loopback_port
+        headers = {"Host": f"localhost:{port}"}
+        guest = httpx.AsyncClient(base_url=rig.loopback_url, headers=headers, timeout=5.0)
+        rig.http.append(guest)
+        if holds_stand_key:
+            guest.headers[STAND_HEADER] = rig.entrance.listeners.stand_key
+        client = LandingClient(guest, rig.hive_id, rig.clock)
+        session = await client.login(rig.console, PASSWORD)  # An L+R row: open to both.
+
+        minted = await client.call(session, "POST", "/v1/entrance/invites", {"label": "x"})
+
+    assert minted.status_code == (201 if holds_stand_key else 403)

@@ -10,11 +10,12 @@ row is mounted behind the gate's dependency for its declared access; every appli
 refusals through the gate's handlers, serves the committed OpenAPI document as a static file (the
 interactive documentation routes are off: they load script from a CDN) and the Observation Hive's
 build when it exists, and is wrapped, outermost first, in the security headers, the loopback check
-(loopback only), the per-address rate limit and the body limit (a mounted raw-body row, the voice
-route's clip, with its own allowance). CORS is allowed for ``public_url`` alone, on the remote
-listener alone, plus the Android WebView's pinned origin on both listeners when
-``[entrance.android]`` is configured, which also adds ``/.well-known/assetlinks.json`` to both
-(outside ``/v1/``, so outside the document). A raw-body row is documented with its media types
+(loopback only: a loopback Host, no proxy, and the stand key for every loopback-only row, ADR-0067),
+the per-address rate limit and the body limit (a mounted raw-body row, the voice route's clip, with
+its own allowance). CORS is allowed for ``public_url`` alone, on the remote listener alone, plus
+the Android WebView's pinned origin on both listeners when ``[entrance.android]`` is configured,
+which also adds ``/.well-known/assetlinks.json`` to both (outside ``/v1/``, so outside the
+document). A raw-body row is documented with its media types
 as a binary request body and its allowance as ``x-hive-body``; a row's extra refusals join the
 ones every row declares.
 
@@ -25,6 +26,7 @@ Fits into the Hive:
 
 Key invariants:
     - One table builds both applications; the remote one never holds a loopback-only row.
+    - The loopback application never answers a loopback-only row without the stand key.
     - Every response, a server error or a refusal before routing included, carries the
       Content-Security-Policy header.
 
@@ -35,7 +37,7 @@ See Also:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
@@ -43,12 +45,14 @@ from fastapi.datastructures import Default
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import compile_path
 from starlette.types import ASGIApp
 
 from hivemind.entrance.android import serve_asset_links
 from hivemind.entrance.auth.session.models import Listener
 from hivemind.entrance.enrol.invite import INVITE_PATH
 from hivemind.entrance.gate import (
+    LOOPBACK_ONLY,
     AddressLimit,
     BodyLimit,
     EntranceServices,
@@ -58,6 +62,7 @@ from hivemind.entrance.gate import (
     RouteSpec,
     RouteTable,
     SecurityHeaders,
+    StandRow,
     Switch,
     gate_for,
     get_listener,
@@ -118,6 +123,7 @@ class ListenerOptions:
         switches: The manifest switches that are on (the steward route's).
         openapi_document: The committed OpenAPI document's bytes, served as a static file.
         bound_port: The port the loopback listener bound, for its Host check; None remotely.
+        stand_key: This boot's stand key, which every loopback-only row needs; None remotely.
         cors_origins: The origins CORS allows: ``public_url``'s on the remote listener, and the
             Android WebView's on both when ``[entrance.android]`` is configured; none otherwise.
         asset_links: The Digital Asset Links document, served at ``/.well-known/assetlinks.json``
@@ -129,6 +135,7 @@ class ListenerOptions:
     switches: frozenset[Switch]
     openapi_document: bytes
     bound_port: int | None = None
+    stand_key: str | None = field(default=None, repr=False)
     cors_origins: tuple[str, ...] = ()
     asset_links: bytes | None = None
     web_root: Path | None = None
@@ -185,7 +192,7 @@ def build_listener_app(
         The ASGI application to serve on that listener.
 
     Raises:
-        ValueError: A loopback application was asked for without its bound port.
+        ValueError: A loopback application was asked for without its bound port or stand key.
     """
     rows = tuple(table.routes_for(options.listener, options.switches))
     app = build_fastapi(table, rows, sockets=False)
@@ -212,7 +219,7 @@ def build_listener_app(
             allow_headers=_SIGNED_HEADERS,
             max_age=_CORS_MAX_AGE_S,
         )
-    return _wrapped(app, services, options, allowances)
+    return _wrapped(app, services, options, allowances, _stand_rows(rows))
 
 
 def _mount(app: FastAPI, route: RouteSpec) -> None:
@@ -322,16 +329,26 @@ def _wrapped(
     services: EntranceServices,
     options: ListenerOptions,
     allowances: dict[tuple[str, str], RawBody],
+    stand_rows: tuple[StandRow, ...],
 ) -> ASGIApp:
     """Wrap the application in the gate's checks; the security headers go outermost."""
     wrapped: ASGIApp = BodyLimit(app, allowances=allowances)
     wrapped = AddressLimit(wrapped, services.guards.limiter)
-    # Loopback alone checks Host and forwarding headers, against the port it really bound.
+    # Loopback alone checks Host, forwarding headers and the stand key, before the rate limit,
+    # so a refused guest never spends the operator's per-address bucket.
     if options.listener is Listener.LOOPBACK:
-        if options.bound_port is None:
-            raise ValueError("The loopback application needs its bound port for the Host check.")
-        wrapped = LoopbackGate(wrapped, options.bound_port)
+        if options.bound_port is None or options.stand_key is None:
+            raise ValueError("The loopback application needs its bound port and its stand key.")
+        wrapped = LoopbackGate(wrapped, options.bound_port, options.stand_key, stand_rows)
     return SecurityHeaders(wrapped)
+
+
+def _stand_rows(rows: tuple[RouteSpec, ...]) -> tuple[StandRow, ...]:
+    """Every loopback-only row, as the method and compiled path the loopback gate matches."""
+    # Starlette's own path compiler, so the gate matches exactly the paths the router would.
+    return tuple(
+        (row.method, compile_path(row.path)[0]) for row in rows if row.listeners == LOOPBACK_ONLY
+    )
 
 
 def _resource(path: str) -> str:

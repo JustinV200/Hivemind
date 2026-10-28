@@ -45,7 +45,7 @@ from hivemind.common.errors import InvariantViolationError
 from hivemind.common.logging import get_logger
 from hivemind.common.tasks import reap
 from hivemind.entrance.auth.session.models import Listener
-from hivemind.entrance.expose import ListenerPlan, TunnelSupervisor
+from hivemind.entrance.expose import ListenerPlan, TunnelSupervisor, mint_stand_key
 from hivemind.entrance.runtime.server import ListenerServer, bind_listener
 from hivemind.entrance.runtime.tls import RemoteTls
 from waggle.clock import Clock
@@ -109,6 +109,8 @@ class EntranceListeners:
             remote: How to start the remote listener; None in loopback mode.
             clock: Paces the loopback listener's restart backoff.
         """
+        # The loopback-only rows' stand key (ADR-0067): per boot, for the Hive Stand, never a Cell.
+        self.stand_key = mint_stand_key()
         self._loopback_socket: socket.socket | None = loopback
         # Where the loopback door is rebound after a failure: the very address it first got.
         host, port = loopback.getsockname()[:2]
