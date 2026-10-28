@@ -1,36 +1,36 @@
-"""Reach a Windows program through its console: the break event, and Ctrl+C from another process.
+"""Reach a Windows program through its console: the break event and Ctrl+C, from the right console.
 
 On Windows the Pollen Packet (the thin gateway program on a device the Hive borrows) runs, as the
-installed task, in a console with no window (``conhost.exe --headless``). The programs it starts
-share that console in process groups of their own, so no window appears and a break event (the
-polite "please stop") still reaches each of them. When the packet has a console with a window
-(``pollen run`` in a terminal) or none, a program it starts gets a windowless console of its own
-instead, and only the Warden, which must be asked politely, shares a visible one. A console
-control event only reaches processes attached to the sender's console, and for any other the call
-reports success and nothing arrives. This module holds the console moves the Windows shim needs:
-what kind of console this process has, whether a process shares it, sending the break event to
-one that does, and, for ``pollen uninstall`` (a separate process), visiting the packet's console
-to press Ctrl+C there so the packet stops the way it would at a terminal, releasing its leases on
-the way out. A program inherits "ignore Ctrl+C" from whoever started it, so the packet turns
-Ctrl+C back on for itself when it starts. The calls are plain kernel32 through ctypes, read only
+installed task, in a console with no window (``conhost.exe --headless``). Every program it starts
+for a lease gets a windowless console of its own, so nothing appears on the operator's desktop
+and nothing a lease program does to its console (it may well press Ctrl+C or Ctrl+Break there for
+its own children) can reach the packet. Only the on-device Warden shares the packet's console. A
+console control event (Ctrl+Break, Ctrl+C: the polite "please stop") reaches only processes
+attached to the console it is raised on, and for any other the call reports success and nothing
+arrives. So a program on another console is asked by a short-lived helper: the packet runs
+itself with the hidden ``console-signal`` verb, in a windowless console of its own, and the helper
+attaches to the target's console, raises the event there and exits (``signal_console``). Ctrl+Break
+goes to the target's process group alone; Ctrl+C reaches the whole console, so the helper presses
+it only on a console that holds nothing but the target's own family (``pollen uninstall`` uses it
+to stop the packet, never on a terminal the operator also uses). The packet turns Ctrl+C back on
+for itself when it starts (a program inherits "ignore Ctrl+C" from whoever started it) and ignores
+Ctrl+Break, which is not its stop signal. The calls are plain kernel32 through ctypes, read only
 on Windows, so the module imports (and its callers are tested) on every host.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Used by
-    pollen.platform.windows only; calls into ctypes, psutil, signal and os only.
+    pollen.platform.windows and by pollen.cli's hidden helper verb; calls into ctypes, psutil,
+    signal and os only.
 
 Key invariants:
-    - ``interrupt_console`` is for a short-lived command-line process only: it leaves its own
-      console for a moment, which the packet itself must never do (its console is the one its
-      programs share, and is gone once nobody is attached).
-    - Ctrl+C is pressed only on a console that holds nothing but the packet, its own ancestors and
-      descendants, and the visiting process: never on a terminal the operator also uses.
-    - The visiting process ignores Ctrl+C while it raises the event and until that event has
-      reached it, so it never ends the visitor; then it hears Ctrl+C again.
+    - Only the Warden shares the packet's console; a lease program never does.
+    - ``signal_console`` runs in a short-lived helper process, never in the packet.
+    - Ctrl+C is pressed only on a console that holds nothing but the target, its own ancestors and
+      descendants, and the helper itself.
     - Off Windows nothing here touches a console: the break stand-in is SIGINT to a pid.
 
 See Also:
-    - pollen.platform.windows, the shim that calls these.
+    - pollen.platform.windows, the shim that runs the helper.
     - pollen.teardown, which asks the packet to stop through ``ask_to_stop``.
 """
 
@@ -41,34 +41,34 @@ import ctypes
 import os
 import signal
 import sys
-import time
 
 import psutil
 
-CONSOLE_PIDS_MAX = 1024  # Room for every process on the packet's console: itself and its programs.
-_CTRL_C_EVENT = 0  # GenerateConsoleCtrlEvent's Ctrl+C.
-CTRL_DELIVERY_S = 0.5  # How long the raised Ctrl+C gets to arrive, ignored, at the raiser.
-_ATTACH_PARENT_PROCESS = 0xFFFFFFFF  # AttachConsole's "the console of the process that started me".
+CONSOLE_PIDS_MAX = 1024  # Room for every process on one console: a program and its children.
+BREAK = "break"  # The helper's event names, as its command line gives them.
+CTRL_C = "ctrl-c"
+_EVENTS = {CTRL_C: 0, BREAK: 1}  # GenerateConsoleCtrlEvent's CTRL_C_EVENT and CTRL_BREAK_EVENT.
 # Read by name so the module imports on every host; the fallback is never used on Windows.
 _BREAK_EVENT = getattr(signal, "CTRL_BREAK_EVENT", signal.SIGINT)
 
 __all__ = [
+    "BREAK",
     "CONSOLE_PIDS_MAX",
-    "CTRL_DELIVERY_S",
+    "CTRL_C",
     "accept_interrupts",
     "has_console",
-    "interrupt_console",
-    "is_headless",
+    "on_our_console",
     "send_break",
+    "signal_console",
 ]
 
 
 def send_break(pid: int) -> bool:
-    """Send the break event to the process group ``pid`` leads; False if it cannot reach it.
+    """Send the break event to the process group ``pid`` leads, on this console; False if not.
 
     Every program the shim spawns leads a process group of its own, so the event reaches that
-    group alone. It reaches only a process attached to this process's console: for any other the
-    call reports success and nothing arrives, so it is not made.
+    group alone. It reaches only a process attached to this process's console (the Warden): for
+    any other the call reports success and nothing arrives, so it is not made.
     """
     if not on_our_console(pid):
         return False
@@ -93,55 +93,44 @@ def has_console() -> bool:
     return sys.platform == "win32" and bool(_console_pids())
 
 
-def is_headless() -> bool:
-    """Say whether this process's console has no window: the installed task's ``--headless``."""
+def signal_console(pid: int, event: str) -> bool:
+    """Raise ``event`` on the console ``pid`` is attached to; the helper verb's whole job.
+
+    Args:
+        pid: The program to ask: a lease program (Ctrl+Break, to its process group alone) or the
+            packet (Ctrl+C, to its whole console).
+        event: ``BREAK`` or ``CTRL_C``.
+
+    Returns:
+        False when ``pid`` has no console to attach to, or (for Ctrl+C) shares it with anything
+        but its own family and this helper, so nothing was raised.
+    """
     if sys.platform != "win32":
         return False
     else:
-        return has_console() and not ctypes.windll.kernel32.GetConsoleWindow()
-
-
-def interrupt_console(pid: int) -> bool:
-    """Press Ctrl+C on the console ``pid`` is attached to, from outside it.
-
-    Every process on that console gets the event; the packet stops as at a terminal, and the
-    programs it started, each in a process group of its own, ignore it. This process leaves its
-    own console for the moment it takes and then rejoins its parent's.
-
-    Returns:
-        False when ``pid`` has no console, or shares it with anything other than its own family
-        and this process (an operator's terminal), so nothing was pressed.
-    """
-    if sys.platform != "win32":
-        return False  # A POSIX packet is asked with SIGTERM instead.
-    else:
         kernel32 = ctypes.windll.kernel32
-        # SAFETY: documented console calls; this process ignores Ctrl+C while it raises it, and is
-        # put back on its parent's console, hearing Ctrl+C again, on every path.
-        kernel32.FreeConsole()
-        try:
-            attached = kernel32.AttachConsole(pid)
-            present = set(_console_pids()) if attached else set()
+        # SAFETY: documented console calls in a helper process that exits right after; it
+        # ignores Ctrl+C itself, so the event it raises cannot end it before it reports.
+        kernel32.FreeConsole()  # Leaves its own windowless console for the target's.
+        if not kernel32.AttachConsole(pid):
+            return False
+        kernel32.SetConsoleCtrlHandler(None, True)
+        if event == CTRL_C:
+            present = set(_console_pids())
             # An empty list means it could not be read: as foreign as an operator's terminal.
             if not present or not present <= _family(pid):
                 return False
-            kernel32.SetConsoleCtrlHandler(None, True)
-            pressed = bool(kernel32.GenerateConsoleCtrlEvent(_CTRL_C_EVENT, 0))
-            # The event reaches this process too, a moment later: hearing Ctrl+C again before it
-            # has arrived would end this process (measured: at once it does, after 0.1 s not).
-            time.sleep(CTRL_DELIVERY_S)
-            return pressed
-        finally:
-            kernel32.FreeConsole()
-            kernel32.AttachConsole(_ATTACH_PARENT_PROCESS)
-            kernel32.SetConsoleCtrlHandler(None, False)
+            return bool(kernel32.GenerateConsoleCtrlEvent(_EVENTS[CTRL_C], 0))
+        return bool(kernel32.GenerateConsoleCtrlEvent(_EVENTS[BREAK], pid))
 
 
 def accept_interrupts() -> None:
-    """Let Ctrl+C reach this process, whatever it inherited from the program that started it."""
+    """Hear Ctrl+C (the packet's stop) whatever was inherited, and ignore Ctrl+Break."""
     if sys.platform == "win32":
         # SAFETY: clears this process's inherited "ignore Ctrl+C" flag; handlers are unchanged.
         ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False)
+        # A break raised on this console (the Warden's, for its own children) is not for the packet.
+        signal.signal(signal.SIGBREAK, signal.SIG_IGN)
 
 
 def _family(pid: int) -> set[int]:

@@ -7,11 +7,12 @@ is an existing device the Hive borrows for a task, and nothing a lease started m
 a child that outlives its command is still seen and killed. A process whose job this packet does
 not hold (it was started before a restart, or the CLI asks from another process) is followed
 through its tree instead and ended with ``taskkill /T``. Nothing it starts opens a window on the
-operator's desktop. The packet is installed as a per-user Scheduled Task that runs at logon under
-a console host with no window, and writes its log to a file in the data directory; there every
-program it starts shares that windowless console, so a break event can ask it to stop. A packet
-with a visible console (run by hand in a terminal) or none gives each program a windowless console
-of its own instead, and only the Warden, which must be able to hand its leases back, shares it.
+operator's desktop: every program gets a console of its own with no window, so nothing it does
+to its console can reach the packet, and is asked to stop politely by a short-lived helper that
+raises the break event on that console (pollen.platform.console). Only the on-device Warden shares
+the packet's console, where the break event reaches it directly. The packet is installed as a
+per-user Scheduled Task that runs at logon under a console host with no window, and writes its
+log to a file in the data directory.
 The shim is written to run on any host: the Windows-only constants are read with ``getattr`` and
 every external command goes through the injected runner, so the install logic is tested by
 recording the ``schtasks`` commands it would run.
@@ -44,6 +45,7 @@ from pathlib import Path, PureWindowsPath
 import psutil
 
 from pollen.platform.base import (
+    CONSOLE_SIGNAL_VERB,
     LOG_TO_FILE_OPTION,
     CommandRunner,
     PlatformFacts,
@@ -51,16 +53,11 @@ from pollen.platform.base import (
     ServicePlan,
     ServiceResult,
     SpawnSpec,
+    own_command,
     own_interpreter,
     run_command,
 )
-from pollen.platform.console import (
-    accept_interrupts,
-    has_console,
-    interrupt_console,
-    is_headless,
-    send_break,
-)
+from pollen.platform.console import BREAK, CTRL_C, accept_interrupts, has_console, send_break
 from pollen.platform.job_objects import CONSOLE_HOST, SUSPENDED_FLAG, JobTable
 from waggle.messages.labels import OsFamily
 from waggle.messages.session import ProcessSignal
@@ -122,12 +119,10 @@ class WindowsShim:
             OSError: The program could not be started, or not inside its job.
         """
         # An argument list, never a shell: no expansion or quoting happens to a request's argv.
-        # Started suspended, so it cannot start anything before it is inside its job. It shares
-        # the packet's console when that has no window (the task's), where a break event reaches
-        # it; the Warden also shares a visible one. Anything else gets a console of its own with
-        # no window, so no command pops up on the operator's desktop.
-        shares = is_headless() or (spec.shares_console and has_console())
-        window = 0 if shares else _NO_WINDOW
+        # Started suspended, so it cannot start anything before it is inside its job. A console of
+        # its own with no window: no command pops up on the operator's desktop, and no control
+        # event it raises reaches the packet. The Warden alone shares the packet's console.
+        window = 0 if spec.shares_console and has_console() else _NO_WINDOW
         process = await asyncio.create_subprocess_exec(
             *spec.argv,  # SAFETY: an argument list, never shell=True.
             cwd=spec.cwd,
@@ -175,9 +170,10 @@ class WindowsShim:
 
         Args:
             ref: A process the lease started; nothing else is ever signalled.
-            signal_: INTERRUPT (the break event, else as TERMINATE), TERMINATE (a polite
-                taskkill, then the break event, then forced) or KILL (forced: the job, else
-                ``taskkill /T /F``).
+            signal_: INTERRUPT (the break event, then a polite taskkill, then forced),
+                TERMINATE (a polite taskkill, then the break event, then forced) or KILL (forced:
+                the job, else ``taskkill /T /F``). The break event goes straight to the Warden on
+                the packet's console, and through the helper to a program on a console of its own.
 
         Returns:
             True if the signal was delivered; False if the tree was already gone or even the
@@ -185,17 +181,13 @@ class WindowsShim:
         """
         if not self.group_alive(ref):
             return False
-        if signal_ is ProcessSignal.INTERRUPT and send_break(ref.pid):
-            return True  # The Warden, in the packet's console: Ctrl+Break, as at a terminal.
         if signal_ is not ProcessSignal.KILL:
-            # /T takes the whole tree, the nearest thing Windows has to signalling a POSIX group.
-            # A polite taskkill only closes windows, and a console program has none, so it
-            # refuses: the break event its process group was made for is tried next.
-            polite = self._runner(["taskkill", "/T", "/PID", str(ref.pid)])
-            if polite.returncode == 0 or send_break(ref.pid):
+            # Ctrl+Break first for an interrupt, as at a terminal; a polite taskkill first for a
+            # terminate, which closes a program's windows and refuses one that has none.
+            polite = (_break, _close) if signal_ is ProcessSignal.INTERRUPT else (_close, _break)
+            if any(ask(self._runner, ref.pid) for ask in polite):
                 return True
-            # Nothing reached it: a console program in a console of its own, which no break event
-            # from here can reach. It is ended as an unhandled SIGTERM would end it on POSIX.
+            # Nothing reached it: it is ended as an unhandled SIGTERM would end it on POSIX.
         return _force(self._jobs, self._runner, ref)
 
     def python_candidates(self) -> tuple[tuple[str, ...], ...]:
@@ -264,12 +256,12 @@ class WindowsShim:
         accept_interrupts()
 
     def ask_to_stop(self, pid: int) -> bool:
-        """Press Ctrl+C on the console of ``pid`` (the packet); False if it has no console.
+        """Press Ctrl+C on the console of ``pid`` (the packet), through the helper.
 
-        Only ever called from a short-lived CLI process (``pollen uninstall``); see
-        pollen.platform.console for why the packet itself must never do this.
+        False when it has no console, or shares it with anything but its own family (an
+        operator's terminal), so nothing was pressed.
         """
-        return interrupt_console(pid)
+        return _helper(self._runner, CTRL_C, pid)
 
 
 def _install(runner: CommandRunner, plan: ServicePlan, system_root: str) -> ServiceResult:
@@ -312,6 +304,23 @@ def _windowless(plan: ServicePlan, system_root: str) -> str:
     """
     host = PureWindowsPath(system_root, *CONSOLE_HOST)
     return subprocess.list2cmdline([str(host), "--headless", *plan.command, LOG_TO_FILE_OPTION])
+
+
+def _close(runner: CommandRunner, pid: int) -> bool:
+    """Ask the tree of ``pid`` to close its windows (a polite taskkill); False if it has none."""
+    # /T takes the whole tree, the nearest thing Windows has to signalling a POSIX group.
+    return runner(["taskkill", "/T", "/PID", str(pid)]).returncode == 0
+
+
+def _break(runner: CommandRunner, pid: int) -> bool:
+    """Raise Ctrl+Break for the process group ``pid`` leads, wherever its console is."""
+    # The Warden shares this console; any other program is reached through the helper.
+    return send_break(pid) or _helper(runner, BREAK, pid)
+
+
+def _helper(runner: CommandRunner, event: str, pid: int) -> bool:
+    """Run this ``pollen`` once, windowless, to raise ``event`` on the console of ``pid``."""
+    return runner([*own_command(), CONSOLE_SIGNAL_VERB, event, str(pid)]).returncode == 0
 
 
 def _force(jobs: JobTable, runner: CommandRunner, ref: ProcessRef) -> bool:

@@ -19,7 +19,7 @@ Key invariants:
     - A packet that ignores the request is forced; one that honours it goes by itself.
     - Whatever happened to the packet, its leases are released: the lease's scratch is gone.
     - The lease programs a forced packet would orphan are ended; the Warden and what it started
-      are left for the CLI, which forces the Warden on Windows (no break event reaches it there).
+      are left for the CLI, which stops the Warden next.
 
 See Also:
     - packages/pollen/src/pollen/teardown.py.
@@ -57,9 +57,9 @@ ASKED_EXIT = 7  # What the stand-in exits with when it honours the request to st
 _KILLED_WAIT_S = 2.0  # Long enough for a killed program to go; a live one is only waited this.
 _STARTED_WAIT_S = 20.0  # How long the stand-in gets to write its pids.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # A console of its own, as the packet has.
-# A stand-in packet: starts a lease program and a Warden with a child of its own, as the real one
-# does (each in a process group of its own, sharing its windowless console), writes the four pids
-# to argv[2], then sleeps; argv[1] says whether it honours a request to stop (Ctrl+C or SIGTERM).
+# A stand-in packet: starts a lease program (in a windowless console of its own) and a Warden (on
+# its console) with a child of its own, as the real one does, each in a process group of its own;
+# writes the four pids to argv[2], then sleeps; argv[1] says whether it honours a request to stop.
 _PACKET = """
 import ctypes, json, os, signal, subprocess, sys, time
 honours = sys.argv[1] == "honours"
@@ -73,7 +73,8 @@ if honours and sys.platform == "win32":
 sleep = [sys.executable, "-c", "import time; time.sleep(60)"]
 code = "import subprocess, time; c = subprocess.Popen(%r); print(c.pid, flush=True); time.sleep(60)"
 group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-lease = subprocess.Popen(sleep, creationflags=group)
+own = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # A lease program's console is its own.
+lease = subprocess.Popen(sleep, creationflags=group | own)
 argv = [sys.executable, "-c", code % sleep]
 warden = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True, creationflags=group)
 grandchild = int(warden.stdout.readline())
@@ -211,7 +212,7 @@ async def test_uninstall_stops_a_packet_under_the_headless_console_host_politely
         assert status == 0
         # It went because it was asked (it notes that), not because it was forced.
         assert await asyncio.to_thread(Path(f"{pid_file}.asked").exists)
-        assert _ended(lease_program) and _ended(warden)  # The Warden is forced by the CLI.
+        assert _ended(lease_program) and _ended(warden)  # The CLI stopped the Warden too.
         assert not scratch.exists()
     finally:
         for pid in reversed(pids):

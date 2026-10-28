@@ -29,11 +29,13 @@ Public API:
     - child_environment: what a program the packet starts inherits; a frozen build's unpacked
       library path is not part of it.
     - EXIT_NO_RESTART: the exit status that tells a service manager not to restart the packet.
+    - CONSOLE_SIGNAL_VERB: the hidden verb of the helper that presses a key on another console.
     - LOG_TO_FILE_OPTION: ``pollen run``'s switch for a log file, which a windowless service uses.
     - LinuxShim, MacOsShim, WindowsShim: the three implementations.
 """
 
 from pollen.platform.base import (
+    CONSOLE_SIGNAL_VERB,
     EXIT_NO_RESTART,
     LOG_TO_FILE_OPTION,
     CommandResult,
@@ -52,6 +54,7 @@ from pollen.platform.select import select_shim
 from pollen.platform.windows import WindowsShim
 
 __all__ = [
+    "CONSOLE_SIGNAL_VERB",
     "EXIT_NO_RESTART",
     "LOG_TO_FILE_OPTION",
     "CommandResult",

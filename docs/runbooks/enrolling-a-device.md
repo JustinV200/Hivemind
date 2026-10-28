@@ -81,9 +81,9 @@ The packet works out of sight so it never interrupts whoever is using the device
 Scheduled Task starts it under a console host with no window (`conhost.exe --headless`), so nothing
 appears at login, and it writes its log to `packet.log` in the data directory
 (`%LOCALAPPDATA%\pollen`) instead. `conhost.exe --headless` needs Windows 10 1809 or later. Every
-console program a command runs shares that windowless console, so it can still be asked to stop
-politely; if you run `pollen run` by hand in a terminal, each gets a windowless console of its own
-instead, and an interrupt then ends it by force. On Linux and macOS a command's
+console program a command runs gets a windowless console of its own, so nothing it does there can
+reach the packet; the packet still asks it to stop politely, through a brief helper that presses
+Ctrl+Break on that console. On Linux and macOS a command's
 program does not inherit `DISPLAY` or `WAYLAND_DISPLAY`, so it cannot draw on your screen by
 accident (a Wayland program can still find the desktop's default socket through `XDG_RUNTIME_DIR`,
 which programs need for more than a display). A colonized device's Warden gets them only when the
@@ -153,8 +153,8 @@ found it, and forgets its key. The device's row stays, marked revoked, for the a
 device, stop the packet (Ctrl-C if you ran it by hand), then `pollen uninstall` removes the unit
 and stops the Warden the packet started, if one runs, and nothing else. A packet the unit leaves
 running (the Windows task's) is asked to stop as Ctrl-C would, so it releases its leases; one that
-does not go is forced and its leases are released for it. On Windows the Warden is forced too,
-since nothing outside its console can ask it politely. Then delete the data directory
+does not go is forced and its leases are released for it. The Warden is asked to stop the same
+way (Ctrl-Break on Windows) and forced only if it does not go. Then delete the data directory
 (`~/.local/share/pollen` on Linux) to forget the enrolment, and the binary (`sudo rm
 /usr/local/bin/pollen`) to take the packet off the machine. Nothing else of the packet's is left:
 the single-file build unpacks itself into a temporary directory and removes it when it ends.

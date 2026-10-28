@@ -57,6 +57,7 @@ from pollen.enrol import EnrolPlan, enrol_device, parse_invite
 from pollen.errors import NotEnrolledError, PollenError, ProtocolMismatchError
 from pollen.executors.info import runtime_version
 from pollen.platform import (
+    CONSOLE_SIGNAL_VERB,
     EXIT_NO_RESTART,
     LOG_TO_FILE_OPTION,
     PlatformShim,
@@ -65,6 +66,7 @@ from pollen.platform import (
     launch_command,
     select_shim,
 )
+from pollen.platform.console import BREAK, CTRL_C, signal_console
 from pollen.state import DataLayout, InstallSettings, PacketState, load_state, save_state
 from pollen.teardown import Ending, end_packet
 from waggle.clock import SystemClock
@@ -182,6 +184,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="pollen", description="The HiveMind device gateway.")
     verbs = parser.add_subparsers(dest="command", required=True)
     verbs.add_parser("version", help=_VERBS["version"])
+    # Hidden: the packet runs itself with it to press a key on another program's console.
+    helper = verbs.add_parser(CONSOLE_SIGNAL_VERB)
+    helper.add_argument("event", choices=(BREAK, CTRL_C))
+    helper.add_argument("pid", type=int)
     for name in ("enrol", "run", "install", "uninstall", "status"):
         verb = verbs.add_parser(name, help=_VERBS[name], description=_VERBS[name])
         verb.add_argument("--data-dir", help="Where the packet keeps its files.")
@@ -408,6 +414,11 @@ def _status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _console_signal(args: argparse.Namespace) -> int:
+    """The hidden helper verb: raise ``event`` on the console of ``pid``; 0 if it was raised."""
+    return 0 if signal_console(args.pid, args.event) else 1
+
+
 def _version(_args: argparse.Namespace) -> int:
     """``pollen version``: the packet's version and the Waggle protocol it speaks."""
     print(f"pollen {runtime_version()} (waggle {PROTOCOL_VERSION})")
@@ -421,4 +432,5 @@ _COMMANDS: dict[str, Callable[[argparse.Namespace], int]] = {
     "uninstall": _uninstall,
     "status": _status,
     "version": _version,
+    CONSOLE_SIGNAL_VERB: _console_signal,
 }

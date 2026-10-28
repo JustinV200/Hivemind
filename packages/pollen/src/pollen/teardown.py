@@ -11,8 +11,8 @@ a packet that crashed long ago never ran it, so whenever leases are still in the
 table afterwards the release is run here instead, and read back from the table. Forcing it also
 orphans the programs it started for leases (nothing links them to it once it is gone), so those
 are collected first and ended after it. The on-device Warden and what it started are left alone
-here; the CLI stops the Warden next. On Windows that stop is forced, because no break event from
-the CLI's own console reaches the Warden, and the leases it held were released by the packet.
+here; the CLI stops the Warden next, asking first (on Windows with Ctrl+Break, through the same
+helper, on the console it shared with the packet) and forcing it only if it does not go.
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Called by pollen.cli

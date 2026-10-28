@@ -67,6 +67,14 @@ EXIT_NO_RESTART = 78  # sysexits EX_CONFIG: the packet stopped for a reason a re
 # ``pollen run``'s switch for a log file in the data directory, for a service whose output nobody
 # reads (the Windows task's console has no window).
 LOG_TO_FILE_OPTION = "--log-to-file"
+# The hidden ``pollen`` verb a Windows packet runs itself with, briefly, to press a console key on
+# another program's console (pollen.platform.console.signal_console).
+CONSOLE_SIGNAL_VERB = "console-signal"
+# Windows: a service command gets a console of its own with no window, so it never shares the
+# packet's (whose control events it must not see) and never opens one. Not DETACHED_PROCESS: a
+# virtual environment's python.exe starts the real interpreter as a child, and a console program
+# whose parent has no console is given a new, visible one. Read by name; 0 off Windows.
+_OWN_CONSOLE = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 # Variables that make a child interpreter use the packet's libraries instead of its own.
 _INTERPRETER_VARIABLES = frozenset({"PYTHONHOME", "PYTHONPATH", "VIRTUAL_ENV", "PYTHONSTARTUP"})
 # Variables that point a GUI program at the operator's own screen (X11 and Wayland).
@@ -80,6 +88,7 @@ _FROZEN_RESET = "PYINSTALLER_RESET_ENVIRONMENT"
 __all__ = [
     "COMMAND_TIMEOUT_S",
     "COMMAND_UNAVAILABLE",
+    "CONSOLE_SIGNAL_VERB",
     "DISPLAY_VARIABLES",
     "EXIT_NO_RESTART",
     "GROUP_POLL_S",
@@ -96,6 +105,7 @@ __all__ = [
     "SpawnSpec",
     "child_environment",
     "launch_command",
+    "own_command",
     "own_interpreter",
     "run_command",
     "stop_group",
@@ -122,9 +132,9 @@ class SpawnSpec:
         int | IO[bytes] | None
     )  # A pipe for an exec, a log file or DEVNULL for a background one.
     stderr: int | IO[bytes] | None  # As stdout.
-    # Windows only: share the packet's console even when it has a window (a hand-run packet), so
-    # a break event reaches it. Only the on-device Warden asks, because it hands its leases back
-    # on a break; every program shares the console anyway when it has no window (the task's).
+    # Windows only: share the packet's console instead of getting a windowless one of its own, so
+    # a break event from the packet reaches it directly. Only the on-device Warden asks, because it
+    # hands its leases back on a break; a lease program never shares the packet's console.
     shares_console: bool = False
 
 
@@ -193,6 +203,7 @@ def run_command(argv: Sequence[str]) -> CommandResult:
             timeout=COMMAND_TIMEOUT_S,
             check=False,
             env=child_environment(os.environ),
+            creationflags=_OWN_CONSOLE,
         )
     except (OSError, subprocess.SubprocessError):
         return CommandResult(returncode=COMMAND_UNAVAILABLE, output="")
@@ -251,10 +262,18 @@ def launch_command(data_dir: Path) -> tuple[str, ...]:
     Returns:
         The packaged binary's own path when frozen, else the interpreter running ``-m pollen``.
     """
+    return (*own_command(), "run", "--data-dir", str(data_dir))
+
+
+def own_command() -> tuple[str, ...]:
+    """Return the argv that starts this very ``pollen``, before its verb.
+
+    Returns:
+        The packaged binary's own path when frozen, else the interpreter running ``-m pollen``.
+    """
     # A single-file build is its own entry point; a normal install is the interpreter that
-    # imported this very package, so the unit never depends on what is on PATH.
-    base = (sys.executable,) if getattr(sys, "frozen", False) else (sys.executable, "-m", "pollen")
-    return (*base, "run", "--data-dir", str(data_dir))
+    # imported this very package, so nothing depends on what is on PATH.
+    return (sys.executable,) if getattr(sys, "frozen", False) else (sys.executable, "-m", "pollen")
 
 
 def own_interpreter() -> tuple[tuple[str, ...], ...]:

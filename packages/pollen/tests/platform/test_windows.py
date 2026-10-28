@@ -35,7 +35,15 @@ from pathlib import Path
 
 import pytest
 
-from pollen.platform import CommandResult, ProcessRef, ServicePlan, SpawnSpec, WindowsShim
+from pollen.platform import (
+    CONSOLE_SIGNAL_VERB,
+    CommandResult,
+    ProcessRef,
+    ServicePlan,
+    SpawnSpec,
+    WindowsShim,
+)
+from pollen.platform.base import own_command
 from pollen.platform.windows import TASK_NAME
 from waggle.messages.session import ProcessSignal
 
@@ -127,27 +135,21 @@ def test_the_facts_describe_a_windows_desktop(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("console", "shares_console", "windowless"),
+    ("has_console", "shares_console", "windowless"),
     [
-        # console: (the packet has one, it has no window). The task's: every program shares it.
-        ((True, True), False, False),
-        # A hand-run packet's visible console: only the Warden shares it.
-        ((True, False), False, True),
-        ((True, False), True, False),
-        # No console at all: nothing to share, the Warden included.
-        ((False, False), True, True),
+        (True, False, True),  # A lease program: always a windowless console of its own.
+        (True, True, False),  # The Warden shares the packet's console.
+        (False, True, True),  # No console to share, the Warden included.
     ],
 )
-async def test_a_program_shares_a_windowless_console_and_gets_its_own_otherwise(
+async def test_only_the_warden_shares_the_packets_console_and_the_rest_get_no_window(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    console: tuple[bool, bool],
+    has_console: bool,
     shares_console: bool,
     windowless: bool,
 ) -> None:
-    has, headless = console
-    monkeypatch.setattr("pollen.platform.windows.has_console", lambda: has)
-    monkeypatch.setattr("pollen.platform.windows.is_headless", lambda: headless)
+    monkeypatch.setattr("pollen.platform.windows.has_console", lambda: has_console)
     flags: list[int] = []
 
     async def record(*_argv: str, creationflags: int, **_kwargs: object) -> object:
@@ -228,36 +230,41 @@ async def test_a_recycled_pid_is_not_alive_and_an_unknown_one_has_no_creation_ti
 
 _POLITE = ("taskkill", "/T", "/PID", "7")
 _FORCED = ("taskkill", "/T", "/F", "/PID", "7")
+_HELPER = (*own_command(), CONSOLE_SIGNAL_VERB, "break", "7")
 
 
 @pytest.mark.parametrize(
     ("signal_", "tree", "expected"),
     [
-        # tree: (attached to the packet's console, a job held here); expected: (taskkill calls,
-        # break events, job kills). The Warden shares the packet's console: a break reaches it.
-        (ProcessSignal.INTERRUPT, (True, True), ([], 1, 0)),
-        (ProcessSignal.TERMINATE, (True, True), ([_POLITE], 1, 0)),
-        # A windowless program has a console of its own: no break reaches it, so it is forced.
-        (ProcessSignal.INTERRUPT, (False, True), ([_POLITE], 0, 1)),
-        (ProcessSignal.TERMINATE, (False, False), ([_POLITE, _FORCED], 0, 0)),
+        # tree: (on the packet's console, the helper reaches it, a job held here); expected:
+        # (commands run, break events sent from here, job kills).
+        # The Warden shares the packet's console: Ctrl+Break straight from here.
+        (ProcessSignal.INTERRUPT, (True, False, True), ([], 1, 0)),
+        # A lease program has a console of its own: the helper raises Ctrl+Break there.
+        (ProcessSignal.INTERRUPT, (False, True, True), ([_HELPER], 0, 0)),
+        (ProcessSignal.TERMINATE, (False, True, True), ([_POLITE, _HELPER], 0, 0)),
+        # The helper cannot reach it: it is forced, through its job or taskkill /F.
+        (ProcessSignal.INTERRUPT, (False, False, True), ([_HELPER, _POLITE], 0, 1)),
+        (ProcessSignal.TERMINATE, (False, False, False), ([_POLITE, _HELPER, _FORCED], 0, 0)),
     ],
 )
-def test_interrupt_and_terminate_end_a_console_program_a_break_cannot_reach(
+def test_interrupt_and_terminate_ask_through_the_right_console_then_force(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     signal_: ProcessSignal,
-    tree: tuple[bool, bool],
+    tree: tuple[bool, bool, bool],
     expected: tuple[list[tuple[str, ...]], int, int],
 ) -> None:
-    reaches_console, holds_job = tree
+    on_console, helper_reaches, holds_job = tree
     ran: list[tuple[str, ...]] = []
     sent: list[int] = []
     killed: list[ProcessRef] = []
 
-    def taskkill(argv: Sequence[str]) -> CommandResult:
+    def runner(argv: Sequence[str]) -> CommandResult:
         ran.append(tuple(argv))
-        # A console program has no window for a polite taskkill to close; only /F succeeds.
-        return CommandResult(0 if "/F" in argv else 1, "")
+        # A console program has no window for a polite taskkill to close; /F always succeeds.
+        reached = "/F" in argv or (CONSOLE_SIGNAL_VERB in argv and helper_reaches)
+        return CommandResult(0 if reached else 1, "")
 
     def job_kill(ref: ProcessRef) -> bool | None:
         if not holds_job:
@@ -265,10 +272,10 @@ def test_interrupt_and_terminate_end_a_console_program_a_break_cannot_reach(
         killed.append(ref)
         return True
 
-    shim = WindowsShim(tmp_path, {}, taskkill)
+    shim = WindowsShim(tmp_path, {}, runner)
     monkeypatch.setattr(shim, "group_alive", lambda _ref: True)
     monkeypatch.setattr(shim._jobs, "kill", job_kill)
-    monkeypatch.setattr("pollen.platform.console.on_our_console", lambda _pid: reaches_console)
+    monkeypatch.setattr("pollen.platform.console.on_our_console", lambda _pid: on_console)
     monkeypatch.setattr("pollen.platform.console.os.kill", lambda _pid, sig: sent.append(sig))
 
     assert shim.signal_group(ProcessRef(7, 1.0), signal_) is True
@@ -306,11 +313,9 @@ async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_bre
     ],
 )
 async def test_a_windowless_program_ends_and_its_group_is_gone_once_reaped(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str, signal_: ProcessSignal | None
+    tmp_path: Path, code: str, signal_: ProcessSignal | None
 ) -> None:
-    shim = WindowsShim(tmp_path, {})  # The real taskkill, which refuses a console program.
-    # As under a hand-run packet: the program gets a windowless console of its own.
-    monkeypatch.setattr("pollen.platform.windows.is_headless", lambda: False)
+    shim = WindowsShim(tmp_path, {})  # The real taskkill and the real helper.
     process = await _spawn(shim, code, tmp_path)
     ref = shim.process_ref(process.pid)
     try:
