@@ -3215,10 +3215,12 @@ neither track changes it, and 15.3a rebases on it once it merges.
   on a colonized device or Nuc, suspends Watch observations, the Patrol and any awake episode
   of its own, and writes nothing to Bee Bread, so the operator's command lines, logs and touched
   files never reach Bee Bread or a model through the Warden. **Layer 2, Smoke** (the default):
-  before the operator lease opens, every task on the Cell is checkpointed to its Handoff and
-  every non-operator lease released, which kills its processes; a Virtual Cell's in-Cell Warden
-  is stopped too; while the Inspection is open, new dispatch and leases on the Cell are refused
-  (15.4b, 15.5). Closing resumes the tasks from their Handoffs on fresh leases. `--alongside` gets layer 1 only: the
+  on a Real Cell, before the operator lease opens, every task is checkpointed to its Handoff and
+  every non-operator lease drained, which kills its processes but keeps its scratch and touched
+  paths; on a Virtual Cell the operator's shell runs as its own OS account, so its tasks are
+  only paused in place, Clustering's way; while the Inspection is open, new dispatch and leases
+  on the Cell are refused (15.4b, 15.5). Closing resumes the tasks from their Handoffs, on a
+  Real Cell on fresh leases bound to the same scratch and paths. `--alongside` gets layer 1 only: the
   bees keep running and writing their own task memory, so they can see the operator's processes
   and files like any other process on the Cell and read what the operator types, passwords
   included; the operator is told exactly that before such an Inspection opens. `--alongside`
@@ -3290,12 +3292,14 @@ in daily use.
   `session.*` request on an operator lease is refused), 12 (the operator lease is exempt from
   left-as-found restore) and 16, as the ADRs decide.
   The section 15 changes: "Real Cells are borrowed" gains the operator lease as the one lease
-  exempt from restore; "Nothing lands uncapped" exempts a human's own keystrokes and pointer;
+  exempt from restore, and a drained lease (15.4b) whose restore waits for its task's real end;
+  "Nothing lands uncapped" exempts a human's own keystrokes and pointer;
   "Watching is bounded" names `entrance:inspect:screen_*` plus the device's opt-in as the separate
   capability for screen and input capture; the Entrance bullet adds `ActionKind.INSPECT` to what
   needs step-up. CLAUDE.md's "Real Cells are borrowed and left exactly as found" line needs the
   same exception, made when the operator-lease ADR lands. Add the `[inspection]` section
-  (`idle_minutes`, `max_hours`, `hive_stand_remote`, `recording`, `link_grace_s`) to
+  (`idle_minutes`, `max_hours`, `hive_stand_remote`, `recording`, `link_grace_s`,
+  `handoff_patience_s`) to
   `manifest/schema.py` and `docs/manifests/full.toml`, loaded in a test. *Exit:* ADRs accepted by
   the operator; the manifest section loads with its defaults. *Size:* small, 1.5 agent-days.
 - [ ] **15.2 Waggle operator channel.** An `inspect.*` message family (open, opened, resize, input,
@@ -3382,32 +3386,44 @@ in daily use.
   Inspection, `--alongside` included: the `INSPECTED` mode on every Warden, the Hive Stand's, an
   in-Cell one and an on-device one on a colonized device or Nuc alike: no Watch observations, no
   Patrol, no awake episode of the Warden's own, nothing written to Bee Bread by it until the
-  Inspection closes. Layer 2, Smoke, drains the Cell before the operator lease opens: every task
-  on it is checkpointed to its Handoff (Clustering's lever, selected by Cell) and every
-  non-operator lease is released through the existing release path, which kills its processes
-  (the Job Object or process-group kill on a Real Cell, the session close in a Virtual Cell).
-  The Inspection opens only once no non-operator lease is left. While it is open the Queen and
-  the Warden refuse new dispatch to the Cell and new non-operator leases on it, and the packet
+  Inspection closes. Layer 2, Smoke, on a Real Cell (Virtual Cells are 15.5), drains the Cell
+  before the operator lease opens. Every bee is asked for a Handoff (Clustering's lever, selected
+  by Cell) and given `[inspection] handoff_patience_s` (default 30 s), bounded the way
+  `pause_for_move` bounds its wait; when that expires its processes are killed anyway and the
+  task later resumes from its last checkpoint, so work since that checkpoint may be redone.
+  Every non-operator lease is then released in a new **drain release mode**: it kills the lease's
+  processes (the Job Object or process-group kill) but keeps its scratch and every touched path
+  exactly as they are, unlike the normal release (`HiveStandLeaseReleaser` restores the touched
+  paths and removes scratch; Clustering never touches a grant for the same reason). The
+  Inspection opens only once no non-operator lease is left. While it is open the Queen and the
+  Warden refuse new dispatch to the Cell and new non-operator leases on it, and the packet
   refuses every `session.*` request (absolute: no Inspection feature uses `session.*`). On close
-  the tasks resume from their Handoffs on fresh leases. Draining is chosen over freezing the
-  bees' processes in place, or running the operator shell as another account: a released lease
-  leaves nothing running that could read, attach to or log the operator's PTY, which shares the
-  account, and it reuses a kill path that is already tested. The on-device Warden itself stays
+  each task resumes from its Handoff on a fresh lease bound to the same scratch and paths, and
+  the normal left-as-found restore runs only at the task's real end. Draining a Nuc Warden's
+  lease stops its model servers (`wardens/ticks/control.py` `_stop_what_the_lease_runs`), so
+  Cells routed to them fall back along their hosting plans for the length of the Inspection.
+  Draining is chosen over freezing the bees' processes in place, or running the operator shell
+  as another account on a borrowed device: a drained lease leaves nothing running that could
+  read, attach to or log the operator's PTY, which shares the account, and it reuses a kill path
+  that is already tested. The on-device Warden itself stays
   up: it is Hive code that, in `INSPECTED`, runs only its autopilot and never reads the operator
   lease's processes. The access level, tier and Hive Stand checks; the `cell.inspection_*` events
   and their Night Veil boundary rows; a `guard.entrance_inspection_opened` push event sent to
   every other enrolled device (codingrules 8.15 and 15), saying only that an Inspection opened
   and on which Cell; the idle and hard timeouts, and Absconding, ending every open Inspection.
-  *Exit:* opening on a Cell with a running task releases its lease (its processes gone) before
-  the shell starts, and closing resumes the task from its Handoff on a fresh lease with no work
-  redone; `--alongside` leaves the task and its lease running; a `SCRATCH` Cell refuses a shell;
+  *Exit:* opening on a Real Cell with a running task drains its lease (its processes gone, its
+  scratch and a touched path outside it still there) before the shell starts, and closing
+  resumes the task from its Handoff on a fresh lease over the same scratch with no work redone;
+  a bee that ignores the Handoff request is killed after `handoff_patience_s` and its task
+  resumes from its last checkpoint; the touched path is restored only when the task ends; `--alongside` leaves the task and its lease running; a `SCRATCH` Cell refuses a shell;
   every other enrolled device receives the push; an Inspection idle past `idle_minutes`, and one
   open during `hive abscond`, each end within five seconds with one `cell.inspection_closed`
   carrying the right reason; while an Inspection is open, a task dispatch and a new non-operator
   lease on that Cell are refused; after an Inspection on the Hive Stand and one on a Nuc that ran
   `mysql -psecret` and edited a file, nothing from either (command line, process, log line or
   file change) is in Bee Bread and no Warden episode or Patrol ran meanwhile, and the same holds
-  for an `--alongside` Inspection on the Nuc. *Size:* medium, 3 agent-days.
+  for an `--alongside` Inspection on the Nuc; a Cell routed to the Nuc's model server falls back
+  during the Inspection and returns after it. *Size:* medium, 3.5 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs the separate guest-loopback fix landed
   first. Docker: an exec with a tty attached from the Hive Stand. QEMU: a virtio console whose
   socket (a named pipe on Windows) is created for each Inspection and exists only while it is
@@ -3416,11 +3432,19 @@ in daily use.
   one-time code derived from a per-Cell secret placed by cloud-init at provisioning, never an
   autologin, and takes one client. The Hive Stand: a local PTY in a new sub-package
   `hivemind/cell/local/pty/`, since `cell/` is where subprocess is allowed and `cell/local/`
-  already holds the ten modules codingrules 5.6 allows. Smoke on a Virtual Cell drains it as in
-  15.4b and also stops the in-Cell Warden before the Inspection opens: on Docker the Hive Stand
-  kills it with a `docker exec`; on QEMU the Queen orders it down (`Intervene(RELEASE_LEASE)`,
-  then a stop) and the Inspection opens only once its link has closed. It restarts on close,
-  and the Queen expects its silence while the Cell is `INSPECTED`. A Night Veil Cell uses the
+  already holds the ten modules codingrules 5.6 allows. On a Virtual Cell the Hive owns the
+  machine, so creating an account there is fine: the operator's shell runs as its own OS account
+  inside the guest, and the bees and the in-Cell Warden run as the unprivileged bee account,
+  which cannot read the operator's PTY or processes (`/proc` mounted `hidepid=2` where the
+  kernel allows, the PTY and the operator's home owned by the operator account). That is an
+  image and cloud-init change to `base-ubuntu` and `desktop-ubuntu`: the operator account, its
+  home, the `/proc` mount option, and no `sudo` for the bee account. The in-Cell Warden stays up
+  under layer 1 only. Smoke on a Virtual Cell pauses its tasks Clustering's way (checkpoint and
+  hold in place, leases untouched), since nothing has to be killed. Where the bee account has
+  root or `sudo` (an image that grants it, such as a `FULL` Docker Cell built so), the separation
+  does not hold, so an Inspection there is refused while any task runs on the Cell and says why;
+  an idle Cell can still be inspected, its in-Cell Warden being Hive code under layer 1. A Night
+  Veil Cell uses the
   same host-side attach, which crosses no network. A remote Inspection of a Virtual Cell is
   refused until its backend meets the loopback-listener rule above. *Exit:* through the same
   harness, the shell works on a Docker Cell, a QEMU Cell, a Night Veil Docker Cell and the Hive
@@ -3429,10 +3453,11 @@ in daily use.
   localhost`, is refused, and a backend that fails this check refuses remote Inspection; on a
   QEMU Cell, a second local client on the console and one without the one-time code are refused,
   and the socket is gone after close; after an Inspection on a Docker Cell that ran `mysql
-  -psecret`, nothing from it is in Bee Bread; on Docker and QEMU, no bee process and no in-Cell
-  Warden is running while the Inspection is open, both are back after it, and the Queen raised
-  no stalled-Warden Alarm; `--alongside` on a Virtual Cell is refused. *Size:* medium, 3.5
-  agent-days.
+  -psecret`, nothing from it is in Bee Bread; on Docker and QEMU, a task paused for the
+  Inspection resumed after close, and the bee account could neither read the operator's PTY nor
+  list the operator's processes while it was open; on a Cell whose bee account has `sudo`, an
+  Inspection is refused while a task runs; `--alongside` on a Virtual Cell is refused. *Size:*
+  medium, 4 agent-days.
 - [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
   behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
   gains its allow-list row. *Exit:* a device without the scope gets 403, one without fresh step-up
@@ -3448,7 +3473,7 @@ in daily use.
   with a retention window, announced in the client; refused on Night Veil. *Exit:* a recorded
   session replays; an unrecorded one leaves no bytes anywhere. *Size:* small, 1.5 agent-days.
 
-Track A total: about 29 agent-days.
+Track A total: about 30 agent-days.
 
 Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
 Cell's screen, and every Real Cell exit below is run with it up; until it lands, 15.11a and 15.11b
@@ -3635,14 +3660,21 @@ sense landed together, and 15.14a because capture and input are proven together.
   `session.*`, which stays refused on an operator lease without exception; the two layers, with
   `--alongside` getting only layer 1; every `inspect.*` frame
   checked against the door's live table at `FrameSender.send`, with `inspect.close` as the
-  system-close path that never needs a proof; Smoke draining the Cell (every task to its Handoff,
-  every non-operator lease released, a Virtual Cell's in-Cell Warden stopped) and silencing every
-  Warden of the Cell, chosen over freezing processes or a second account; the Windows opt-in
+  system-close path that never needs a proof; Smoke on a Real Cell draining it (every task to its
+  Handoff within `handoff_patience_s`, every non-operator lease released in drain mode, which
+  keeps scratch and touched paths for the resumed task), chosen over freezing processes or a
+  second account on a borrowed device; on a Virtual Cell the operator's own OS account instead,
+  with tasks paused in place, and the Inspection refused while tasks run where the bee account
+  has root or `sudo`; silencing every Warden of the Cell; the Windows opt-in
   needing a standard account or "Always notify"; the heartbeat opt-in field, outside 13.4a's dire
   pattern. Disclosed and accepted residuals: persistence planted earlier runs outside any lease
   and survives the drain (cron, `systemd --user` units, LaunchAgents, Scheduled Tasks, `PATH`
   shims, and root-in-container tampering on a `FULL` Docker Cell), though the clean shell does
-  not load it; `--alongside` leaves bees running beside the operator. Operator guidance: never
+  not load it; `--alongside` leaves bees running beside the operator; a drained lease is not left
+  as found during the Inspection, its scratch and touched paths waiting for the resumed task; a
+  bee killed at `handoff_patience_s` redoes the work since its last checkpoint; a Nuc's model
+  servers are down for the Inspection; on a Virtual Cell the in-Cell Warden, if its account has
+  root, can still read the operator's terminal. Operator guidance: never
   type an elevation secret on a device or Cell that has hosted `FULL` leases).
 - `inspection-channel-on-waggle.md` (the keyed byte channel inside a signed open; sequence numbers
   instead of the replay window; never queued; the amendments to gateway-contract section 6, making
