@@ -49,8 +49,9 @@ Public API:
     - apply_honey_store_migrations, MIGRATIONS_PACKAGE, SUBSYSTEM (schema): this subsystem's
       numbered migration series.
     - HoneyStore, NectarAdded, NectarEvents, HoneyProposal, PruneResult, PruneEvents,
-      LoweringEvents, build_match, MAX_MATCH_TOKENS, SqliteHoneyStore (store): the persistence
-      protocol, its SQL builder and its durable implementation.
+      LoweringEvents, build_match, MAX_MATCH_TOKENS, SqliteHoneyStore, load_vector_extension
+      (store): the persistence protocol, its SQL builder, its durable implementation and the
+      sqlite-vec loader.
     - HoneyIdentity, honey_event (identity): the one place a HoneyEvent is minted.
     - HoneyAccess (access): one Hive's store, intake, retriever and Ripener, bundled.
     - HoneyBrowser, BrowserDeps, LiveWaxSource, BeeBreadSource, HoneyRelabeller, BrowseError
@@ -196,6 +197,7 @@ from hivemind.honey_store.store import (
     PruneResult,
     SqliteHoneyStore,
     build_match,
+    load_vector_extension,
 )
 
 __all__ = [
@@ -298,6 +300,7 @@ __all__ = [
     "intake_floor",
     "intake_label",
     "is_readable",
+    "load_vector_extension",
     "lowering_target",
     "parse_honey_ref",
     "prune_vectors",

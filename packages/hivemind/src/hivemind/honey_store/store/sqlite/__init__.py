@@ -25,8 +25,10 @@ See Also:
 
 Public API:
     - SqliteHoneyStore (store): the durable HoneyStore implementation.
+    - load_vector_extension (vec): load sqlite-vec onto a connection; `hive doctor` checks it.
 """
 
 from hivemind.honey_store.store.sqlite.store import SqliteHoneyStore
+from hivemind.honey_store.store.sqlite.vec import load_vector_extension
 
-__all__ = ["SqliteHoneyStore"]
+__all__ = ["SqliteHoneyStore", "load_vector_extension"]

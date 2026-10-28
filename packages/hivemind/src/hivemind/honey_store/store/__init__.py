@@ -25,7 +25,8 @@ Public API:
     - HoneyStore, NectarAdded, NectarEvents, HoneyProposal, PruneResult, PruneEvents,
       LoweringEvents (protocol): the persistence protocol and its own small shapes.
     - build_match, MAX_MATCH_TOKENS (fts): a safe FTS5 MATCH string from arbitrary text.
-    - SqliteHoneyStore (sqlite): the durable implementation.
+    - SqliteHoneyStore, load_vector_extension (sqlite): the durable implementation, and the
+      sqlite-vec loader `hive doctor` checks.
 """
 
 from hivemind.honey_store.store.fts import MAX_MATCH_TOKENS, build_match
@@ -38,7 +39,7 @@ from hivemind.honey_store.store.protocol import (
     PruneEvents,
     PruneResult,
 )
-from hivemind.honey_store.store.sqlite import SqliteHoneyStore
+from hivemind.honey_store.store.sqlite import SqliteHoneyStore, load_vector_extension
 
 __all__ = [
     "MAX_MATCH_TOKENS",
@@ -51,4 +52,5 @@ __all__ = [
     "PruneResult",
     "SqliteHoneyStore",
     "build_match",
+    "load_vector_extension",
 ]
