@@ -22,6 +22,8 @@ $Pollen = Join-Path $InstallDir 'pollen.exe'
 $TailscaleExe = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
 $MsiIndex = 'https://pkgs.tailscale.com/stable/'               # Tailscale's official packages.
 $WaitSeconds = 120                    # How long to wait for Tailscale and for the Hive Stand.
+$TailscaleSigner = '^CN=Tailscale Inc\.,'   # The MSI's Authenticode subject must start with this.
+$script:WasOnTailnet = $false          # Set when Tailscale was already up before this packet ran.
 
 function Say([string]$Text) { Write-Host "pollinate: $Text" }
 
@@ -56,27 +58,37 @@ function Install-TailscaleMsi {
     if ($published -is [byte[]]) { $published = [Text.Encoding]::ASCII.GetString($published) }
     $expected = ($published.Trim() -split '\s+')[0]
     $signature = Get-AuthenticodeSignature $msi
-    # Both checks or nothing runs: the hash Tailscale published, and Tailscale's own signature.
-    if ((Get-FileHash -Algorithm SHA256 $msi).Hash -ne $expected -or $signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Tailscale') {
+    # Both checks or nothing runs: the hash Tailscale published, and a valid signature whose
+    # subject is Tailscale Inc.'s own (anchored, so 'NotTailscale' or 'O=Tailscale' cannot pass).
+    if ((Get-FileHash -Algorithm SHA256 $msi).Hash -ne $expected -or $signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch $TailscaleSigner) {
         Remove-Item -Force $msi
         throw 'The Tailscale MSI failed its hash or signature check; it was not installed.'
     }
-    $process = Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/quiet', '/norestart') -Wait -PassThru
+    # A machine-wide install needs elevation, and /quiet shows no UAC prompt of its own: RunAs asks.
+    try { $process = Start-Process msiexec.exe -Verb RunAs -ArgumentList @('/i', "`"$msi`"", '/quiet', '/norestart') -Wait -PassThru }
+    catch { Remove-Item -Force $msi; throw 'Installing Tailscale needs administrator rights, and they were not given.' }
     Remove-Item -Force $msi
     if ($process.ExitCode -ne 0 -and $process.ExitCode -ne 3010) { throw "The Tailscale MSI failed (exit $($process.ExitCode))." }
 }
 
-function Get-TailscaleState {
+function Get-TailscaleStatus {
     $result = Invoke-Quiet { & $TailscaleExe status --json }
-    if ($result.Code -ne 0 -or -not $result.Output.Trim()) { return '' }
-    try { return ($result.Output | ConvertFrom-Json).BackendState } catch { return '' }
+    if ($result.Code -ne 0 -or -not $result.Output.Trim()) { return $null }
+    try { return ($result.Output | ConvertFrom-Json) } catch { return $null }
 }
 
 # Join the tailnet with the packet's single-use key, read from its file so it is never on a
 # command line. Unattended: Tailscale stays connected with nobody logged in and reconnects by
 # itself on any network.
 function Join-Tailnet {
-    if ((Get-TailscaleState) -eq 'Running') { Say 'This PC is already on the tailnet.'; return }
+    $status = Get-TailscaleStatus
+    if ($status -and $status.BackendState -eq 'Running') {
+        # Already up: as this packet's tagged node (a re-run), or on some tailnet of its own.
+        if (@($status.Self.Tags) -contains 'tag:hive-device') { Say 'This PC is already on the tailnet.'; return }
+        $script:WasOnTailnet = $true
+        Say 'Tailscale was already signed in on this PC; using that connection, not the packet key.'
+        return
+    }
     if (-not (Test-Path $AuthKeyFile)) { throw 'This packet has been used: its Tailscale key is gone. Ask for a new packet.' }
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     while ((Get-Service Tailscale -ErrorAction SilentlyContinue).Status -ne 'Running') {
@@ -100,7 +112,10 @@ function Test-HiveStand {
 function Wait-HiveStand {
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     while (-not (Test-HiveStand)) {
-        if ((Get-Date) -gt $deadline) { throw "The Hive Stand ${HiveHost}:$HivePort does not resolve or answer over the tailnet. Is the Hive running, and does the tailnet policy let tag:hive-device reach it?" }
+        if ((Get-Date) -gt $deadline) {
+            if ($script:WasOnTailnet) { throw "The Hive Stand ${HiveHost}:$HivePort does not answer, and this PC was already signed in to Tailscale, perhaps to a different tailnet. Run 'tailscale logout' and use a new packet." }
+            throw "The Hive Stand ${HiveHost}:$HivePort does not resolve or answer over the tailnet. Is the Hive running, and does the tailnet policy let tag:hive-device reach it?"
+        }
         Start-Sleep -Seconds 3
     }
     Say "The Hive Stand answers at ${HiveHost}:$HivePort."
