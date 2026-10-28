@@ -88,7 +88,12 @@ hive serve --manifest hive.toml
 ```
 
 `hive serve` runs the Queen, her Warden on the Hive Stand and the Entrance in one process, and
-prints where the loopback listener answers. The remote listener starts once the exposure check
+prints where the loopback listener answers, plus a **Hive Stand browser link**
+(`http://localhost:<port>/stand?key=...`). The approval routes on loopback need that boot's stand
+key (ADR-0067), because a Virtual Cell can reach the Hive Stand's loopback too. The `hive entrance`
+commands read it on their own. To approve devices from a browser on the Hive Stand, open the link
+in it once after each start of `hive serve`; it sets a cookie and opens the Observation Hive. Treat
+the link like a password until the serve stops. The remote listener starts once the exposure check
 passes. If it does not, `hive serve` exits 2 naming the rule.
 
 You need an operator password. `hive init` sets one, and `hive entrance operator password` sets or
@@ -195,3 +200,8 @@ Section 12 of the client guide has the details.
 The loopback listener is where approval lives. It refuses requests that carry proxy headers, but a
 bare TCP forwarder is invisible to it, so never put `tailscale serve`, a reverse proxy, an SSH
 tunnel or a port forward in front of it. Remote access goes through the remote listener only.
+
+Virtual Cells are such forwarders whether you like it or not: QEMU's user networking and Docker
+Desktop's `host.docker.internal` both let a guest reach the host's `127.0.0.1`. That is why the
+approval routes also need the stand key, which no Cell is ever given. Anything else you run on the
+Hive Stand's loopback (a model server, a dev server) is reachable from those Cells too.

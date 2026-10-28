@@ -27,7 +27,8 @@ enforce at the first ceremony).
                                                                      ▼
    loopback listener ◄── plan.loopback     remote listener ◄── server_context(plan.remote.tls,
    (loopback_request_allowed on every          │                 HiveAuthority, build_crl(...))
-    request: loopback Host, no proxy)          └── ContextSwitch: sni_callback; rebuild on revocation
+    request: loopback Host, no proxy;          └── ContextSwitch: sni_callback; rebuild on revocation
+    stand key on loopback-only rows)
                                            tunnel mode ◄── TunnelSupervisor(plan.tunnel_argv,
                                                               tunnel_environment(...), clock)
 ```
@@ -42,7 +43,7 @@ enforce at the first ceremony).
 | `gather.py` | `gather_facts`, `read_tls_facts`: the adapter that reads the host (in a worker thread). |
 | `plan.py` | `plan_exposure`, `ExposurePlan`, `ListenerPlan`, `ListenerTls`: the pure mode check. |
 | `names.py` | `public_host`, `public_origin`, `certificate_covers`, `is_same_or_parent_domain`: DNS name rules. |
-| `loopback.py` | `loopback_request_allowed`: the loopback listener's `Host` and forwarding-header check. |
+| `loopback.py` | `loopback_request_allowed`: the loopback listener's `Host` and forwarding-header check; `mint_stand_key` and `stand_key_presented`: the per-boot stand key the loopback-only rows need (ADR-0067). |
 | `tunnel.py` | `TunnelSupervisor`, `tunnel_environment`: the one Entrance module that starts a process. |
 | `process_tree.py` | `kill_process_tree`: ends a child and everything it started (Windows has no process groups). |
 | `interfaces/` | `LocalInterfaces`, `SystemInterfaces` (psutil), `FakeInterfaces`. |
@@ -78,6 +79,10 @@ enforce at the first ceremony).
 - **The loopback check is a deny-list plus a strict Host.** Proxies that announce themselves
   (`Forwarded`, `X-Forwarded-*`, `X-Real-IP`, `Via`, `Tailscale-*`) are refused; a bare TCP
   forwarder is invisible at HTTP level, which is why the client guide forbids fronting loopback.
+- **Loopback is not the Hive Stand.** QEMU's SLIRP host alias and Docker Desktop's
+  `host.docker.internal` hand a Virtual Cell's guest a connection from `127.0.0.1`, and the guest
+  writes its own loopback `Host`. So the loopback-only rows also need the stand key (ADR-0067),
+  which only the serve record and `hive serve`'s printed link carry, never a Cell.
 - **The travel lock's own refusal** (`travel_lock` needs `vpn`) lives with the travel lock in
   `hivemind.entrance.auth.travel`, not here.
 

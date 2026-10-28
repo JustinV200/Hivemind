@@ -45,6 +45,13 @@ The Hive Entrance runs inside the Hive's own process on the **Hive Stand**, the 
   `127.0.0.1:8710`, and only software on the Hive Stand can reach it. It answers only requests whose
   `Host` names a loopback host on its own port. It refuses any request that carries a `Forwarded`,
   `Via`, `X-Real-IP`, `X-Forwarded-*` or `Tailscale-*` header with a bare `403`, which has no body.
+  A loopback-only operation also needs this boot's **stand key** (ADR-0067), or it gets the same
+  bare `403`: a Virtual Cell's guest can reach `127.0.0.1` through QEMU's or Docker Desktop's
+  networking, so loopback alone does not prove the caller is on the Hive Stand. A program sends
+  the key in an `X-Hive-Stand` header. It reads it from the `stand_key` field of the serve record,
+  `<db>.serve.json` beside the Hive's database, which `hive serve` rewrites each time it starts.
+  A browser on the Hive Stand gets it as a cookie by opening the link `hive serve` prints,
+  `http://localhost:<port>/stand?key=<key>`. Operations on both listeners need no stand key.
 - **The remote listener** exists only when the operator exposes the Entrance (`[entrance] expose`).
   The mode is `vpn` (recommended: an address on a Tailscale or WireGuard overlay), `lan` or `tunnel`.
   Every remote mode speaks TLS on a DNS name. `lan` and `tunnel` also require mutual TLS with a
@@ -600,7 +607,8 @@ by default) lock the device.
 Some refusals happen before routing and carry no body at all; the document lists them in
 `x-hive-bare-refusals`:
 
-- the loopback listener's `403` for a foreign `Host` or a forwarding header;
+- the loopback listener's `403` for a foreign `Host`, a forwarding header, or a loopback-only
+  operation without the stand key;
 - the per-address `429` (`[entrance] rate_limit_per_address`);
 - `413` for a body over 256 KiB, or over an operation's own `x-hive-body.max_bytes`;
 - `408` for a body that did not arrive within 30 seconds, or its own `x-hive-body.read_timeout_s`.

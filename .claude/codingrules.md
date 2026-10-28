@@ -1151,7 +1151,9 @@ Board admits only devices the operator enrolled at the Hive Stand. The rules:
   top of login). There is no `public` value, and the Entrance refuses to start exposed without
   TLS on a DNS name, in every remote mode: browsers get passkeys, WebCrypto and push only in a
   secure context, and WebAuthn refuses an IP address as a relying party (ADR-0041). The loopback
-  listener refuses a non-loopback `Host` and any proxy-forwarding header, so nothing can front it.
+  listener refuses a non-loopback `Host` and any proxy-forwarding header, so nothing can front it,
+  and its loopback-only routes also need the per-boot stand key, because a Virtual Cell's guest
+  reaches `127.0.0.1` through its backend's networking (ADR-0067).
 - **Guard Bees watch the door; the Entrance Reducer narrows it.** `entrance/reducer.py` drops
   the Entrance to loopback only and kills every remote session, on `hive entrance reduce` or on a
   Guard Bee autopilot rule (failure bursts, lockouts across devices, an unknown client hammering

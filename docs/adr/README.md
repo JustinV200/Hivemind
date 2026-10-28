@@ -338,3 +338,8 @@ ADRs that exist today, in numeric order:
   preauthorized, non-ephemeral tailnet key tagged `tag:hive-device` (minted through an OAuth client
   the manifest names a source for) and a single-use invite; the key is minted first and everything
   minted is revoked if the build fails; the installer deletes both secrets when it ends.
+- `0067-loopback-only-rows-need-the-stand-key.md`: a Virtual Cell's guest reaches the host's
+  loopback through QEMU's SLIRP host alias or Docker Desktop's host gateway, from `127.0.0.1` and
+  with a loopback `Host`, so the loopback-only rows also need a per-boot stand key, which only the
+  Hive Stand holds (the serve record, read by `hive entrance`; a cookie the printed `/stand` link
+  sets for its browser); a stand-key holder gets its own rate bucket; amends ADR-0041.

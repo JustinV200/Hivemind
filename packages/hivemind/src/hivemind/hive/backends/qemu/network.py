@@ -49,7 +49,12 @@ What each policy really enforces at the QEMU level, and what it does not:
     `10.0.2.2` host alias only when that address is itself loopback, the same "reach the host from
     inside" problem Docker's own network module documents). "No inbound" is not this network's
     job: no Virtual Cell backend ever publishes a port (codingrules section 15), whatever the
-    policy.
+    policy. The flip side, stated plainly: SLIRP maps `10.0.2.2` (and every unclaimed address in
+    `10.0.2.0/24`) to the host's `127.0.0.1`, so the guest reaches *every* service on the host's
+    loopback, from a peer of `127.0.0.1`, the Hive Entrance's loopback listener included. That is
+    why the Entrance's loopback-only routes need a stand key no Cell holds (ADR-0067):
+    `-netdev user` documents no option to keep NAT and drop the mapping, and `restrict=on` drops
+    NAT with it.
 
     ALLOWLIST: the same unrestricted user network as EGRESS_ONLY -- QEMU's own SLIRP stack has no
     built-in way to restrict outbound reach to a named set of hosts (that needs a firewall inside

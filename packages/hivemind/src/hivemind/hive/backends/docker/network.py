@@ -20,7 +20,10 @@ What each policy really enforces at the Docker level, and what it does not:
     Docker Desktop has a documented history of not fully honouring `internal` the same way native
     Linux Engine does. Treat NONE as best-effort isolation on Docker Desktop until verified against
     the actual Desktop version in use -- the QEMU and cloud backends (roadmap 5.11, 5.12) give a
-    harder boundary than a container network ever can.
+    harder boundary than a container network ever can. On Docker Desktop `host.docker.internal`
+    also reaches services bound to the host's loopback, proxied from a host process, so a container
+    reaches the Hive Entrance's loopback listener under every policy; the Entrance's loopback-only
+    routes therefore need a stand key no Cell holds (ADR-0067).
 
     EGRESS_ONLY: a plain (non-internal) bridge network -- normal outbound NAT, so the Cell can
     reach anything. "No inbound" is not this network's job: no Virtual Cell backend ever publishes
