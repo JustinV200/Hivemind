@@ -7,10 +7,11 @@ is an existing device the Hive borrows for a task, and nothing a lease started m
 a child that outlives its command is still seen and killed. A process whose job this packet does
 not hold (it was started before a restart, or the CLI asks from another process) is followed
 through its tree instead and ended with ``taskkill /T``. Nothing it starts opens a window on the
-operator's desktop: a program gets a console of its own with no window, except the on-device
-Warden, which shares the packet's console so a break event can still ask it to hand its leases
-back. The packet itself is installed as a per-user Scheduled Task that runs at logon under a
-console host with no window, and writes its log to a file in the data directory.
+operator's desktop. The packet is installed as a per-user Scheduled Task that runs at logon under
+a console host with no window, and writes its log to a file in the data directory; there every
+program it starts shares that windowless console, so a break event can ask it to stop. A packet
+with a visible console (run by hand in a terminal) or none gives each program a windowless console
+of its own instead, and only the Warden, which must be able to hand its leases back, shares it.
 The shim is written to run on any host: the Windows-only constants are read with ``getattr`` and
 every external command goes through the injected runner, so the install logic is tested by
 recording the ``schtasks`` commands it would run.
@@ -53,7 +54,13 @@ from pollen.platform.base import (
     own_interpreter,
     run_command,
 )
-from pollen.platform.console import accept_interrupts, interrupt_console, send_break
+from pollen.platform.console import (
+    accept_interrupts,
+    has_console,
+    interrupt_console,
+    is_headless,
+    send_break,
+)
 from pollen.platform.job_objects import CONSOLE_HOST, SUSPENDED_FLAG, JobTable
 from waggle.messages.labels import OsFamily
 from waggle.messages.session import ProcessSignal
@@ -115,10 +122,12 @@ class WindowsShim:
             OSError: The program could not be started, or not inside its job.
         """
         # An argument list, never a shell: no expansion or quoting happens to a request's argv.
-        # Started suspended, so it cannot start anything before it is inside its job. A console of
-        # its own with no window, so no command pops up on the operator's desktop; the Warden
-        # alone shares the packet's (windowless) console, where a break event reaches it.
-        window = 0 if spec.shares_console else _NO_WINDOW
+        # Started suspended, so it cannot start anything before it is inside its job. It shares
+        # the packet's console when that has no window (the task's), where a break event reaches
+        # it; the Warden also shares a visible one. Anything else gets a console of its own with
+        # no window, so no command pops up on the operator's desktop.
+        shares = is_headless() or (spec.shares_console and has_console())
+        window = 0 if shares else _NO_WINDOW
         process = await asyncio.create_subprocess_exec(
             *spec.argv,  # SAFETY: an argument list, never shell=True.
             cwd=spec.cwd,
@@ -243,7 +252,7 @@ class WindowsShim:
         return _install(self._runner, plan, self._env.get("SYSTEMROOT", "C:\\Windows"))
 
     def uninstall_service(self) -> ServiceResult:
-        """End and delete the Scheduled Task.
+        """Delete the Scheduled Task; ending the packet it runs is pollen.teardown's job.
 
         Returns:
             Whether a task was there to delete.
@@ -283,8 +292,9 @@ def _install(runner: CommandRunner, plan: ServicePlan, system_root: str) -> Serv
 
 
 def _uninstall(runner: CommandRunner) -> ServiceResult:
-    """End and delete the task by its name, touching nothing else."""
-    runner(["schtasks", "/End", "/TN", TASK_NAME])
+    """Delete the task by its name, touching nothing else; the packet it runs is not ended here."""
+    # No /End: that ends the console host, not the packet below it, and takes away the console
+    # the CLI presses Ctrl+C on to stop the packet cleanly (pollen.teardown does that next).
     deleted = runner(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"])
     detail = (
         "The Scheduled Task was removed."

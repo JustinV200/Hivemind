@@ -122,9 +122,9 @@ class SpawnSpec:
         int | IO[bytes] | None
     )  # A pipe for an exec, a log file or DEVNULL for a background one.
     stderr: int | IO[bytes] | None  # As stdout.
-    # Windows only: start in the packet's own console instead of one with no window, so a break
-    # event reaches it. Only the on-device Warden asks, because it hands its leases back on a
-    # break; the packet's console has no window either when it runs as the installed task.
+    # Windows only: share the packet's console even when it has a window (a hand-run packet), so
+    # a break event reaches it. Only the on-device Warden asks, because it hands its leases back
+    # on a break; every program shares the console anyway when it has no window (the task's).
     shares_console: bool = False
 
 

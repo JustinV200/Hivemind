@@ -6,9 +6,10 @@ Scheduled Task runs the packet under a console host with no window, and ending t
 host, not the packet below it. This module finds that packet through the status document it
 writes and asks it to stop the way it would at a terminal (Ctrl+C on its console, SIGTERM
 elsewhere), so it releases every lease on the way out: their programs ended, their changes undone,
-their scratch removed. A packet that does not go in time is forced, which skips that release, so
-the release is then run here instead, over the data directory's lease table. Forcing it also
-orphans the programs it started for leases (each in a windowless console of its own), so those
+their scratch removed. A packet that does not go in time is forced, which skips that release, and
+a packet that crashed long ago never ran it, so whenever leases are still in the data directory's
+table afterwards the release is run here instead, and read back from the table. Forcing it also
+orphans the programs it started for leases (nothing links them to it once it is gone), so those
 are collected first and ended after it. The on-device Warden and what it started are left alone
 here; the CLI stops the Warden next. On Windows that stop is forced, because no break event from
 the CLI's own console reaches the Warden, and the leases it held were released by the packet.
@@ -23,7 +24,7 @@ Key invariants:
     - Only a process whose command line runs ``run`` for this very data directory is ended, so a
       recycled pid or another data directory's packet is left alone; never this process itself.
     - The Warden is recognised by its pid and its creation time, so a recycled pid is not spared.
-    - A packet that had to be forced never leaves a lease unreleased without saying so.
+    - No lease is left in the table without saying so, whether a packet ran or not.
     - Nothing here prints; the CLI says what could not be done.
 
 See Also:
@@ -35,6 +36,7 @@ See Also:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from dataclasses import dataclass
 
@@ -43,16 +45,18 @@ import psutil
 from pollen.agent import SHUTDOWN_RELEASE_TIMEOUT_S, SHUTDOWN_WAIT_S, read_status
 from pollen.build import build_packet
 from pollen.errors import PollenError
+from pollen.lease import LeaseTable
 from pollen.platform import PlatformShim
 from pollen.state import DataLayout, WardenRecord, load_state
 from waggle.clock import Clock
 
+PACKET_END_MARGIN_S = 5.0  # For the packet's process to exit once its own release has finished.
 # How long a packet asked to stop gets: its own stop wait, then the release it does on the way out.
-PACKET_END_WAIT_S = SHUTDOWN_WAIT_S + SHUTDOWN_RELEASE_TIMEOUT_S + 5.0
+PACKET_END_WAIT_S = SHUTDOWN_WAIT_S + SHUTDOWN_RELEASE_TIMEOUT_S + PACKET_END_MARGIN_S
 KILLED_WAIT_S = 5.0  # How long a forced packet gets to be gone.
 _CREATE_TIME_TOLERANCE_S = 1.0  # As the shims': psutil's creation time is stable per process.
 
-__all__ = ["KILLED_WAIT_S", "PACKET_END_WAIT_S", "Ending", "end_packet"]
+__all__ = ["KILLED_WAIT_S", "PACKET_END_MARGIN_S", "PACKET_END_WAIT_S", "Ending", "end_packet"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +65,7 @@ class Ending:
 
     stuck: int | None = None  # The packet's pid, when it could not be ended at all.
     survivors: tuple[int, ...] = ()  # Lease programs it started that could not be killed.
-    is_unreleased: bool = False  # It was forced and its leases could not be released after it.
+    is_unreleased: bool = False  # Leases are still in the table after the release was run.
 
 
 async def end_packet(
@@ -71,7 +75,7 @@ async def end_packet(
 
     Args:
         layout: The data directory whose packet is ended.
-        shim: Asks the packet to stop; also used by the release after a forced end.
+        shim: Asks the packet to stop; also used by the release of what it left.
         clock: The clock that release runs with.
         wait_s: How long the packet gets to stop by itself before it is forced.
 
@@ -81,33 +85,50 @@ async def end_packet(
     Raises:
         Nothing: every failure to end a process is reported in the result instead.
     """
+    survivors: tuple[int, ...] = ()
+    packet = _running_packet(layout)
+    if packet is not None:
+        try:
+            left = _lease_programs(packet, _warden(layout))
+        except psutil.NoSuchProcess:
+            left = []  # It went by itself meanwhile.
+        except psutil.Error:
+            return Ending(stuck=packet.pid)
+        if not await _stop(packet, shim, wait_s):
+            return Ending(stuck=packet.pid)
+        # Collected before the packet went: once it has, nothing links them to it any more.
+        survivors = _kill_all(left)
+    # Whatever ended the packet (asked, forced, a crash long ago), no lease may stay held.
+    return Ending(survivors=survivors, is_unreleased=not await _release(layout, shim, clock))
+
+
+def _running_packet(layout: DataLayout) -> psutil.Process | None:
+    """Return this data directory's packet if it runs, by its status document; else None."""
     status = read_status(layout.status)
     if status is None:
-        return Ending()
+        return None
     try:
         packet = psutil.Process(status.pid)
         argv = packet.cmdline()
-        # Only this data directory's packet: a recycled pid runs something else.
-        if packet.pid == os.getpid() or "run" not in argv or str(layout.root) not in argv:
-            return Ending()
-        left = _lease_programs(packet, _warden(layout))
-    except psutil.NoSuchProcess:
-        return Ending()  # Gone already.
     except psutil.Error:
-        return Ending(stuck=status.pid)
+        return None  # Gone, or not readable as ours: no packet of this directory to stop.
+    # Only this data directory's packet: a recycled pid runs something else.
+    if packet.pid == os.getpid() or "run" not in argv or str(layout.root) not in argv:
+        return None
+    return packet
+
+
+async def _stop(packet: psutil.Process, shim: PlatformShim, wait_s: float) -> bool:
+    """Ask ``packet`` to stop, force it if it does not within ``wait_s``; True once it is gone."""
     if shim.ask_to_stop(packet.pid) and await _gone(packet, wait_s):
-        return Ending(survivors=_kill_all(left))  # It released its own leases on the way out.
+        return True  # It released its own leases on the way out.
     try:
         packet.kill()
     except psutil.NoSuchProcess:
-        pass  # It went just as the wait ran out.
+        return True  # It went just as the wait ran out.
     except psutil.Error:
-        return Ending(stuck=status.pid)
-    if not await _gone(packet, KILLED_WAIT_S):
-        return Ending(stuck=status.pid)
-    # Collected before the packet went: once it has, nothing links them to it any more.
-    survivors = _kill_all(left)
-    return Ending(survivors=survivors, is_unreleased=not await _release(layout, shim, clock))
+        return False
+    return await _gone(packet, KILLED_WAIT_S)
 
 
 async def _gone(packet: psutil.Process, wait_s: float) -> bool:
@@ -122,12 +143,23 @@ async def _gone(packet: psutil.Process, wait_s: float) -> bool:
 
 
 async def _release(layout: DataLayout, shim: PlatformShim, clock: Clock) -> bool:
-    """Release every lease the forced packet left in its table, as its own stop would have."""
-    try:
+    """Release every lease left in the table, as the packet's own stop does; True if none is left.
+
+    The packet's release swallows its own failures, so success is read back from the table.
+    """
+    if not _leases_left(layout):
+        return True
+    with contextlib.suppress(PollenError):  # State or table unreadable: checked just below.
         await build_packet(layout, shim, clock).sweep()
+    return not _leases_left(layout)
+
+
+def _leases_left(layout: DataLayout) -> bool:
+    """Say whether the lease table still holds a lease; True when it cannot be read."""
+    try:
+        return bool(LeaseTable.load(layout.lease_table).all())
     except PollenError:
-        return False  # The state or the table cannot be read: nothing to release them with.
-    return True
+        return True
 
 
 def _kill_all(programs: list[psutil.Process]) -> tuple[int, ...]:

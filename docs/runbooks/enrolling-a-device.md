@@ -81,7 +81,9 @@ The packet works out of sight so it never interrupts whoever is using the device
 Scheduled Task starts it under a console host with no window (`conhost.exe --headless`), so nothing
 appears at login, and it writes its log to `packet.log` in the data directory
 (`%LOCALAPPDATA%\pollen`) instead. `conhost.exe --headless` needs Windows 10 1809 or later. Every
-console program a command runs gets a console with no window. On Linux and macOS a command's
+console program a command runs shares that windowless console, so it can still be asked to stop
+politely; if you run `pollen run` by hand in a terminal, each gets a windowless console of its own
+instead, and an interrupt then ends it by force. On Linux and macOS a command's
 program does not inherit `DISPLAY` or `WAYLAND_DISPLAY`, so it cannot draw on your screen by
 accident (a Wayland program can still find the desktop's default socket through `XDG_RUNTIME_DIR`,
 which programs need for more than a display). A colonized device's Warden gets them only when the

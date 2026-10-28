@@ -1,21 +1,23 @@
 """Test ending the packet a removed service left running, and releasing what it held.
 
-Ending the Windows Scheduled Task ends the windowless console host it started, not the Pollen
-Packet (the thin gateway program on a device the Hive borrows) below it, so ``pollen uninstall``
-ends that packet itself (pollen.teardown): it asks first (Ctrl+C on the packet's console on
-Windows, SIGTERM elsewhere) and forces it only if it does not go, then releases the leases the
-forced packet could not. These tests stand a real program in for the packet: its command line
-runs ``run`` for a data directory, it starts a lease program and a Warden (which starts a child of
-its own), and it either honours the request or ignores it. On Windows it runs in a windowless
-console of its own, as the real one does, so the request never reaches the test's console.
+Removing the Windows Scheduled Task leaves the Pollen Packet (the thin gateway program on a device
+the Hive borrows) running under its windowless console host, so ``pollen uninstall`` ends that
+packet itself (pollen.teardown): it asks first (Ctrl+C on the packet's console on Windows, SIGTERM
+elsewhere) and forces it only if it does not go, then releases whatever leases are still in the
+data directory's table, whether a packet ran or not. These tests stand a real program in for the
+packet: its command line runs ``run`` for a data directory, it starts a lease program and a Warden
+(which starts a child of its own), writes their pids to a file, and either honours the request or
+ignores it. On Windows it runs in a windowless console of its own, as the real one does, so the
+request never reaches the test's console; one test runs it under ``conhost.exe --headless``
+exactly as the task does, through the real ``pollen uninstall``.
 
 Fits into the Hive:
-    Layer 0 (test infrastructure, not shipped). Tests pollen.teardown.
+    Layer 0 (test infrastructure, not shipped). Tests pollen.teardown (and its call in pollen.cli).
 
 Key invariants:
     - Only the packet of this very data directory is ended; another directory's is left alone.
-    - A packet that ignores the request is forced, and its leases are released after it: the
-      lease's scratch is gone.
+    - A packet that ignores the request is forced; one that honours it goes by itself.
+    - Whatever happened to the packet, its leases are released: the lease's scratch is gone.
     - The lease programs a forced packet would orphan are ended; the Warden and what it started
       are left for the CLI, which forces the Warden on Windows (no break event reaches it there).
 
@@ -28,8 +30,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import subprocess
 import sys
+import time
+from collections.abc import Sequence
 from pathlib import Path
 
 import psutil
@@ -37,8 +42,10 @@ import pytest
 from device_kit import Device
 
 from pollen.agent import PacketStatus, write_status
+from pollen.cli import main
 from pollen.lease import DeviceLease, LeaseTable
-from pollen.platform import select_shim
+from pollen.platform import CommandResult, WindowsShim, select_shim
+from pollen.platform.base import run_command
 from pollen.state import WardenRecord, save_state
 from pollen.teardown import end_packet
 from waggle.clock import Clock
@@ -48,13 +55,16 @@ from waggle.messages.swarm import RuntimeLevel
 
 ASKED_EXIT = 7  # What the stand-in exits with when it honours the request to stop.
 _KILLED_WAIT_S = 2.0  # Long enough for a killed program to go; a live one is only waited this.
+_STARTED_WAIT_S = 20.0  # How long the stand-in gets to write its pids.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # A console of its own, as the packet has.
-# A stand-in packet: starts a lease program and a Warden with a child of its own, prints the three
-# pids, then sleeps; argv[1] says whether it honours a request to stop (Ctrl+C or SIGTERM).
+# A stand-in packet: starts a lease program and a Warden with a child of its own, as the real one
+# does (each in a process group of its own, sharing its windowless console), writes the four pids
+# to argv[2], then sleeps; argv[1] says whether it honours a request to stop (Ctrl+C or SIGTERM).
 _PACKET = """
-import ctypes, json, signal, subprocess, sys, time
+import ctypes, json, os, signal, subprocess, sys, time
 honours = sys.argv[1] == "honours"
 def asked(*_):
+    open(sys.argv[2] + ".asked", "w").close()
     sys.exit(7)
 for name in ("SIGINT", "SIGTERM"):
     signal.signal(getattr(signal, name), asked if honours else signal.SIG_IGN)
@@ -62,41 +72,46 @@ if honours and sys.platform == "win32":
     ctypes.windll.kernel32.SetConsoleCtrlHandler(None, False)
 sleep = [sys.executable, "-c", "import time; time.sleep(60)"]
 code = "import subprocess, time; c = subprocess.Popen(%r); print(c.pid, flush=True); time.sleep(60)"
-# As the real packet starts them: a lease program in a console of its own, the Warden sharing
-# the packet's console in a process group of its own, which Ctrl+C there does not reach.
-lease = subprocess.Popen(sleep, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+lease = subprocess.Popen(sleep, creationflags=group)
 argv = [sys.executable, "-c", code % sleep]
 warden = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True, creationflags=group)
 grandchild = int(warden.stdout.readline())
-print(json.dumps([lease.pid, warden.pid, grandchild]), flush=True)
+with open(sys.argv[2] + ".tmp", "w") as out:
+    json.dump([os.getpid(), lease.pid, warden.pid, grandchild], out)
+os.replace(sys.argv[2] + ".tmp", sys.argv[2])
 time.sleep(60)
 """
 
 
-def _start(data_dir: Path, honours: bool) -> tuple[subprocess.Popen[str], list[int]]:
-    """Start the stand-in packet for ``data_dir``; return it and its descendants' pids."""
+def _start(
+    launcher: Sequence[str], data_dir: Path, honours: bool, pids: Path
+) -> tuple[subprocess.Popen[bytes], list[int]]:
+    """Start the stand-in packet for ``data_dir`` under ``launcher``; return it and the pids."""
     mode = "honours" if honours else "ignores"
-    argv = [sys.executable, "-c", _PACKET, mode, "run", "--data-dir", str(data_dir)]
-    # SAFETY: this interpreter and fixed arguments.
-    packet = subprocess.Popen(  # noqa: S603
-        argv, stdout=subprocess.PIPE, text=True, creationflags=_NO_WINDOW
-    )
-    assert packet.stdout is not None
-    return packet, json.loads(packet.stdout.readline())
+    argv = [*launcher, sys.executable, "-c", _PACKET, mode, str(pids), "run", "--data-dir"]
+    # SAFETY: this interpreter, the system's console host and fixed arguments.
+    launched = subprocess.Popen([*argv, str(data_dir)], creationflags=_NO_WINDOW)  # noqa: S603
+    deadline = time.monotonic() + _STARTED_WAIT_S
+    while not pids.exists():
+        assert time.monotonic() < deadline, "the stand-in packet never started"
+        time.sleep(0.05)
+    started: list[int] = json.loads(pids.read_text())
+    return launched, started
 
 
-async def _record(device: Device, clock: Clock, packet: int, warden: int) -> Path:
+async def _record(device: Device, clock: Clock, packet: int, warden: int | None) -> Path:
     """Write the packet's status, a Warden record and one open lease; return its scratch."""
     layout = device.layout
     status = PacketStatus(clock).snapshot(open_leases=1, outbox_pending=0, silence_s=0.0)
     await write_status(layout.status, status.model_copy(update={"pid": packet}))
-    created = psutil.Process(warden).create_time()
-    record = WardenRecord(
-        pid=warden, created=created, runtime_version="1.4.0", started_at=clock.now()
-    )
-    colonized = {"level": RuntimeLevel.COLONIZED, "warden": record}
-    save_state(layout.state, device.state.model_copy(update=colonized))
+    if warden is not None:
+        created = psutil.Process(warden).create_time()
+        record = WardenRecord(
+            pid=warden, created=created, runtime_version="1.4.0", started_at=clock.now()
+        )
+        colonized = {"level": RuntimeLevel.COLONIZED, "warden": record}
+        save_state(layout.state, device.state.model_copy(update=colonized))
     scratch = layout.scratch(new_lease_id(clock))
     scratch.mkdir(parents=True)
     (scratch / "leftover.txt").write_text("x")
@@ -116,41 +131,99 @@ async def _record(device: Device, clock: Clock, packet: int, warden: int) -> Pat
 @pytest.mark.parametrize(
     ("this_directory", "honours"),
     [
-        (True, False),  # Ignores the request: forced, lease programs ended, leases released.
+        (True, False),  # Ignores the request: forced, its lease programs ended.
         (True, True),  # Honours it: it goes by itself, as it would at a terminal.
-        (False, False),  # Another data directory's packet: nothing is touched.
+        (False, False),  # Another data directory's packet: it and its programs are left alone.
     ],
 )
-async def test_this_directorys_packet_ends_and_releases_and_the_warden_is_left(
+async def test_this_directorys_packet_ends_and_its_leases_are_released(
     device: Device, clock: Clock, this_directory: bool, honours: bool
 ) -> None:
     layout = device.layout
     data_dir = layout.root if this_directory else layout.root.parent / "other"
-    packet, (lease_program, warden, warden_child) = _start(data_dir, honours)
+    launched, pids = _start((), data_dir, honours, layout.root.parent / "pids.json")
+    packet, lease_program, warden, warden_child = pids
     try:
-        scratch = await _record(device, clock, packet.pid, warden)
+        scratch = await _record(device, clock, packet, warden)
 
         ended = await end_packet(layout, select_shim(), clock, wait_s=5.0 if honours else 1.0)
 
         assert ended.stuck is None and ended.survivors == () and not ended.is_unreleased
-        returncode = await asyncio.to_thread(_returncode, packet)
+        returncode = await asyncio.to_thread(_wait, launched)
         assert (returncode is not None) is this_directory
         assert (returncode == ASKED_EXIT) is (this_directory and honours)
         assert _ended(lease_program) is this_directory
-        assert scratch.exists() is not (this_directory and not honours)  # Released after a force.
+        assert not scratch.exists()  # This directory's leases are released in every case.
         # The Warden and its own child are the CLI's to stop next.
         assert psutil.Process(warden).is_running() and psutil.Process(warden_child).is_running()
     finally:
-        for pid in (lease_program, warden_child, warden):
+        for pid in reversed(pids):
             _kill(pid)
-        packet.kill()
-        packet.communicate()  # Reaps it and closes its pipe.
+        launched.wait()
 
 
-def _returncode(packet: subprocess.Popen[str]) -> int | None:
+@pytest.mark.parametrize("readable", [True, False])
+async def test_the_leases_of_a_packet_that_died_long_ago_are_released_or_reported(
+    device: Device, clock: Clock, readable: bool
+) -> None:
+    dead = psutil.Popen([sys.executable, "-c", "pass"])  # A pid that no longer runs.
+    dead.wait()
+    scratch = await _record(device, clock, dead.pid, warden=None)
+    if not readable:
+        device.layout.state.unlink()  # Nothing to release them with: the lease stays, and says so.
+
+    ended = await end_packet(device.layout, select_shim(), clock)
+
+    assert ended.stuck is None and ended.is_unreleased is not readable
+    assert scratch.exists() is not readable
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the console host exists on Windows only")
+async def test_uninstall_stops_a_packet_under_the_headless_console_host_politely(
+    device: Device, clock: Clock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: uninstall used to end the task first, which ends the console host and with it
+    # the console the CLI presses Ctrl+C on, so the packet was always forced.
+    layout = device.layout
+    host = Path(os.environ.get("SYSTEMROOT", r"C:\Windows"), "System32", "conhost.exe")
+    pid_file = layout.root.parent / "pids.json"
+    launched, pids = _start((str(host), "--headless"), layout.root, True, pid_file)
+    packet, lease_program, warden, _ = pids
+
+    def schtasks(argv: Sequence[str]) -> CommandResult:
+        if argv[0] != "schtasks":
+            return run_command(argv)  # taskkill, for the Warden, is the real one.
+        if "/End" in argv:  # What the real /End does: it ends the console host.
+            for process in psutil.process_iter(["exe"]):
+                if process.info["exe"] and Path(process.info["exe"]) == host:
+                    with contextlib.suppress(psutil.Error):
+                        if packet in {child.pid for child in process.children(recursive=True)}:
+                            process.kill()
+        return CommandResult(0, "")
+
+    shim = WindowsShim(Path.home(), dict(os.environ), schtasks)
+    monkeypatch.setattr("pollen.cli.select_shim", lambda: shim)
+    try:
+        scratch = await _record(device, clock, packet, warden)
+
+        status = await asyncio.to_thread(main, ["uninstall", "--data-dir", str(layout.root)])
+
+        assert status == 0
+        # It went because it was asked (it notes that), not because it was forced.
+        assert await asyncio.to_thread(Path(f"{pid_file}.asked").exists)
+        assert _ended(lease_program) and _ended(warden)  # The Warden is forced by the CLI.
+        assert not scratch.exists()
+    finally:
+        for pid in reversed(pids):
+            _kill(pid)
+        launched.kill()
+        launched.wait()
+
+
+def _wait(launched: subprocess.Popen[bytes]) -> int | None:
     """Return the stand-in's exit status if it has ended within a moment, else None."""
     try:
-        return packet.wait(_KILLED_WAIT_S)
+        return launched.wait(_KILLED_WAIT_S)
     except subprocess.TimeoutExpired:
         return None
 
@@ -167,6 +240,6 @@ def _ended(pid: int) -> bool:
 
 
 def _kill(pid: int) -> None:
-    """End a sleeper a test started, if it still runs."""
+    """End a process a test started, if it still runs."""
     with contextlib.suppress(psutil.NoSuchProcess):
         psutil.Process(pid).kill()

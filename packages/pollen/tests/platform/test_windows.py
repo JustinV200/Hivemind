@@ -106,15 +106,11 @@ def test_install_that_schtasks_refuses_prints_the_command(tmp_path: Path) -> Non
     assert not result.is_active and result.manual_command == "python.exe -m pollen run"
 
 
-def test_uninstall_ends_and_deletes_the_task_and_reports_when_there_was_none(
-    tmp_path: Path,
-) -> None:
+def test_uninstall_deletes_the_task_and_reports_when_there_was_none(tmp_path: Path) -> None:
     runner = Schtasks()
     removed = WindowsShim(tmp_path, {}, runner).uninstall_service()
-    assert runner.calls == [
-        ("schtasks", "/End", "/TN", TASK_NAME),
-        ("schtasks", "/Delete", "/TN", TASK_NAME, "/F"),
-    ]
+    # No /End: it would end the console host the CLI then needs to stop the packet cleanly.
+    assert runner.calls == [("schtasks", "/Delete", "/TN", TASK_NAME, "/F")]
     assert "removed" in removed.detail
     absent = WindowsShim(tmp_path, {}, Schtasks(frozenset({"/Delete"}))).uninstall_service()
     assert "no Scheduled Task" in absent.detail
@@ -130,10 +126,28 @@ def test_the_facts_describe_a_windows_desktop(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize(("shares_console", "windowless"), [(False, True), (True, False)])
-async def test_a_program_gets_a_console_with_no_window_unless_it_shares_the_packets(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shares_console: bool, windowless: bool
+@pytest.mark.parametrize(
+    ("console", "shares_console", "windowless"),
+    [
+        # console: (the packet has one, it has no window). The task's: every program shares it.
+        ((True, True), False, False),
+        # A hand-run packet's visible console: only the Warden shares it.
+        ((True, False), False, True),
+        ((True, False), True, False),
+        # No console at all: nothing to share, the Warden included.
+        ((False, False), True, True),
+    ],
+)
+async def test_a_program_shares_a_windowless_console_and_gets_its_own_otherwise(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    console: tuple[bool, bool],
+    shares_console: bool,
+    windowless: bool,
 ) -> None:
+    has, headless = console
+    monkeypatch.setattr("pollen.platform.windows.has_console", lambda: has)
+    monkeypatch.setattr("pollen.platform.windows.is_headless", lambda: headless)
     flags: list[int] = []
 
     async def record(*_argv: str, creationflags: int, **_kwargs: object) -> object:
@@ -292,9 +306,11 @@ async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_bre
     ],
 )
 async def test_a_windowless_program_ends_and_its_group_is_gone_once_reaped(
-    tmp_path: Path, code: str, signal_: ProcessSignal | None
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, code: str, signal_: ProcessSignal | None
 ) -> None:
     shim = WindowsShim(tmp_path, {})  # The real taskkill, which refuses a console program.
+    # As under a hand-run packet: the program gets a windowless console of its own.
+    monkeypatch.setattr("pollen.platform.windows.is_headless", lambda: False)
     process = await _spawn(shim, code, tmp_path)
     ref = shim.process_ref(process.pid)
     try:

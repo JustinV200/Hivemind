@@ -490,21 +490,28 @@ implements them exactly, because a Warden does not know which kind of Cell it is
   program's children die with it.
 - **No pop-ups.** A gateway runs out of sight of the device's operator, who stays able to see
   everything it does through the Pheromone Trail and the gateway's own status. A program it starts
-  never opens a console window: the Python packet starts each one on Windows with a console of its
-  own that has no window (`CREATE_NO_WINDOW`), and installs itself to start at login under a
-  console host with no window, logging to a file in its data directory. A program it starts does
+  never opens a console window: the Python packet installs itself to start at login under a console
+  host with no window, logging to a file in its data directory, and every program it starts there
+  shares that windowless console in a process group of its own. A packet with a visible console
+  (run by hand in a terminal) or none starts each program with a console of its own that has no
+  window (`CREATE_NO_WINDOW`) instead, and only the Warden shares a visible one. A program it starts
+  does
   not inherit `DISPLAY` or `WAYLAND_DISPLAY`; a lease's own display (the Exoskeleton's private
   Xvfb) comes in the request's `env`, and a future real-display grant is where the device's own
   values would be passed through again for a lease. The Python packet's on-device Warden gets them
   back only when the device manifest sets `[hive_stand] exoskeleton_real_display = true`, the
   operator's own choice to lend the screen. The console host with no window needs Windows 10 1809
-  or later. `XDG_RUNTIME_DIR` is kept, so a Wayland client can still
-  find the compositor's default socket there. A GUI program a command deliberately launches still
+  or later. `XDG_RUNTIME_DIR` is kept, so a Wayland client can still find the compositor's default
+  socket there. A GUI program a command deliberately launches still
   appears, and a Windows UAC prompt always shows.
-- **Signals on Windows.** A break event reaches only a process sharing the gateway's console, which
-  for the Python packet is its on-device Warden alone. An `INTERRUPT` or `TERMINATE` that no break
-  event or polite `taskkill` can reach is forced through the Job Object, as an unhandled `SIGTERM`
-  would end the program on POSIX.
+- **Signals on Windows.** A break event reaches only a process sharing the gateway's console: under
+  the installed task every program the Python packet starts, by hand only its Warden. An
+  `INTERRUPT` or `TERMINATE` that no break event or polite `taskkill` can reach (a program in a
+  console of its own) is forced through the Job Object, as an unhandled `SIGTERM` would end the
+  program on POSIX. Removing the service stops the packet the same polite way first: `pollen
+  uninstall` presses Ctrl+C on the packet's own console, and only if that console holds nothing but
+  the packet's own processes, so the packet releases its leases; one that does not go is forced and
+  its leases are released for it.
 - **Concurrency and the link.** Several execs may run in a session at once. An exec that outlives
   the link keeps running and keeps its timeout; its terminal `session.exit` is queued in the outbox
   (section 14), and the `session.output` chunks it could not send are discarded.
