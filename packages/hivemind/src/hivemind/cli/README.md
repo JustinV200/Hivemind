@@ -822,3 +822,19 @@ How to test it: `tests/unit/cli/backup/` (a backup and restore round trip throug
 a temporary manifest, with the private key absent from the archive, and each refusal leaving no
 database behind) and `tests/unit/common/backup/` (the archive format and the hostile-archive
 table). `docs/runbooks/backup.md` is the operator's walk-through.
+
+## `hive supersede` and `hive doctor --supersedure` (roadmap step 13.2a)
+
+- `supersede/` -- `command.py`: `hive supersede NODE` moves the Hive Stand onto a colonized node
+  as the Hive Stand's console over the running serve's loopback listener (the password logs in,
+  the typed phrase `supersede my hive stand` is asked for, the route steps up and the Queen's door
+  passes the human-only `supersedure` point, runs the candidate test and starts the move); `hive
+  supersede --settle superseded|aborted` records the operator's word on a Supersedure a crash left
+  open, offline, after the password opens the console key and under the Queen lock. `doctor.py`:
+  `hive doctor --supersedure NODE` prints every candidate check and exits 0 only when none failed;
+  the rest of `hive doctor` is roadmap 14.2's.
+
+How to test it: `tests/unit/cli/test_supersede.py` (the settle's password and refusals),
+`tests/unit/entrance/routes/test_supersede.py` (the step-up, the phrase and the start over real
+sockets) and `tests/e2e/test_supersedure.py` (two Queens). `docs/runbooks/supersedure.md` is the
+operator's walk-through.
