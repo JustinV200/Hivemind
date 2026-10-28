@@ -3247,15 +3247,19 @@ it.
   operator-lease ADR states that consequence.
   **A guest gains nothing on the loopback-only rows.** QEMU's SLIRP network maps a guest's
   `10.0.2.2` to the host's `127.0.0.1` (`hive/backends/qemu/network.py:47-50`), Docker Desktop's
-  `host.docker.internal` and `host-gateway` do the same, and `entrance/expose/loopback.py:58-80`
-  checked only the `Host` and proxy headers. ADR-0068 (branch `fix/guest-loopback`, merged before
-  this phase starts) keeps the network as it is and protects the loopback-only rows with a
-  per-boot stand key that never enters a Cell, so a loopback-only row requested from inside a
-  guest, with a forged `Host` and no stand key, gets 403; restricting SLIRP, removing the alias
-  and moving the listener to a socket were all rejected there. The stand key guards only the
-  loopback-only rows; every other row, step-up included (`entrance/routes/auth.py:170-201`, both
-  listeners), still answers a guest that tunnels to the loopback listener, and records it as
-  arriving on loopback. So loopback is never trusted by listener alone: a step-up counts as
+  `host.docker.internal` and `host-gateway` do the same, and `loopback_request_allowed`
+  (`entrance/expose/loopback.py:77-109`) checks only the `Host` and proxy headers. ADR-0068 keeps
+  the network as it is and protects the loopback-only rows with a per-boot stand key that never
+  enters a Cell, sent only in the `X-Hive-Stand` header, so a loopback-only row requested from
+  inside a guest, with a forged `Host` and no stand key, gets 403; restricting SLIRP, removing
+  the alias and moving the listener to a socket were all rejected there. Beyond those rows the
+  key is marked on the arrival (`Arrival.stand`) and the session it opens: a keyless loopback
+  login or step-up is refused for the console device and for every device while the Entrance is
+  reduced, a reduction ends every keyless session and its sockets, and the travel lock judges a
+  keyless loopback login as unplaceable. Every other row, login and step-up included
+  (`entrance/routes/auth.py:179-217`, both listeners), still answers a guest that tunnels to the
+  loopback listener with an ordinary device's key and the password, and records it as a loopback
+  arrival without the key. So loopback is never trusted by listener alone: a step-up counts as
   `LOOPBACK` only with the stand key (15.4a), and opening a shell on the Hive Stand or a Cell
   sharing its host needs the stand key on the open itself, an HTTP `POST` the door checks per
   Cell (15.6), since a browser WebSocket cannot carry the key. With those two, a guest, or an attacker in
@@ -3403,8 +3407,9 @@ lab devices, never on an enrolled device in daily use.
 - [ ] **15.4a Inspection authority.** Human authority is a `StepUpProof` that only the Entrance's
   step-up verifier (`entrance/auth/step_up/`) can construct, naming the device, the session, the
   moment of the step-up and whether it was local (`LOOPBACK` or `REMOTE`). It is `LOOPBACK` only
-  when the step-up both arrived on the loopback listener and carried a valid ADR-0068 stand key,
-  compared in constant time, and `REMOTE` otherwise: the arrival the Entrance records
+  when the step-up both arrived on the loopback listener and carried a valid ADR-0068 stand key
+  (the arrival's `Arrival.stand`, set by the loopback gate's constant-time check of the
+  `X-Hive-Stand` header), and `REMOTE` otherwise: the arrival's listener
   (`entrance/auth/step_up/ceremony.py:104,181`) says loopback for a guest that tunnelled through
   `10.0.2.2` or `host.docker.internal` too, so the door never trusts the listener alone. `QueenDoor.open_inspection` requires one and records the Inspection
   in the door's live table with an unguessable nonce that only the door holds; an
@@ -3607,8 +3612,8 @@ lab devices, never on an enrolled device in daily use.
   the Patrol off until the close; a Supersedure started with an Inspection open is refused by
   its preflight, and an Inspection open attempted while a Supersedure is in progress is refused.
   *Size:* large, 6 agent-days.
-- [ ] **15.5a Host-side attach and capability fields.** Needs ADR-0068's guest-loopback fix
-  landed first. Docker: an exec with a tty attached from the Hive Stand. QEMU: a virtio console
+- [ ] **15.5a Host-side attach and capability fields.** Builds on ADR-0068's stand key.
+  Docker: an exec with a tty attached from the Hive Stand. QEMU: a virtio console
   on a Unix socket, `AF_UNIX` on Windows too (QEMU supports it there; a `-chardev pipe` would be
   created with default security), created for each Inspection and existing only while it is
   open, inside an owner-only directory (an explicit DACL on Windows) under a Hive state path the
@@ -3938,8 +3943,7 @@ sense landed together (its Hive Stand containment may land first as a preparator
 - A Sting Cut, Absconding, the Entrance Reducer, the idle timeout, `pollen inspect end` and the
   notice's "end now" each end an open Inspection within five seconds, and the trail has exactly one
   `cell.inspection_closed` with the right reason and no content.
-- ADR-0068's guest-loopback fix has landed, and 15.5a's forged-`Host` check gets 403 from inside a
-  QEMU and a Docker Desktop Cell.
+- 15.5a's forged-`Host` check gets 403 (ADR-0068) from inside a QEMU and a Docker Desktop Cell.
 
 ### ADRs to write
 
