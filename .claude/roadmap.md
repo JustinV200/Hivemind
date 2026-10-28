@@ -3384,10 +3384,18 @@ in daily use.
   `10.0.2.2` or `host.docker.internal` too, so the door never trusts the listener alone. `QueenDoor.open_inspection` requires one and records the Inspection
   in the door's live table with an unguessable nonce that only the door holds; an
   `InspectionWarrant` is the Inspection id plus that nonce, and is valid only while it matches a
-  live row. An import-linter contract keeps `StepUpProof` and the warrant's constructor out of
-  every `queen/` module except the door, above all `queen/awake` (which holds the Queen) and
-  `queen/guard_requests` (whose `decision/act.py:47,135` already calls Sting Cut from
-  model-driven decisions), and out of every Warden and autopilot. **Closing never needs a
+  live row. An import-linter contract keeps `StepUpProof`, the warrant's constructor and every
+  host-side attach entry point (below) out of every `queen/` module except the door, above all
+  `queen/awake` (which holds the Queen) and `queen/guard_requests` (whose `decision/act.py:47,135`
+  already calls Sting Cut from model-driven decisions), and out of every Warden and autopilot.
+  The host-side attach paths never pass `FrameSender.send` and share the process with the
+  Level-0 Wardens, so they get the same wall at their own entry: the Docker tty exec and the
+  QEMU console socket (15.5), the Hive Stand PTY in `cell/local/pty/` (15.5), and 15.13b's
+  `docker exec` of x11vnc and QEMU `-vnc` each take a live `InspectionWarrant` and check it
+  against the door's table before attaching, and their output goes only to the door's relay,
+  never to a hub listener. Every `CellSession` kind (`LocalProcessSession`, `InCellSession` and
+  the Pollen session) refuses an operator-kind lease unless it comes from the door with a live
+  warrant, and refuses all `session.*` work on an operator lease. **Closing never needs a
   proof:** most closes have no human behind them (the idle and hard timeouts, the link-drop
   grace, the Entrance Reducer, a revocation, a session expiry, a Sting Cut, model-driven ones
   included, and Absconding), and a close only narrows, so `inspect.close` is the system-close
@@ -3526,7 +3534,8 @@ in daily use.
   Stand moves. For those Cells it fails closed: a missing, empty or unreadable machine id counts
   as sharing the host, so the remote shell and the screen are refused. A Cell with
   `host_side_attach` derives false, since ADR-0068's stand key and the absence of any mount of
-  the Hive's state cover it. The rule reads those two fields, never the Cell's kind. It covers a Pollen packet
+  the Hive's state cover it, and a Cell whose `opt_in_source` is `HIVE_STAND_MANIFEST` (the Hive
+  Stand itself) derives true. The rule reads those fields only, never the Cell's kind. It covers a Pollen packet
   installed on the Hive Stand, and after a Supersedure the *new* Hive Stand, the former
   candidate, whose packet and Warden keep running there (13.2a); the old, superseded machine no
   longer shares the host. The door reads the derived fact, never the Cell's kind. ADR-0068's
@@ -3553,10 +3562,13 @@ in daily use.
   same lease, a bee that ignores the Handoff request is retired and starts no process while the
   Inspection is open, and after an Inspection there that ran `mysql -psecret` and edited a file,
   nothing from it is in Bee Bread and no Warden episode or Patrol ran meanwhile; the Queen derives
-  `shares_hive_stand_host` true for a `PACKET` Cell with the Hive Stand's machine id or with none,
-  false for a `host_side_attach` Cell, and recomputes it after a Supersedure, when it holds for
+  `shares_hive_stand_host` true for a `PACKET` Cell with the Hive Stand's machine id or with none
+  and for the `HIVE_STAND_MANIFEST` Hive Stand, false for a `host_side_attach` Cell, and recomputes it after a Supersedure, when it holds for
   the new Hive Stand's packet and not for the old machine's (the remote refusals themselves are
-  15.6's exits, once the open route exists). *Size:* medium, 3.5 agent-days.
+  15.6's exits, once the open route exists); a Warden or autopilot call to the Docker tty exec,
+  the QEMU console or the Hive Stand PTY without a live warrant is refused, and so is an
+  operator-kind lease asked of any `CellSession` kind without one; output from those paths
+  reaches no hub listener. *Size:* medium, 3.5 agent-days.
 - [ ] **15.6 Entrance terminal route.** Open and attach are split, because a browser WebSocket
   cannot set the `X-Hive-Stand` header. `POST /v1/cells/{cell}/inspect/terminal` behind
   `entrance:inspect:shell` and `ActionKind.INSPECT` opens the Inspection through the door and
@@ -3625,7 +3637,8 @@ attached to the Entrance relay by a test harness.
   an id and one-time attach token, and the WebSocket attaches by them, landing together with its gates so no build ever serves an ungated screen:
   `QueenDoor.open_inspection` learns the screen modes and checks each before any lease opens
   (`screen_view` at every access level, `screen_control` only on `FULL`; never on Night Veil; never
-  the Hive Stand's own screen or that of a Cell sharing its host; only with the device's `--screen` opt-in, unless the Cell's
+  on a Cell whose derived `shares_hive_stand_host` is true, the Hive Stand itself included through
+  `HIVE_STAND_MANIFEST` (15.5); only with the device's `--screen` opt-in, unless the Cell's
   capabilities say `hive_owned` (15.5), since the Hive owns that machine; and every screen mode always Smokes, so `--alongside`
   is refused with any screen mode); the route takes the same `ActionKind.INSPECT` fresh step-up
   as 15.6 and gains its own route-test allow-list row; a view-only session drops input frames at
@@ -3656,7 +3669,9 @@ attached to the Entrance relay by a test harness.
   `127.0.0.1`, because every QEMU and Docker Desktop guest can reach host loopback and no current
   backend prevents it. The Night Veil refusal applies to the screen as to the shell. *Exit:* control a headless Docker Cell and a QEMU Cell's
   console from the test client; no new listening TCP port appears on the host during either; a
-  wrong or reused VNC password is refused; a Night Veil Cell refuses a screen. *Size:* medium, 2.5 agent-days.
+  wrong or reused VNC password is refused; a Night Veil Cell refuses a screen; a Warden or
+  autopilot call to the x11vnc `docker exec` or the QEMU `-vnc` attach without a live warrant is
+  refused, and their output reaches no hub listener. *Size:* medium, 2.5 agent-days.
 - [ ] **15.14a Windows capture and input.** Desktop Duplication capture and `SendInput` through the
   chosen path (a bundled VNC server run as a separate process, or the packet's own), in the
   interactive user session only; multi-monitor and DPI. *Exit:* with the test client,
@@ -3774,7 +3789,10 @@ sense landed together (its Hive Stand containment may land first as a preparator
   where Virtual Cell backends run; the operator lease closed to every
   `cell.request` and `session.*` request; `inspect.open` built only by the Queen's door from an
   Entrance-built `StepUpProof`, every `inspect.*` frame checked against the door's live table at
-  `FrameSender.send`, and `inspect.close` as the system-close path that never needs a proof;
+  `FrameSender.send`, every host-side attach entry point (Docker tty exec, QEMU console and
+  `-vnc`, the Hive Stand PTY, the x11vnc `docker exec`) taking a live warrant against the same
+  table and sending output only to the door's relay, every `CellSession` kind refusing an
+  operator-kind lease without the door's warrant, and `inspect.close` as the system-close path that never needs a proof;
   Inspection file transfer over door-built `inspect.put_file`/`get_file` frames, the one
   exception to doing file work through `session.*`; the two layers, with `--alongside` getting
   only layer 1 and refused where `hive_owned`; Smoke as one mechanism on every backend, killing
