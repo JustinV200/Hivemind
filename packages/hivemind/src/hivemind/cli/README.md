@@ -831,10 +831,32 @@ table). `docs/runbooks/backup.md` is the operator's walk-through.
   passes the human-only `supersedure` point, runs the candidate test and starts the move); `hive
   supersede --settle superseded|aborted` records the operator's word on a Supersedure a crash left
   open, offline, after the password opens the console key and under the Queen lock. `doctor.py`:
-  `hive doctor --supersedure NODE` prints every candidate check and exits 0 only when none failed;
-  the rest of `hive doctor` is roadmap 14.2's.
+  `supersedure_doctor` prints every candidate check for `hive doctor --supersedure NODE` and exits
+  0 only when none failed; `hive doctor` itself (`doctor/`, below) hands that option here.
 
 How to test it: `tests/unit/cli/test_supersede.py` (the settle's password and refusals),
 `tests/unit/entrance/routes/test_supersede.py` (the step-up, the phrase and the start over real
 sockets) and `tests/e2e/test_supersedure.py` (two Queens). `docs/runbooks/supersedure.md` is the
 operator's walk-through.
+
+## `hive init` and `hive doctor` (roadmap step 14.2)
+
+- `init/` -- `command.py`: `hive init --provider anthropic|ollama|openai-compatible [DIRECTORY]
+  [--model M] [--embed-model E] [--base-url URL] [--name N] [--force] [--no-password]
+  [--password-stdin]` writes `DIRECTORY/hive.toml` from `hivemind.manifest.starter` (fresh ids,
+  every slot bound, `[hive_stand] enabled = true`, `offline = true` for a loopback server) and
+  then sets the operator password with the same `bootstrap_operator` `hive entrance operator
+  password` uses the first time; an existing `hive.toml` is refused (exit 2) unless `--force`, and
+  a password already set is left alone.
+- `doctor/` -- `command.py`: `hive doctor [--manifest] [--json]` runs, in order, the scratch root
+  (`host.py`: writable, more free disk than `disk_reserve_mb`), Docker when `[virtual_cells]
+  backend = "docker"` (an injected probe), every provider reachable and every `[llm.slots]` row's
+  model listed by its server (`models.py`, through `hive llm providers`' own rows), Forage sanity
+  and the escalation policy file (`config.py`, loaded as a Warden loads it), and sqlite-vec
+  (`host.py`). Each line is PASSED, WARNED, FAILED or SKIPPED (`report.py`); only FAILED exits 1.
+  `--supersedure NODE` runs the candidate test above instead.
+
+How to test it: `tests/unit/cli/test_init.py` (the file, the refusal, the password once),
+`tests/unit/cli/doctor/test_checks.py` (the host and configuration checks over temp manifests),
+`tests/unit/manifest/test_starter.py` (every provider path validates) and
+`tests/e2e/test_init_doctor.py` (init, then doctor against the scripted OpenAI-compatible server).

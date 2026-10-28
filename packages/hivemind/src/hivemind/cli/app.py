@@ -13,8 +13,8 @@ Fits into the Hive:
     hivemind.cli.llm, hivemind.cli.capping, hivemind.cli.run, hivemind.cli.memory,
     hivemind.cli.forage, hivemind.cli.readback (cells, inbox, wardens, cluster) and
     hivemind.cli.recordings, hivemind.cli.honey, hivemind.cli.serve (`hive serve`, roadmap
-    step 10.5), hivemind.cli.swarm (`hive swarm`, step 11.12), and hivemind.cli.doctor
-    (`hive doctor`, step 14.2).
+    step 10.5), hivemind.cli.swarm (`hive swarm`, step 11.12), and hivemind.cli.init and
+    hivemind.cli.doctor (`hive init` and `hive doctor`, step 14.2).
 
 Key invariants:
     - `hive --version` and a bare `hive` both exit 0.
@@ -66,6 +66,7 @@ from hivemind.cli.backup import backup_command, restore_command
 from hivemind.cli.doctor import doctor_command
 from hivemind.cli.entrance import app as entrance_app
 from hivemind.cli.entrance.console import ConsoleCommand
+from hivemind.cli.init import InitCommand, init_command
 from hivemind.cli.keys import app as keys_app
 from hivemind.cli.readback import cells_app, cluster_app, inbox_app, wake_command, wardens_app
 from hivemind.cli.remote import app as remote_app
@@ -163,9 +164,10 @@ app.command("restore")(restore_command)
 # Roadmap step 13.2a: Supersedure, the human's move of the Hive Stand. It acts as the console over
 # a running serve's loopback listener (`--settle` alone runs offline).
 app.command("supersede", cls=ConsoleCommand)(supersede_command)
-# Roadmap step 14.2: the pre-flight check. `hive doctor` carries the console's options because
-# `--supersedure NODE` (13.2a's candidate test) runs as the console; its own checks only read the
-# manifest those options name.
+# Roadmap step 14.2: the starter manifest and its pre-flight check. `hive doctor` carries the
+# console's options because `--supersedure NODE` (13.2a's candidate test) runs as the console;
+# its own checks only read the manifest those options name.
+app.command("init", cls=InitCommand)(init_command)
 app.command("doctor", cls=ConsoleCommand)(doctor_command)
 
 
