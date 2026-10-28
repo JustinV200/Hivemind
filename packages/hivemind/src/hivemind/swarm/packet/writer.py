@@ -53,13 +53,18 @@ AUTH_KEY_FILE = "tailscale-authkey.txt"  # Read by `tailscale up --auth-key=file
 README_FILE = "README.txt"
 TEMPLATES = "hivemind.swarm.packet.templates"  # The package the templates ship in.
 DEFAULT_WSS_PORT = 443  # What a `wss://` URL with no port means.
+PACKET_FILE_COUNT = 5  # The build, the installer, the README and the two secrets.
 # A DNS name: dot-separated labels of letters, digits and hyphens; the only text a script embeds.
 _HOST_NAME = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.?)+$")
+# The only characters a host may hold, whatever it is: no quote, `%`, space or shell character can
+# reach an installer, even before each shell's own quoting below.
+_HOST_CHARS = re.compile(r"^[A-Za-z0-9.:-]+$")
 
 __all__ = [
     "AUTH_KEY_FILE",
     "INVITE_FILE",
     "README_FILE",
+    "PACKET_FILE_COUNT",
     "SECRETS_DIR",
     "HiveTarget",
     "PacketFiles",
@@ -85,8 +90,9 @@ class HiveTarget:
             The target.
 
         Raises:
-            PacketError: The URL is not `wss://` on a DNS name or IP literal, so a device could
-                not reach it from another network (a loopback `ws://` listener, say).
+            PacketError: The URL is not `wss://` on a DNS name or a routable IP literal (no
+                loopback, unspecified or scoped address), so a device could not reach it from
+                another network, or it could not be embedded safely in an installer script.
         """
         parts = urlsplit(url)
         host = parts.hostname or ""
@@ -137,7 +143,7 @@ def write_packet(folder: Path, files: PacketFiles, invite: str, auth_key: Secret
     make_private_dir(secrets)
     write_private(secrets / INVITE_FILE, invite)
     write_private(secrets / AUTH_KEY_FILE, auth_key.get_secret_value())
-    return 5
+    return PACKET_FILE_COUNT
 
 
 def _fill(template: str, files: PacketFiles) -> str:
@@ -150,6 +156,7 @@ def _fill(template: str, files: PacketFiles) -> str:
     )
     values = {
         "HIVE_HOST": files.target.host,
+        "HIVE_HOST_QUOTED": _quoted(files.target.host, is_powershell=files.platform.is_windows),
         "HIVE_PORT": str(files.target.port),
         "PLATFORM": files.platform.value,
         "BINARY": files.platform.binary_name,
@@ -164,9 +171,22 @@ def _fill(template: str, files: PacketFiles) -> str:
 
 
 def _is_host(host: str) -> bool:
-    """Whether `host` is an IP literal or a DNS name, and so safe to embed in a script."""
+    """Whether `host` is a DNS name or a routable IP literal, and so safe to embed in a script."""
+    # The character rule first: it alone keeps a quote or `%` (a scope id) out of every script.
+    if _HOST_CHARS.fullmatch(host) is None:
+        return False
     try:
-        ipaddress.ip_address(host)
+        address = ipaddress.ip_address(host)
     except ValueError:
         return _HOST_NAME.fullmatch(host) is not None
-    return True
+    # A device on another machine can never reach the Hive Stand at loopback or "any".
+    scoped = isinstance(address, ipaddress.IPv6Address) and address.scope_id is not None
+    return not (scoped or address.is_loopback or address.is_unspecified)
+
+
+def _quoted(value: str, *, is_powershell: bool) -> str:
+    """Quote `value` as a single-quoted literal for PowerShell or POSIX sh."""
+    # Belt and braces: `_is_host` already forbids quotes, but a template must never rely on that.
+    if is_powershell:
+        return "'" + value.replace("'", "''") + "'"
+    return "'" + value.replace("'", "'\\''") + "'"

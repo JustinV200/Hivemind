@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-HIVE_HOST='@@HIVE_HOST@@'          # The Hive Stand's name on the tailnet (MagicDNS).
+HIVE_HOST=@@HIVE_HOST_QUOTED@@        # The Hive Stand's name on the tailnet (MagicDNS).
 HIVE_PORT='@@HIVE_PORT@@'          # The swarm listener's port.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SECRETS="$HERE/secrets"

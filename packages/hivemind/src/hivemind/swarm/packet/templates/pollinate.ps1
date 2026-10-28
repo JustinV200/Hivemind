@@ -12,7 +12,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 1
 
-$HiveHost = '@@HIVE_HOST@@'           # The Hive Stand's name on the tailnet (MagicDNS).
+$HiveHost = @@HIVE_HOST_QUOTED@@         # The Hive Stand's name on the tailnet (MagicDNS).
 $HivePort = @@HIVE_PORT@@             # The swarm listener's port.
 $Secrets = Join-Path $PSScriptRoot 'secrets'
 $AuthKeyFile = Join-Path $Secrets 'tailscale-authkey.txt'
