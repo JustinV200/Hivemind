@@ -1,0 +1,99 @@
+# Starter Hive Manifest written by `hive init --provider anthropic`.
+#
+# One hosted provider (Anthropic) serves every model slot, and the Hive Stand (this machine) is
+# enabled as the first Real Cell, so `hive run` works with no Docker at all. Set
+# HIVEMIND_ANTHROPIC_API_KEY in the environment before the first goal, then run `hive doctor`.
+# docs/manifests/full.toml documents every other section and field.
+
+[hive]
+id = $hive_id
+node_id = $node_id
+name = $name
+
+# The machine the Queen runs on, leased as a Real Cell; scratch directories live under this
+# manifest's own directory.
+[hive_stand]
+enabled = true
+scratch_root = ".hive/scratch"
+
+[llm.providers.anthropic]
+kind = "anthropic"
+
+# Every ModelSlot must resolve: the Queen and the Judge get the strongest model, the Attendant and
+# the Ripener the cheapest, and everything else a middle grade.
+[llm.slots.queen]
+provider = "anthropic"
+model = "claude-opus-5"
+
+[llm.slots.judge]
+provider = "anthropic"
+model = "claude-opus-5"
+
+[llm.slots.attendant]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+
+[llm.slots.ripener]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+
+[llm.slots.warden]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+[llm.slots.worker]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+[llm.slots.scaffolder]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+# Anthropic serves no embeddings: the Honey Store degrades to full-text search until this slot is
+# bound to an embedding server (ADR-0036).
+[llm.slots.embedder]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+# Anthropic takes no audio: bind this to a whisper_local or openai_compat provider before anything
+# needs to hear (see full.toml).
+[llm.slots.transcriber]
+provider = "anthropic"
+model = "claude-sonnet-5"
+
+# One Forage map entry per model bound above, so a grant can price and grade every call.
+[forage.map.anthropic_opus]
+provider = "anthropic"
+model = "claude-opus-5"
+grade = 5
+context_window = 200000
+
+[forage.map.anthropic_opus.cost]
+cost_per_million_input_usd = 5.0
+cost_per_million_output_usd = 25.0
+
+[forage.map.anthropic_sonnet]
+provider = "anthropic"
+model = "claude-sonnet-5"
+grade = 4
+context_window = 200000
+
+[forage.map.anthropic_sonnet.cost]
+cost_per_million_input_usd = 2.0
+cost_per_million_output_usd = 10.0
+
+[forage.map.anthropic_haiku]
+provider = "anthropic"
+model = "claude-haiku-4-5"
+grade = 3
+context_window = 200000
+
+[forage.map.anthropic_haiku.cost]
+cost_per_million_input_usd = 1.0
+cost_per_million_output_usd = 5.0
+
+# The Drone's footprint: a reasonable guess for one hosted-model tool loop.
+[forage.roles.drone]
+cpu_cores = 0.5
+memory_bytes = 268435456
+token_rate_per_minute = 20000

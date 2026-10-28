@@ -1,0 +1,80 @@
+# Starter Hive Manifest written by `hive init --provider $provider`.
+#
+# One OpenAI-compatible model server serves every model slot, and the Hive Stand (this machine) is
+# enabled as the first Real Cell, so `hive run` works with no Docker at all. Load the model on the
+# server, then run `hive doctor`. A server off this machine reads its key from
+# HIVEMIND_LOCAL_API_KEY. docs/manifests/local.toml shows how to describe a weak model's
+# capabilities, and full.toml documents every other section and field.
+
+[hive]
+id = $hive_id
+node_id = $node_id
+name = $name
+
+# The machine the Queen runs on, leased as a Real Cell; scratch directories live under this
+# manifest's own directory.
+[hive_stand]
+enabled = true
+scratch_root = ".hive/scratch"
+
+# offline = true when the server is on loopback: the Hive then refuses any provider that is not.
+[llm]
+offline = $offline
+
+[llm.providers.local]
+kind = "openai_compat"
+base_url = $base_url
+
+# Every slot on the one model the server hosts. Bind the Judge to a stronger model when the server
+# has one: a judge that shares the Ripener's model shares its blind spots (ADR-0038).
+[llm.slots.queen]
+provider = "local"
+model = $model
+
+[llm.slots.judge]
+provider = "local"
+model = $model
+
+[llm.slots.attendant]
+provider = "local"
+model = $model
+
+[llm.slots.ripener]
+provider = "local"
+model = $model
+
+[llm.slots.warden]
+provider = "local"
+model = $model
+
+[llm.slots.worker]
+provider = "local"
+model = $model
+
+[llm.slots.scaffolder]
+provider = "local"
+model = $model
+
+# A dedicated embedding model ranks far better than a chat model's own embeddings (ADR-0036).
+[llm.slots.embedder]
+provider = "local"
+model = $embed_model
+
+# Transcription needs a speech model on the same server's /audio/transcriptions; until one is
+# loaded, the transcriber fails at first use and nothing else does.
+[llm.slots.transcriber]
+provider = "local"
+model = $model
+
+# A self-hosted model costs nothing per token; grade 2 and an 8k window are a cautious start for
+# an unknown local model. Raise both once `hive llm test` shows what it can do.
+[forage.map.local_model]
+provider = "local"
+model = $model
+grade = 2
+context_window = 8192
+
+[forage.roles.drone]
+cpu_cores = 1.0
+memory_bytes = 536870912
+token_rate_per_minute = 8000
