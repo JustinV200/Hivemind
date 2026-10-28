@@ -129,10 +129,10 @@
 | 11 | The Swarm (Pollen Packet, Nucs) | A device enrols through a gateway, gets a Warden on the Hive Stand, can be promoted to a Nuc, enforces Meadow/Propolis on Real Cells, and keeps working when cut off | 1, 8, 10 |
 | 12 | Observation Hive | One live UI in TypeScript + React, on any enrolled device including an Android app: the Queen's and any bee's thoughts, Cell diagrams, the Forage split, the fleet list with model hosting, Attendant views for the Queen and every Warden, a chatbox, device enrolment screens, and a browsable Honey tree | 2, 7, 10 |
 | 13 | Resilience | Requeening restores a crashed Queen and her leases and grants; Supersedure moves the Hive Stand to another machine with no task lost; Swarming and Absconding work under load | 5, 10, 11 |
-| 14 | Brood 1.0 | Packaged release with docs, runbooks, Getting Started | all |
-| 15 | Inspection (manual Cell control) | The operator opens a terminal on, and sees and drives the desktop of, any connected Cell from the CLI or the Observation Hive, with the Cell's bees paused, step-up, device opt-in, an on-device indicator and a trail of counts | 10, 11, 12 |
+| 14 | Brood 1.0 | Packaged release with docs, runbooks, Getting Started | 0 to 13 |
+| 15 | Inspection (manual Cell control) | The operator opens a terminal on, and sees and drives the desktop of, any connected Cell from the CLI or the Observation Hive, with the Cell's bees paused, step-up, device opt-in, an on-device notice and a trail of counts; not part of Brood 1.0 | 6, 10, 11, 12, 13 |
 
-Phase 15 can start before 14 ships; its Track A (terminal) lands before Track B (remote desktop). Phases 6, 7 and 10 can proceed in parallel once phase 5 lands. Phase 8 needs 7 because embeddings
+Phase 15 is outside Brood 1.0 (14 depends on 0 to 13 only), so it can run beside 14; its Track A (terminal) lands before Track B (remote desktop). Phases 6, 7 and 10 can proceed in parallel once phase 5 lands. Phase 8 needs 7 because embeddings
 are the first workload that must go local. Phase 9 needs 7 because promoted tools are recorded as
 Honey. Phase 11 needs 8 because a Nuc hosts its own model, and 10 because a lease on someone
 else's device must be authorised.
@@ -3170,9 +3170,13 @@ because Track B reuses its lease, authorisation, audit and kill paths.
 session on one Cell, held as an **operator lease**. **Smoke** pauses the Cell's bees for the length
 of an Inspection, named for the smoke a beekeeper uses to calm a colony before opening it.
 
-**Depends on.** Phases 10, 11 and 12, all landed. The in-flight `hive swarm packet` work (Pollen
-Packet over Tailscale, branch `feat/pollen-packet`) is the transport Track A and Track B ride on to
-reach a device off the LAN; neither track changes it, and 15.2 rebases on it once it merges.
+**Depends on.** Phase 6 (the Exoskeleton's Xvfb display and 6.6's flight recordings), phase 10
+(capabilities, step-up, the Entrance), phase 11 (Pollen and leases on devices), phase 12 (the
+Observation Hive) and phase 13 (Sting Cut, 13.4a, and Absconding, which must end an Inspection).
+Phase 15 is not part of Brood 1.0: phase 14 depends on phases 0 to 13 only, so this phase can run
+beside it. The in-flight `hive swarm packet` work (Pollen Packet over Tailscale, branch
+`feat/pollen-packet`) is the transport Track A and Track B ride on to reach a device off the LAN;
+neither track changes it, and 15.3a rebases on it once it merges.
 
 ### What already exists (assessed 2026-10-28)
 
@@ -3217,8 +3221,13 @@ reach a device off the LAN; neither track changes it, and 15.2 rebases on it onc
   or screen on the Hive Stand itself is loopback-only unless `[inspection] hive_stand_remote = true`.
 - **Limits.** `READ_ONLY` Cells: screen view only, if opted in. `SCRATCH`: screen view only; no
   shell, since a PTY cannot be held to scratch. `FULL`: everything opted in. Meadow and Propolis
-  alike. **Night Veil: terminal only, only over its existing Tor link, no recording, and only the
-  skeleton survives teardown; the screen never.**
+  alike. **Night Veil: terminal only, never the screen, never recorded.** A Night Veil Cell is
+  Virtual, so its terminal is attached from the host side (Docker exec or the QEMU console, 15.5),
+  which never crosses a network and so never puts the Hive Stand's address on the wire; a Night
+  Veil Cell on a remote backend (a cloud one, later) would be reached only through its existing
+  Tor Waggle link, never a clearnet route. `cell.inspection_opened` and `cell.inspection_closed`
+  (ids, mode, duration, counts) join the lifecycle skeleton of codingrules section 12 and survive
+  teardown; everything else about the Inspection is purged with the Cell.
 - **Audit.** `cell.inspection_opened`, `cell.inspection_smoked`, `cell.inspection_closed` with the
   inspection id, device id, mode, duration, bytes and key events counted, and the close reason.
   Never content. Optional recording (a terminal transcript, or the screen as a flight recording) is
@@ -3226,8 +3235,9 @@ reach a device off the LAN; neither track changes it, and 15.2 rebases on it onc
 - **Ending it.** Idle timeout (`[inspection] idle_minutes`, default 15) and a hard cap (default 4
   hours); the Entrance session expiring, a logout, a revocation or the Entrance Reducer closes the
   socket and the Inspection with it; a dropped Pollen link ends it after a short grace. A Sting Cut
-  ends it with everything else. On the device, a visible indicator says a human is in control and
-  carries a local "end now".
+  or Absconding ends it with everything else. On the device, every Inspection raises a system
+  notification and can be ended locally with `pollen inspect end`; a screen Inspection also keeps
+  an always-on-top notice with an "end now" button up for its whole length.
 - **Video.** RFB (the VNC protocol) bridged end to end: a VNC server on the device bound to loopback
   with a one-time password, Pollen piping its bytes over an outbound data socket, the Entrance piping
   them to noVNC in the browser or to any VNC viewer through `hive inspect --screen`. Typical office
@@ -3241,8 +3251,8 @@ reach a device off the LAN; neither track changes it, and 15.2 rebases on it onc
 Track A (terminal)
 
 - [ ] **15.1 ADRs and vocabulary.** Write the four ADRs below before any code; add Inspection,
-  operator lease and Smoke to the README glossary; amend codingrules 8.11 and 15 and
-  gateway-contract section 16 as the ADRs decide.
+  operator lease and Smoke to the README glossary; amend codingrules 8.11, 12 (the two
+  `cell.inspection_*` skeleton events) and 15, and gateway-contract section 16, as the ADRs decide.
   *Exit:* ADRs accepted by the operator. *Size:* small, 1 agent-day.
 - [ ] **15.2 Waggle operator channel.** An `inspect.*` message family (open, opened, resize, input,
   output, close, closed) on a new protocol minor; byte frames carry a per-Inspection sequence number
@@ -3250,14 +3260,23 @@ Track A (terminal)
   never enters the replay window; no output frame is ever queued in the outbox. `spec.md` and the
   gateway contract gain the section. *Exit:* contract suite covers open, resize, input, close and a
   replayed or out-of-order frame refused. *Size:* medium, 2 to 3 agent-days.
-- [ ] **15.3 Pollen PTY executor.** POSIX `pty` and Windows ConPTY (`pywinpty`, added to the
-  packet build); the shell is the device's own default, never text from a request; window resize;
-  process group or Job Object recorded in the lease table before the first byte; the local opt-in
-  command; the operator lease kind, exempt from left-as-found restore and named so on the trail;
-  idle and hard timeouts; kill on release, Sting Cut and dead-man.
-  *Exit:* on Windows 11, Ubuntu and Arch, `vim` and `htop` render and resize; killing the link
-  ends the shell after the grace; a device that has not opted in refuses with
-  `pollen.capability_denied`. *Size:* large, 4 agent-days.
+- [ ] **15.3a Pollen PTY on POSIX and the operator lease.** A PTY executor on Linux and macOS
+  (`pty`); the shell is the device's own default, never text from a request; window resize; the
+  process group recorded in the lease table before the first byte; the operator lease kind, exempt
+  from left-as-found restore and named so on the trail; idle and hard timeouts; kill on release,
+  Sting Cut and dead-man. *Exit:* on Ubuntu and Arch, `vim` and `htop` render and resize; killing
+  the link ends the shell after the grace. *Size:* medium, 2 agent-days.
+- [ ] **15.3b Windows ConPTY.** The same executor on Windows through `pywinpty` (MIT), added to the
+  packet build on every platform's CI; the Job Object recorded before the first byte. *Exit:* the
+  15.3a run on Windows 11 in PowerShell and `cmd`, from the single-file packet. *Size:* medium, 2
+  agent-days.
+- [ ] **15.3c Device-side opt-in, notice and local end.** `pollen allow inspect --shell|--screen`
+  and its revoke, typed on the device and kept in its state; a system notification when an
+  Inspection opens and closes (a Windows toast, `notify-send`, `osascript`; a headless device
+  prints to the packet's console and log instead); `pollen inspect end` ends every open Inspection
+  from the device; `pollen status` lists them. *Exit:* a device that has not opted in refuses with
+  `pollen.capability_denied`; `pollen inspect end` closes the operator's terminal within five
+  seconds with reason `DEVICE_ENDED`. *Size:* medium, 2 agent-days.
 - [ ] **15.4 Queen door, Smoke and the trail.** `QueenDoor.open_inspection` and
   `close_inspection`; Clustering's lever selected by Cell; the Warden's `INSPECTED` mode; the access
   level, tier and Hive Stand checks; the `cell.inspection_*` events and their Night Veil boundary
@@ -3266,15 +3285,16 @@ Track A (terminal)
   *Size:* medium to large, 3 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Docker: an exec with a tty attached from the Hive
   Stand; QEMU: a virtio console on a Unix socket (a named pipe on Windows) with a getty from
-  cloud-init; the Hive Stand: a local PTY. *Exit:* the same shell works on a Docker Cell, a QEMU
-  Cell and the Hive Stand. *Size:* medium, 2 to 3 agent-days.
+  cloud-init; the Hive Stand: a local PTY. A Night Veil Cell uses the same host-side attach, which
+  crosses no network. *Exit:* the same shell works on a Docker Cell, a QEMU Cell, a Night Veil
+  Docker Cell and the Hive Stand. *Size:* medium, 2 to 3 agent-days.
 - [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
   behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
   gains its allow-list row. *Exit:* a device without the scope gets 403, one without fresh step-up
   gets `step_up_required`, a reduction closes an open terminal. *Size:* medium, 2 agent-days.
 - [ ] **15.7 `hive inspect` in the terminal.** `hive inspect <cell> [--alongside]` locally and with
   `--remote`; raw mode on Windows and POSIX, resize on `SIGWINCH` or console events, `~.` to leave.
-  *Exit:* the 15.3 exit run from a laptop over the VPN overlay. *Size:* medium, 2 agent-days.
+  *Exit:* the 15.3a run from a laptop over the VPN overlay. *Size:* medium, 2 agent-days.
 - [ ] **15.8 Terminal pane in the Observation Hive.** xterm.js (MIT) on the Cell page, shown only
   when the device holds the scope; the `INSPECTED` badge on the Cell header and Fleet row, beside
   the tier and mask badges and never colour-only. *Exit:* the same run from the Android app and a
@@ -3283,73 +3303,99 @@ Track A (terminal)
   with a retention window, announced in the client; refused on Night Veil. *Exit:* a recorded
   session replays; an unrecorded one leaves no bytes anywhere. *Size:* small, 1.5 agent-days.
 
-Track A total: about 20 agent-days.
+Track A total: about 23 agent-days.
 
-Track B (remote desktop)
+Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
+Cell's screen, and every Real Cell exit below is run with it up.
 
 - [ ] **15.10 Spike: RFB bridge against own capture.** Measure a bundled loopback VNC server bridged
   through Pollen against capture-and-encode in the packet (`mss` plus JPEG tiles, input through
   `SendInput` and `xdotool`), on Windows and X11, for latency, bandwidth, CPU and binary size.
   *Exit:* numbers recorded in the transport ADR and the operator's choice made. *Size:* medium, 2
   agent-days.
-- [ ] **15.11 Screen data socket.** A second outbound WebSocket from Pollen to the Hive Stand,
-  opened only inside an operator lease, authenticated by the device key and a one-time token from the
-  signed open, carrying RFB bytes; the Entrance relays it to a binary `Duplex` view at
-  `/v1/cells/{cell}/inspect/screen`. *Exit:* bytes round-trip with the Inspection's limits, and a
-  Sting Cut or a reduction closes both ends. *Size:* large, 4 agent-days.
-- [ ] **15.12 Linux X11 and headless Virtual Cells.** x11vnc on the real display of an opted-in
+- [ ] **15.11a Screen data socket, device side.** A second outbound WebSocket from Pollen to the
+  Hive Stand, opened only inside an operator lease, authenticated by the device key and a one-time
+  token from the signed open, carrying RFB bytes from a loopback server started inside the lease.
+  *Exit:* bytes round-trip against a test server with the Inspection's limits; a lease release
+  closes the socket and stops the server. *Size:* medium, 2 agent-days.
+- [ ] **15.11b Screen relay at the Entrance.** The Hive Stand side of that socket and a binary
+  `Duplex` view at `/v1/cells/{cell}/inspect/screen` behind `screen_view` or `screen_control`; a
+  view-only session drops input frames at the relay. *Exit:* a Sting Cut or a reduction closes both
+  ends; a view-only device's input never reaches the device. *Size:* medium, 2 agent-days.
+- [ ] **15.12 On-device notice and local end for the screen.** An always-on-top notice on the
+  device's screen ("the HiveMind operator is controlling this device") with an "end now" button,
+  plus a tray or menu bar icon, on Windows, X11 and macOS; Wayland and macOS also show their own
+  system indicators. The screen executor refuses to start until the notice is up. *Exit:* the notice
+  is up for the whole of every screen Inspection, and "end now" closes the operator's pane within
+  five seconds. *Size:* medium, 3 agent-days.
+- [ ] **15.13 Linux X11 and headless Virtual Cells.** x11vnc on the real display of an opted-in
   Linux Real Cell; on a Virtual Cell, the Exoskeleton's Xvfb and openbox with x11vnc in
   `desktop-ubuntu`; QEMU's own `-vnc` on a Unix socket for the VM console. *Exit:* control an Ubuntu
-  laptop's desktop and a headless Docker Cell from the browser. *Size:* medium to large, 3
+  laptop's desktop (notice up) and a headless Docker Cell from the browser. *Size:* medium to large,
+  3 agent-days.
+- [ ] **15.14a Windows capture and input.** Desktop Duplication capture and `SendInput` through the
+  chosen path (a bundled VNC server run as a separate process, or the packet's own), in the
+  interactive user session only; multi-monitor and DPI. *Exit:* control a Windows 11 laptop's
+  desktop with the notice up, across two monitors at mixed scaling. *Size:* large, 3 agent-days.
+- [ ] **15.14b Windows elevation edges.** What a user-level process cannot reach is reported, never
+  failed silently: the UAC secure desktop and the lock screen show black with a "secure desktop"
+  banner and take no input; input to an elevated window is dropped by UIPI (User Interface
+  Privilege Isolation), so the packet detects a higher-integrity foreground window and tells the
+  pane "this window is elevated; input is blocked". Ctrl+Alt+Del is not offered on Windows, since
+  `SendInput` cannot synthesise it and `SendSAS` needs a SYSTEM service; all three wait for a later,
+  separately opted-in SYSTEM helper. *Exit:* a UAC prompt and an elevated window each show their
+  notice in the pane. *Size:* medium, 2 agent-days.
+- [ ] **15.15a Wayland on GNOME and KDE.** The RemoteDesktop and ScreenCast portals over PipeWire.
+  The device's user approves in a system dialog at least once; later sessions skip it only if that
+  user ticks the portal's "remember" choice, in which case the portal's restore token
+  (`persist_mode`) is kept in Pollen's device state, never on the Hive Stand, and revoked with
+  `pollen allow inspect --revoke`. *Exit:* control an Ubuntu GNOME Wayland desktop after the local
+  approval, and again without it when it was remembered. *Size:* medium to large, 3 agent-days.
+- [ ] **15.15b Wayland on wlroots.** wayvnc (ISC) on loopback for Sway and other wlroots
+  compositors. *Exit:* control a Sway desktop on Arch. *Size:* small, 1.5 agent-days.
+- [ ] **15.16 macOS (best effort).** A bundled server or the packet's own capture (ScreenCaptureKit
+  and CGEvent), bound to loopback, after the device owner grants Screen Recording and Accessibility
+  to the packet in System Settings. The built-in Screen Sharing is not used: it listens on port 5900
+  on every interface, cannot be bound to loopback, and is not governed by the grants the packet
+  holds. macOS 15 asks again for Screen Recording from time to time, so `pollen status` reports a
+  lapsed grant as an expected state ("re-approve on the device"), not a fault. *Exit:* control a Mac
+  where both grants are given, and a lapsed grant is reported, not failed. *Size:* medium, 2 to 3
   agent-days.
-- [ ] **15.13 Windows Real Cells.** Desktop Duplication capture and `SendInput` through the chosen
-  path (a bundled VNC server run as a separate process, or the packet's own); multi-monitor and DPI;
-  the interactive user session only. The UAC secure desktop and the lock screen show black and take
-  no input, because only a SYSTEM service can reach them; a SYSTEM helper is a later, separate
-  opt-in. *Exit:* control a Windows 11 laptop, and a UAC prompt is reported, not hidden.
-  *Size:* large, 5 agent-days.
-- [ ] **15.14 Wayland.** GNOME and KDE through the RemoteDesktop and ScreenCast portals over
-  PipeWire (the device's user approves each session in a system dialog, so unattended control is
-  impossible there by design), wayvnc on wlroots compositors. *Exit:* control an Ubuntu GNOME
-  Wayland desktop after the local approval. *Size:* large, 4 agent-days; may follow 15.16.
-- [ ] **15.15 macOS (best effort).** The built-in Screen Sharing server or the bundled one, after the
-  device owner grants Screen Recording and Accessibility in System Settings; `pollen status` reports
-  a missing grant. *Exit:* control a Mac where both grants are given. *Size:* medium, 2 to 3
+- [ ] **15.17 Screen pane and desktop client.** noVNC (MPL-2.0) in the Cell page with a view-only and
+  a control mode, keyboard capture, the Windows key and Ctrl+Alt+Del sent as buttons (Ctrl+Alt+Del
+  for Linux and VNC targets only, per 15.14b), touch on the phone; `hive inspect <cell> --screen`
+  opens a loopback port bridged to the Entrance for any VNC viewer, or opens the browser pane.
+  *Exit:* the 15.13 run from the Android app, and from TigerVNC on a laptop. *Size:* medium, 3
   agent-days.
-- [ ] **15.16 Screen pane and desktop client.** noVNC (MPL-2.0) in the Cell page with a view-only and
-  a control mode, keyboard capture, Ctrl+Alt+Del and the Windows key sent as buttons, touch on the
-  phone; `hive inspect <cell> --screen` opens a loopback port bridged to the Entrance for any VNC
-  viewer, or opens the browser pane. *Exit:* the 15.12 run from the Android app, and from TigerVNC
-  on a laptop. *Size:* medium, 3 agent-days.
-- [ ] **15.17 On-device indicator and local kill.** An always-on-top notice on the device's screen
-  ("the HiveMind operator is controlling this device") with an "end now" button, plus a tray or menu
-  bar icon, on Windows, X11 and macOS; Wayland and macOS also show their own system indicators.
-  *Exit:* the notice is up for the whole of every screen Inspection and ending it locally closes the
-  operator's pane. *Size:* medium, 3 agent-days.
 - [ ] **15.18 Clipboard and file transfer (optional extras).** Text clipboard both ways through RFB,
   off by default, capped in size, counted on the trail, `C2`; files through the existing session
   `put_file`/`get_file` and the Basket, never through a VNC file-transfer extension. *Exit:* both
   work when enabled and are absent when not. *Size:* medium, 2 agent-days.
 - [ ] **15.19 Screen recording (optional).** The screen as a flight recording (6.6), `C2`, retention
-  window, announced; refused on Night Veil. *Size:* small, 1.5 agent-days.
+  window, announced in the pane; refused on Night Veil. *Exit:* a recorded session replays; an
+  unrecorded one leaves no bytes anywhere; a Night Veil Cell refuses to record. *Size:* small, 1.5
+  agent-days.
 
-Track B total: about 30 agent-days, plus about 3 more if the spike chooses own capture over RFB.
+Track B total: about 31 agent-days, plus about 3 more if the spike chooses own capture over RFB.
+
+Steps are sized for one PR each. 15.4 stays whole because the door, the pause and the trail
+events only make sense landed together, and 15.14a because capture and input are proven together.
 
 ### Exit criteria
 
 - From a laptop over the VPN overlay and from the Android app, the operator opens a terminal on a
   Windows Pollen device, an Ubuntu Nuc, a Docker Virtual Cell and a QEMU Virtual Cell; a task
   running on the Nuc is paused when the Inspection opens and resumes from its Handoff when it
-  closes, with no work redone.
+  closes, with no work redone. Each Real Cell shows a notification for each terminal Inspection.
 - The same operator sees and drives the desktop of the Windows device and of a headless
-  `desktop-ubuntu` Virtual Cell from the browser and from a desktop VNC viewer, and the device shows
-  the indicator the whole time.
+  `desktop-ubuntu` Virtual Cell from the browser and from a desktop VNC viewer, and the Windows
+  device shows the notice the whole time.
 - A device that never ran `pollen allow inspect` refuses both tracks; a `SCRATCH` Cell refuses a
-  shell; a Night Veil Cell refuses the screen; a device without `entrance:inspect` or without a fresh
-  step-up is refused before any lease opens.
-- A Sting Cut, the Entrance Reducer, the idle timeout and the device's local "end now" each end an
-  open Inspection within five seconds, and the trail has exactly one `cell.inspection_closed` with
-  the right reason and no content.
+  shell; a Night Veil Cell refuses the screen and recording; a device without `entrance:inspect` or
+  without a fresh step-up is refused before any lease opens.
+- A Sting Cut, Absconding, the Entrance Reducer, the idle timeout, `pollen inspect end` and the
+  notice's "end now" each end an open Inspection within five seconds, and the trail has exactly one
+  `cell.inspection_closed` with the right reason and no content.
 
 ### ADRs to write
 
@@ -3363,7 +3409,8 @@ Track B total: about 30 agent-days, plus about 3 more if the spike chooses own c
   own capture, against WebRTC; the spike's numbers; the loopback-listener exception to "no inbound
   socket"; licensing of bundled servers).
 - `inspection-audit-and-recording.md` (trail events and counts; optional `C2` recordings; the Night
-  Veil terminal-over-Tor rule and its skeleton).
+  Veil host-side attach, and the two `cell.inspection_*` events this adds to the lifecycle
+  skeleton in codingrules section 12).
 
 ---
 
@@ -3435,11 +3482,12 @@ Track B total: about 30 agent-days, plus about 3 more if the spike chooses own c
    real QEMU and Docker Desktop host to prove.
 18. Inspection (phase 15): whether the Observation Hive may carry a terminal and a screen for a
    device the operator widened (the 8.11 amendment); Smoke by default or bees alongside; whether a
-   shell or screen on the Hive Stand itself is ever reachable remotely; Night Veil terminal over
-   Tor or never; whether recordings are offered at all.
+   shell or screen on the Hive Stand itself is ever reachable remotely; a Night Veil terminal
+   (attached from the host side) or none at all; whether recordings are offered at all.
 19. Remote desktop transport (phase 15.10): RFB through bundled loopback VNC servers and noVNC,
-   own capture in the packet, or WebRTC; which VNC server per OS and its licence (most are GPL,
-   run as separate processes); RustDesk (AGPL, its own rendezvous and relay servers and its own
+   own capture in the packet, or WebRTC; which VNC server per OS and its licence (x11vnc,
+   TigerVNC, TightVNC and UltraVNC are GPL-2.0, run as separate processes, never linked; wayvnc is
+   ISC; noVNC is MPL-2.0; xterm.js and pywinpty are MIT); RustDesk (AGPL, its own rendezvous and relay servers and its own
    login) is rejected because it would be a second door beside the Entrance.
 
 ---
@@ -3471,5 +3519,5 @@ Track B total: about 30 agent-days, plus about 3 more if the spike chooses own c
 | A compromised Swarm device lies in its reports or poisons its session output. | Pollen has no brain and holds no capabilities, so its key speaks only as that node (11.3); signed envelopes and replay rejection (1.7, 11.3); session output is untrusted content to the scanner (10.6b); a capability report changed without re-enrolment is a dire pattern (13.4a); trail segments verified on merge (11.9); the dead-man switch (11.4); isolation and Sting Cut on the Queen's decision only (10.6a, 13.4a). |
 | A bee on the Hive Stand reads or rewrites the Hive's own state (its database, secret store or manifest). | Bees run as the Hive's own OS user today. The console key is wrapped under the operator password, so reading the secret store yields nothing usable (ADR-0041); a guard floor denies every bee `fs:*` on the state paths, `exec` of the Hive's entry points and `net` to loopback (10.3); arbitrary commands stay Capping-gated; work that must not be trusted with the Hive Stand runs with `isolation = "required"`. A separate OS user for Hive Stand bees is the lasting fix, not yet scheduled. |
 | A Virtual Cell's guest reaches services on the Hive Stand's loopback (QEMU's SLIRP host alias, Docker Desktop's `host.docker.internal`). | The Entrance's loopback-only routes, the console's login and step-up, and any login or step-up while reduced need a per-boot stand key no Cell holds, a reduction ends every keyless session and socket, and the travel lock judges a keyless loopback login as unplaceable (ADR-0068); residual: while the Entrance is open, a guest holding an ordinary device's key and the password logs in on loopback without the overlay or mutual TLS, with that device's rights (and a step-up plus a notice when the travel lock is on); the guard floor refuses a bee's `net` to the host-gateway names; `docs/guard/isolation.md` says plainly that other loopback services are exposed. The network fix is open decision 17. |
-| Inspection turns a stolen phone or a compromised Hive into a remote shell and screen on every device. | Device-side opt-in typed on the device that the Hive cannot grant itself; `entrance:inspect` widened only on loopback and never held by a bee; an interactive device and a fresh step-up for every open; the on-device indicator and local end; idle and hard timeouts; Sting Cut, the Entrance Reducer and revocation end it; every open pushed to every other device (phase 15). |
+| Inspection turns a stolen phone or a compromised Hive into a remote shell and screen on every device. | Device-side opt-in typed on the device that the Hive cannot grant itself; `entrance:inspect` widened only on loopback and never held by a bee; an interactive device and a fresh step-up for every open; a notification for every Inspection, the screen notice, and `pollen inspect end` or "end now" on the device; idle and hard timeouts; Sting Cut, Absconding, the Entrance Reducer and revocation end it; every open pushed to every other device (phase 15). |
 | A stolen client key or an abusive enrolled program. | Sessions bound to the device key and step-up for anything sensitive (10.5e); narrow capability sets and spend caps per device (10.5d); lockout on capability-denial bursts, undone only on loopback (10.5e); revocation on loopback; every Entrance event pushed to every other device (10.5b). |
