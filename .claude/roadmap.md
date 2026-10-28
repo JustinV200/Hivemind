@@ -3476,10 +3476,11 @@ lab devices, never on an enrolled device in daily use.
   Requeening (13.1) system-closes every operator lease she finds and, from 15.5, tears down its
   host-side attach state (the QEMU console socket and its login session, any `docker exec`
   attached for it), and only then resumes the tasks that Inspection Smoked. That set is durable:
-  before the kill, Smoke writes the Smoked task ids on `cell.inspection_smoked` and a `smoked_by`
-  mark on each task's Brood Chamber row, and Requeening reads them from there, never from
-  memory, since the door's
-  table that held its warrant died with the old Queen. A Supersedure (13.2a) never meets one:
+  before the first Handoff request, Smoke writes the Inspection's durable row, the Smoked task ids
+  on `cell.inspection_smoked` and a `smoked_by` mark on each task's Brood Chamber row.
+  Requeening reads them from there, never from memory, since the door's table that held the
+  warrant died with the old Queen, and resumes every `smoked_by` task whose Inspection has no
+  live operator lease, still skipping an `ISOLATED` Cell and a tainted Handoff. A Supersedure (13.2a) never meets one:
   its preflight refuses while any Inspection is open, so the operator closes them first, and
   the door refuses to open an Inspection while a Supersedure is in progress. If killing a Nuc Warden's
   lease processes stops its model servers (`wardens/ticks/control.py` `_stop_what_the_lease_runs`),
@@ -3511,7 +3512,8 @@ lab devices, never on an enrolled device in daily use.
   or Patrol ran meanwhile, and the same holds for an `--alongside` Inspection on the Nuc; a Cell
   routed to the Nuc's model server falls back during the Inspection and returns after it; killing the Queen mid-Inspection on a Pollen device
   ends the Inspection under the restarted Queen, with one `cell.inspection_closed`, and the Smoked
-  task resumes only after that close, while a task paused for another reason before the
+  task resumes only after that close; killing the Queen inside the `handoff_patience_s` window,
+  before any process was killed, also leaves every Smoked task resumed after the restart; a task paused for another reason before the
   Inspection is still paused after the restart; a Cell isolated during an Inspection resumes nothing when
   it closes, a task paused before the Inspection for another reason stays paused, and a tainted
   Handoff is never resumed; a Supersedure started with an Inspection open is refused by
@@ -3570,8 +3572,13 @@ lab devices, never on an enrolled device in daily use.
   Cell whose heartbeat says `virtualized`, since a VM or container may run on the Hive Stand
   whatever its own id says. The operator can lift that for one device with `hive swarm
   mark-separate <device>` ("this VM is on a different machine"), a loopback-only row that needs
-  the stand key; no bee and no remote session can call it. The Hive Stand derives its own id by
-  the same rule, so a Hive Stand running under WSL uses its Windows host's `MachineGuid`. A Cell
+  the stand key; no bee and no remote session can call it. A mark lifts only the `virtualized`
+  fail-closed: the machine-id match, WSL included, still applies. It records the Hive Stand id it
+  was made against and is void once that id changes (a Supersedure) or once the device's reported
+  machine id changes. The Hive Stand derives its own id by the same rule, so a Hive Stand running
+  under WSL uses its Windows host's `MachineGuid`, and it checks its own `virtualized` state:
+  while the Hive Stand is itself virtualized, every `PACKET` Cell counts as sharing its host until
+  the operator marks it separate, bound the same way. A Cell
   with
   `host_side_attach` derives false, since ADR-0068's stand key and the absence of any mount of
   the Hive's state cover it, and a Cell whose `opt_in_source` is `HIVE_STAND_MANIFEST` (the Hive
@@ -3610,7 +3617,10 @@ lab devices, never on an enrolled device in daily use.
   be read derives true by failing closed; a virtualized packet derives true until `hive swarm
   mark-separate` is run for it, which works only on loopback with the stand key and is refused
   remotely, without the key and to any bee; a Hive Stand running under WSL derives its id from
-  its Windows host's `MachineGuid` (the remote refusals themselves are
+  its Windows host's `MachineGuid`; a marked VM packet derives true again after a Supersedure
+  onto its host, and after its reported machine id changes; a marked VM packet whose machine id
+  matches the Hive Stand's still derives true; on a virtualized Hive Stand, an unmarked bare-metal
+  `PACKET` Cell derives true and a marked one false (the remote refusals themselves are
   15.6's exits, once the open route exists); a Warden or autopilot call to the Docker tty exec,
   the QEMU console or the Hive Stand PTY without a live warrant is refused, and so is an
   operator-kind lease asked of any `CellSession` kind without one; output from those paths
@@ -3859,13 +3869,16 @@ sense landed together (its Hive Stand containment may land first as a preparator
   closed on a missing or unreadable machine id, and a packet under WSL judged by its Windows
   host's `MachineGuid`, failing closed if that cannot be read, the Hive Stand judging its own id
   the same way, and any `virtualized` packet treated as sharing the host until the operator runs
-  the loopback-only, stand-key `hive swarm mark-separate` for it; reads of a Hive Stand
+  the loopback-only, stand-key `hive swarm mark-separate` for it, a mark that lifts only that
+  fail-closed, records the Hive Stand id it was made against and is void when that id or the
+  device's machine id changes; a virtualized Hive Stand treating every `PACKET` Cell as sharing
+  its host until marked; reads of a Hive Stand
   Inspection's transcripts, recordings and downloads needing the stand key and a `LOOPBACK`
   proof; four capability fields held Hive-side and never reported, and
   `bee_account_privileged` on the heartbeat as availability, not a 13.4a report; on close only
-  the tasks that Inspection Smoked resuming, a set written before the kill to
-  `cell.inspection_smoked` and a `smoked_by` mark in the Brood Chamber so Requeening reads it
-  from there, and none on an isolated Cell or from a tainted
+  the tasks that Inspection Smoked resuming, a set written before the first Handoff request to
+  `cell.inspection_smoked` and a `smoked_by` mark in the Brood Chamber so Requeening resumes
+  every marked task whose Inspection has no live operator lease, and none on an isolated Cell or from a tainted
   Handoff; loopback trusted only with the stand key, never by
   listener (a step-up is `LOOPBACK` only with it, and a Hive Stand or co-located shell open is a
   stand-key row), because the stand key guards only the loopback-only rows and a guest reaches
@@ -4003,8 +4016,10 @@ sense landed together (its Hive Stand containment may land first as a preparator
    ever reachable remotely (its screen is out of scope; default no; yes would let a
    remote session reach the loopback listener, so a stolen phone plus the password and a step-up
    could enrol a new device; Justin's call); whether a virtualized packet should keep failing
-   closed as co-located until `hive swarm mark-separate` (the plan's default), WSL being judged
-   by its host's `MachineGuid` for packets and the Hive Stand alike; a Night Veil terminal
+   closed as co-located until `hive swarm mark-separate` (the plan's default), and every `PACKET`
+   Cell likewise while the Hive Stand is itself virtualized, with each mark void after a
+   Supersedure or a machine-id change; WSL being judged by its host's `MachineGuid` for packets
+   and the Hive Stand alike; a Night Veil terminal
    (attached from the host side) or none at all; whether recordings are offered at all.
 19. Remote desktop transport (phase 15.10): RFB through bundled loopback VNC servers and noVNC,
    own capture in the packet, or WebRTC; which VNC server per OS and its licence (x11vnc,
