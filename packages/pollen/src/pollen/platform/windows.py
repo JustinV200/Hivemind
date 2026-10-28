@@ -302,8 +302,9 @@ def _uninstall(runner: CommandRunner) -> ServiceResult:
 def _windowless(plan: ServicePlan, system_root: str) -> str:
     """Return the task's command line: ``plan``'s command under a console host with no window.
 
-    Nothing appears at logon, yet the packet keeps a console for the Warden to share. Nobody sees
-    that console, so the packet is told to log to a file.
+    Nothing appears at logon, yet the packet has a console: Ctrl+C there is how ``pollen
+    uninstall`` asks it to stop cleanly. Nobody sees that console, so the packet is told to log to
+    a file.
     """
     host = PureWindowsPath(system_root, *CONSOLE_HOST)
     return subprocess.list2cmdline([str(host), "--headless", *plan.command, LOG_TO_FILE_OPTION])

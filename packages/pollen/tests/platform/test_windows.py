@@ -16,8 +16,9 @@ Key invariants:
     - A job ends everything in it, a child its leader left behind included.
     - A tree with no job here is ended with ``taskkill /T`` (forced with ``/F``), and only the pid
       the lease started.
-    - A program gets a console with no window unless it shares the packet's (the Warden); an
-      INTERRUPT or TERMINATE that no break event can reach still ends the program, by force.
+    - Every program, the Warden included, gets a windowless console of its own; an INTERRUPT or
+      TERMINATE goes through the helper's break event, and one it cannot deliver still ends the
+      program, by force.
     - The Scheduled Task runs the packet under a console host with no window, logging to a file.
     - A virtual environment's programs are ``.exe`` files under ``Scripts``.
 

@@ -21,9 +21,10 @@ Fits into the Hive:
     psutil and the standard library only.
 
 Key invariants:
-    - Only a process whose command line runs ``run`` for this very data directory (however it is
-      spelled) is ended, so a recycled pid or another data directory's packet is left alone; never
-      this process itself. A packet with no status document yet is still found.
+    - Only a process whose command line is pollen's own ``run`` for this very data directory
+      (however it is spelled, resolved against that process's own working directory) is ended, so
+      a recycled pid, a wrapper such as ``uv run``, or another data directory's packet is left
+      alone; never this process itself. A packet with no status document yet is still found.
     - The Warden is recognised by its pid and its creation time, so a recycled pid is not spared.
     - No lease is left in the table without saying so, whether a packet ran or not.
     - Nothing here prints; the CLI says what could not be done.
@@ -39,7 +40,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import psutil
 
@@ -57,7 +60,14 @@ PACKET_END_WAIT_S = SHUTDOWN_WAIT_S + SHUTDOWN_RELEASE_TIMEOUT_S + PACKET_END_MA
 KILLED_WAIT_S = 5.0  # How long a forced packet gets to be gone.
 _CREATE_TIME_TOLERANCE_S = 1.0  # As the shims': psutil's creation time is stable per process.
 
-__all__ = ["KILLED_WAIT_S", "PACKET_END_MARGIN_S", "PACKET_END_WAIT_S", "Ending", "end_packet"]
+__all__ = [
+    "KILLED_WAIT_S",
+    "PACKET_END_MARGIN_S",
+    "PACKET_END_WAIT_S",
+    "Ending",
+    "end_packet",
+    "runs_packet",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,13 +137,57 @@ def _running_packet(layout: DataLayout) -> psutil.Process | None:
 
 def _runs_packet(process: psutil.Process, layout: DataLayout) -> bool:
     """Say whether ``process`` runs ``pollen run`` for this data directory (never this process)."""
+    if process.pid == os.getpid():
+        return False
     try:
         argv = process.cmdline()
     except psutil.Error:
         return False  # Gone, or not readable as ours.
-    # However the directory was spelled: relative, another case on Windows, a trailing dot.
-    root = _canonical(str(layout.root))
-    return process.pid != os.getpid() and "run" in argv and any(_canonical(a) == root for a in argv)
+    try:
+        cwd: str | None = process.cwd()
+    except psutil.Error:
+        cwd = None  # Then only an absolute --data-dir can be compared.
+    return runs_packet(argv, cwd, layout.root)
+
+
+def runs_packet(argv: Sequence[str], cwd: str | None, root: Path) -> bool:
+    """Say whether a command line is ``pollen run`` for the data directory ``root``.
+
+    Only pollen's own launch shape counts: ``run`` right after pollen itself (``-m pollen``, the
+    packaged ``pollen`` binary or console script), and the directory is the value given to
+    ``--data-dir``, so a wrapper such as ``uv run pollen uninstall --data-dir X`` is not a packet.
+
+    Args:
+        argv: The process's command line.
+        cwd: Its working directory, which a relative ``--data-dir`` is resolved against; None
+            when it cannot be read, and then only an absolute one is compared.
+        root: This data directory.
+
+    Returns:
+        True when the command runs the packet for ``root``, however the path was spelled.
+    """
+    starts = [i for i in range(1, len(argv)) if argv[i] == "run" and _is_pollen(argv[i - 1])]
+    if not starts:
+        return False
+    given = _data_dir(argv[starts[0] + 1 :])
+    if given is None or (cwd is None and not os.path.isabs(given)):
+        return False
+    return _canonical(os.path.join(cwd or "", given)) == _canonical(str(root))
+
+
+def _is_pollen(word: str) -> bool:
+    """Say whether ``word`` names pollen itself: the module, the binary or the console script."""
+    return Path(word).stem.lower() == "pollen"
+
+
+def _data_dir(args: Sequence[str]) -> str | None:
+    """Return the value given to ``--data-dir`` in ``args``, in either spelling; None if absent."""
+    for i, arg in enumerate(args):
+        if arg == "--data-dir" and i + 1 < len(args):
+            return args[i + 1]
+        if arg.startswith("--data-dir="):
+            return arg.split("=", 1)[1]
+    return None
 
 
 def _canonical(path: str) -> str:

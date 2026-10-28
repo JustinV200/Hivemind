@@ -47,7 +47,7 @@ from pollen.lease import DeviceLease, LeaseTable
 from pollen.platform import CommandResult, WindowsShim, select_shim
 from pollen.platform.base import run_command
 from pollen.state import WardenRecord, save_state
-from pollen.teardown import end_packet
+from pollen.teardown import end_packet, runs_packet
 from waggle.clock import Clock
 from waggle.ids import new_lease_id
 from waggle.messages.labels import AccessLevel
@@ -57,14 +57,16 @@ ASKED_EXIT = 7  # What the stand-in exits with when it honours the request to st
 _KILLED_WAIT_S = 2.0  # Long enough for a killed program to go; a live one is only waited this.
 _STARTED_WAIT_S = 20.0  # How long the stand-in gets to write its pids.
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # A console of its own, as the packet has.
-# A stand-in packet: starts a lease program (in a windowless console of its own) and a Warden (on
-# its console) with a child of its own, as the real one does, each in a process group of its own;
-# writes the four pids to argv[2], then sleeps; argv[1] says whether it honours a request to stop.
+# A stand-in packet, run as a script named pollen.py so its command line has pollen's own shape
+# (``pollen.py run --data-dir DIR``, then MODE and PIDS): it starts a lease program and a Warden
+# with a child of its own, as the real one does, each in a process group and a windowless console
+# of its own; writes the four pids to PIDS, then sleeps; MODE says whether it honours a request to
+# stop.
 _PACKET = """
 import ctypes, json, os, signal, subprocess, sys, time
-honours = sys.argv[1] == "honours"
+honours, pids = sys.argv[4] == "honours", sys.argv[5]
 def asked(*_):
-    open(sys.argv[2] + ".asked", "w").close()
+    open(pids + ".asked", "w").close()
     sys.exit(7)
 for name in ("SIGINT", "SIGTERM"):
     signal.signal(getattr(signal, name), asked if honours else signal.SIG_IGN)
@@ -73,14 +75,14 @@ if honours and sys.platform == "win32":
 sleep = [sys.executable, "-c", "import time; time.sleep(60)"]
 code = "import subprocess, time; c = subprocess.Popen(%r); print(c.pid, flush=True); time.sleep(60)"
 group = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-own = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # A lease program's console is its own.
+own = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # Every program's console is its own.
 lease = subprocess.Popen(sleep, creationflags=group | own)
 argv = [sys.executable, "-c", code % sleep]
-warden = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True, creationflags=group)
+warden = subprocess.Popen(argv, stdout=subprocess.PIPE, text=True, creationflags=group | own)
 grandchild = int(warden.stdout.readline())
-with open(sys.argv[2] + ".tmp", "w") as out:
+with open(pids + ".tmp", "w") as out:
     json.dump([os.getpid(), lease.pid, warden.pid, grandchild], out)
-os.replace(sys.argv[2] + ".tmp", sys.argv[2])
+os.replace(pids + ".tmp", pids)
 time.sleep(60)
 """
 
@@ -90,9 +92,11 @@ def _start(
 ) -> tuple[subprocess.Popen[bytes], list[int]]:
     """Start the stand-in packet for ``data_dir`` under ``launcher``; return it and the pids."""
     mode = "honours" if honours else "ignores"
-    argv = [*launcher, sys.executable, "-c", _PACKET, mode, str(pids), "run", "--data-dir"]
+    script = pids.with_name("pollen.py")
+    script.write_text(_PACKET)
+    argv = [*launcher, sys.executable, str(script), "run", "--data-dir", str(data_dir)]
     # SAFETY: this interpreter, the system's console host and fixed arguments.
-    launched = subprocess.Popen([*argv, str(data_dir)], creationflags=_NO_WINDOW)  # noqa: S603
+    launched = subprocess.Popen([*argv, mode, str(pids)], creationflags=_NO_WINDOW)  # noqa: S603
     deadline = time.monotonic() + _STARTED_WAIT_S
     while not pids.exists():
         assert time.monotonic() < deadline, "the stand-in packet never started"
@@ -188,6 +192,28 @@ async def test_a_packet_with_no_status_yet_and_its_directory_spelled_otherwise_i
         for pid in reversed(pids):
             _kill(pid)
         launched.wait()
+
+
+@pytest.mark.parametrize(
+    ("argv", "cwd", "matched"),
+    [
+        # The operator's own wrapper round ``pollen uninstall`` names the directory too.
+        (["uv", "run", "pollen", "uninstall", "--data-dir", "{root}"], "{root}", False),
+        # A relative --data-dir means the directory below that process's own working directory.
+        (["python", "-m", "pollen", "run", "--data-dir", "data"], "{other}", False),
+        (["python", "-m", "pollen", "run", "--data-dir", "data"], "{parent}", True),
+        (["python", "-m", "pollen", "run", "--data-dir", "data"], None, False),  # cwd unreadable.
+        (["C:/bin/pollen.exe", "run", "--data-dir={root}"], None, True),  # The packaged binary.
+    ],
+)
+def test_only_pollens_own_run_for_this_directory_is_the_packet(
+    tmp_path: Path, argv: list[str], cwd: str | None, matched: bool
+) -> None:
+    root = tmp_path / "data"
+    places = {"root": str(root), "parent": str(tmp_path), "other": str(tmp_path / "elsewhere")}
+    filled = [word.format(**places) for word in argv]
+
+    assert runs_packet(filled, None if cwd is None else cwd.format(**places), root) is matched
 
 
 @pytest.mark.parametrize("readable", [True, False])
