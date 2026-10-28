@@ -230,13 +230,18 @@ async def _probe_clustered(
         return  # No way to reach a live LLMProvider by name; nothing this tick can probe.
     now = deps.clock.now()
     for provider in tuple(state.clustered_providers):
+        if is_frozen(state.mode):
+            return  # A Supersedure froze her while this tick was awaiting (ADR-0065).
         if not deps.health_poller.is_due(provider, now):
             continue
         # A HEALTHY reading schedules its own next probe at the steady cadence (HealthPoller.
         # probe), so a provider resumed here keeps being watched like any other bound one.
         # External await: a health probe, never a completion call (module docstring); the
         # provider's own health() contract carries no fixed timeout of its own to name here.
-        reading = await deps.health_poller.probe(provider, deps.provider_lookup, now)
+        try:
+            reading = await deps.health_poller.probe(provider, deps.provider_lookup, now)
+        except UnknownProviderError:
+            continue  # Not a chat provider (an embedder, or a Supersedure's freeze key).
         if reading.state is HealthState.HEALTHY:
             await resume(provider, deps, state, wardens)
 

@@ -70,6 +70,7 @@ from contextlib import asynccontextmanager
 
 from hivemind.cli.compose.guard import close_guard_bee
 from hivemind.cli.compose.hive.build import Hive
+from hivemind.cli.compose.hive.supersedure import arm_supersedure
 from hivemind.cli.entrance.serving import hold_queen_lock
 from hivemind.common.tasks import run_to_end
 from hivemind.hive import VirtualCellRecord
@@ -101,11 +102,16 @@ async def run_hive(hive: Hive) -> AsyncIterator[None]:
             nothing was started (ADR-0062).
         hivemind.queen.WardenSpawnRefusedError: The Guard refused the Queen `warden:spawn`; nothing
             was started (roadmap step 10.3).
+        hivemind.queen.errors.SupersedurePendingError: This node's trail forbids its Queen to
+            start (ADR-0065); nothing was started.
     """
     db = hive.manifest.resolve_path(hive.manifest.hive.db)
     # Before anything starts (module invariant): requeening beside a live Queen would take back
     # her running tasks and remove their scratch.
     with hold_queen_lock(db, _QUEEN_HOLDER):
+        # ADR-0065: this node's own trail may forbid its Queen to start, or hold her as a
+        # Supersedure's candidate; read under the lock, before anything starts.
+        await arm_supersedure(hive.queen_deps)
         async with _running(hive):
             yield
 
