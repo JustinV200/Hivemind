@@ -322,3 +322,10 @@ ADRs that exist today, in numeric order:
   restored through SQLite's online backup API, plus the Basket's blobs; no secret is in it, and a
   restore refuses another Hive or a secret store without the same `hive.ed25519`; the reader
   trusts nothing in the archive; `queen.restored` records it.
+- `0065-supersedure-moving-the-hive-stand.md`: the human moves the Hive Stand from loopback after
+  a step-up and a typed phrase; the old Queen clusters every provider and stays `SUPERSEDING` from
+  before the first byte is copied; the stores travel as one checksummed backup over the
+  candidate's session; the candidate's Queen is held in `REQUEENING` until the old one, now
+  `SUPERSEDED`, acknowledges her, and only then does a `QueenMoved` (now carrying the TLS pin,
+  Waggle 1.16) go out; a candidate not ready inside the grace window is rolled back; each trail
+  says which side of a Supersedure its node was on, and a restart obeys it.
