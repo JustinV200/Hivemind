@@ -2964,7 +2964,7 @@ borrowed device and revoking every grant.
   only once the policy has decided to keep the newcomer. Expired dormant Cells are evicted while the
   Hive runs: on every release and from the dormant list the Queen reads on each placement pass and
   liveness tick, so placement is never offered one. The placement views moved to `hive/inventory.py`.
-- [ ] **13.6 Chaos tests.** Kill Cells, drop links, drop a Nuc mid-task, corrupt replies, return
+- [x] **13.6 Chaos tests.** Kill Cells, drop links, drop a Nuc mid-task, corrupt replies, return
   refusals, malformed JSON and rate limits from the fake, take a provider down mid-run and assert
   Clustering then resume, flood the inbox, exhaust a grant, kill the old Queen mid-Supersedure,
   kill the candidate before it is ready, hammer the Entrance's invite route from an unknown
@@ -2972,6 +2972,30 @@ borrowed device and revoking every grant.
   and assert no grant widens, the Queen isolates on the Guard's report and the tainted Handoff is
   never assembled, forge a Swarm node's trail segment and assert the merge is refused. Every goal
   finishes or fails explicitly; nothing hangs; no lease or grant is left open.
+  **Built 2026-10-28.** `tests/e2e/chaos/` (marker `chaos`, with `e2e`; a nightly `chaos` job in
+  `integration.yml`, left out of the push CI's e2e job). `rig.py` bounds every scenario (90 s,
+  nothing hangs) and judges, once `run_hive` has returned, that the trail shows no lease or grant
+  left open, the Forage ledger holds no live grant and no Virtual Cell is left on a backend. The
+  scenarios: refusals, rate limits, malformed tool JSON, a malformed plan and an exhausted plan
+  ladder from the fake provider; the provider down mid-reply, clustered and resumed by the health
+  poller with no order; a Virtual Cell's container killed mid-task; every Cell link dropped and
+  redialled; thousands of Alarms from a rogue link mid-goal; a goal billed past its spend cap
+  (clustered, paused at its Handoff); a candidate dead before it is ready, one stalled mid-copy,
+  and an old Queen whose process ends mid-copy (refused a start until settled, then finishes);
+  an unknown client hammering the invite route until the Guard Bee's `invite_abuse` reduces the
+  Entrance; seed payloads through a Honey hit (flagged, withheld, steered write capped, host
+  refused, no grant widened) and through a tool result in a Virtual Cell (isolated by rule,
+  nothing granted after the flag, the tainted Handoff not resumed after a lift); a Swarm node's
+  segments signed with the wrong key and claiming another node (both refused, nothing merged, the
+  link kept). `docs/runbooks/chaos.md`. Three defects it found are fixed: a Virtual Cell killed
+  mid-task left its task RUNNING until the Hive stopped (`queen/requeening/lost.py` takes a lost
+  Warden's tasks back after `max_offline_s` plus the redial grace and tears its Cell down); a
+  stopping Hive left a paused task's grant live (the stop now revokes its Wardens' grants); and a
+  Supersedure copy had no bound, so a candidate that stopped answering mid-copy held the old Queen
+  SUPERSEDING for ever (the copy now runs under the grace window, rolled back `NOT_READY`). The
+  Nuc leg rides `test_phase11_exit_nuc.py` (marked `chaos` and `integration`): it needs Docker and
+  has not yet run on this branch. "Old Queen killed" ends her process by cancelling `run_hive`;
+  a hard kill of the process is the operator's run with the real Supersedure transport (13.2a).
 - [x] **13.7 Backups.** `hive backup` / `hive restore`; `docs/runbooks/backup.md`.
   **Built 2026-10-27** (ADR-0064). `hivemind.common.backup` (Layer 0, so Supersedure's `copy.py`
   can call it from the Queen): one gzip'd tar whose first member, `backup.json`, lists every other
