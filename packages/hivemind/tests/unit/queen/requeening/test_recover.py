@@ -175,7 +175,8 @@ async def test_a_held_requeening_never_settles_and_its_wardens_grace_starts_when
     queen, task, _old = await _restarted(clock)
     deps, hold = queen._deps, _Hold()
     assert task.cell_id is not None
-    deps.requeening.hold = hold
+    book = deps.requeening
+    book.hold = hold
     await begin_requeening(queen, RequeeningStart(virtual_cells=(_listed(task.cell_id, clock),)))
     clock.advance(deps.requeening.grace_s * 3)
     held = await settle_requeening(deps, queen.wardens)
@@ -184,8 +185,7 @@ async def test_a_held_requeening_never_settles_and_its_wardens_grace_starts_when
     clock.advance(deps.requeening.grace_s + 1.0)
     counts = await settle_requeening(deps, queen.wardens)
 
-    assert (held, lifted) == (None, None)
-    assert deps.requeening.hold is None
+    assert (held, lifted, queen._deps.requeening.hold) == (None, None, None)
     assert counts is not None and counts.wardens_missing == 1
     assert deps.cluster_state.mode is QueenMode.RUNNING
 

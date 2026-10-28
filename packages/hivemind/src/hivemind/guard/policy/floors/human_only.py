@@ -20,6 +20,7 @@ Key invariants:
 See Also:
     - .claude/codingrules.md section 15, "Blast radius defaults".
     - hivemind.cli.abscond for the one caller of the Absconding point.
+    - hivemind.queen.supersedure.door for the one caller of the Supersedure point.
 """
 
 from __future__ import annotations
@@ -30,8 +31,9 @@ from hivemind.guard.policy.points import EnforcementPoint
 from hivemind.guard.policy.table import GuardPolicy
 
 HUMAN_ONLY_FLOOR = "human_only"  # guard.state_floor.human_only.
-# The points only a person may pass: tearing the whole Hive down (codingrules 15).
-HUMAN_ONLY_POINTS = frozenset({EnforcementPoint.ABSCONDING})
+# The points only a person may pass: tearing the whole Hive down (codingrules 15), and moving the
+# Hive Stand (codingrules 8.16: never an autopilot rule or an awake decision; ADR-0065).
+HUMAN_ONLY_POINTS = frozenset({EnforcementPoint.ABSCONDING, EnforcementPoint.SUPERSEDURE})
 
 __all__ = ["HUMAN_ONLY_FLOOR", "HUMAN_ONLY_POINTS", "human_only_floor"]
 

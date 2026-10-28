@@ -24,13 +24,21 @@ from hivemind.guard.policy.defaults import load_guard_policy
 
 _POLICY = load_guard_policy()
 _ABSCOND = EnforcementPoint.ABSCONDING
+# Each human-only point with the capability it needs: Absconding, and Supersedure (ADR-0065).
+_HUMAN_ONLY = [
+    (EnforcementPoint.ABSCONDING, "abscond"),
+    (EnforcementPoint.SUPERSEDURE, "supersede"),
+]
 
 
 @pytest.mark.parametrize(
     "kind", [kind for kind in PrincipalKind if kind is not PrincipalKind.OPERATOR]
 )
-def test_every_non_human_principal_is_refused_even_holding_abscond(kind: PrincipalKind) -> None:
-    decision = evaluate(make_request("abscond", "abscond", kind=kind, point=_ABSCOND), _POLICY)
+@pytest.mark.parametrize(("point", "needed"), _HUMAN_ONLY)
+def test_every_non_human_principal_is_refused_even_holding_the_capability(
+    kind: PrincipalKind, point: EnforcementPoint, needed: str
+) -> None:
+    decision = evaluate(make_request(needed, needed, kind=kind, point=point), _POLICY)
 
     assert not decision.allowed
     assert decision.rule == "guard.state_floor.human_only"

@@ -157,6 +157,11 @@ def test_only_a_fresh_running_queen_begins_requeening() -> None:
         state.begin_requeening()
 
 
+def _mode(state: ClusterState) -> QueenMode:
+    """Read the mode afresh (a bare attribute read would stay narrowed across method calls)."""
+    return state.mode
+
+
 def test_a_supersedure_freezes_her_until_it_finishes_or_rolls_back() -> None:
     # ADR-0065: nothing resumes while the Hive Stand moves, a provider clustered meanwhile leaves
     # the mode alone, and only the rollback returns her to CLUSTERED (then RUNNING as usual).
@@ -166,16 +171,16 @@ def test_a_supersedure_freezes_her_until_it_finishes_or_rolls_back() -> None:
     state.mark_clustered("p1")
     state.begin_supersedure()
     state.mark_clustered("p2")
-    assert state.mode is QueenMode.SUPERSEDING and is_frozen(state.mode)
+    assert _mode(state) is QueenMode.SUPERSEDING and is_frozen(_mode(state))
     with pytest.raises(InvalidQueenModeTransitionError):
         state.mark_resumed("p1")
     state.abort_supersedure()
     state.mark_resumed("p1")
     state.mark_resumed("p2")
-    assert state.mode is QueenMode.RUNNING
+    assert _mode(state) is QueenMode.RUNNING
     state.mark_clustered("p1")
     state.begin_supersedure()
     state.finish_supersedure()
-    assert state.mode is QueenMode.SUPERSEDED
+    assert _mode(state) is QueenMode.SUPERSEDED
     with pytest.raises(InvalidQueenModeTransitionError):
         state.abort_supersedure()  # A Queen that stood down never comes back.

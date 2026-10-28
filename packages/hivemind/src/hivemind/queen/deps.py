@@ -135,6 +135,7 @@ from hivemind.queen.placement import (
 )
 from hivemind.queen.requeening.book import RequeeningBook
 from hivemind.queen.state import ClusterState
+from hivemind.queen.supersedure.ports import SupersedureBook
 from hivemind.royal_jelly import QuarantineReport, RoyalJellyAccess, ToolSpec
 from hivemind.supervision import EscalationPolicy
 from hivemind.workers.roles.guard_bee import GuardBee
@@ -837,16 +838,15 @@ class QueenDeps:
             honey`): intake, the retriever for a bee's query and her own pre-check. None (the
             default) wires no Honey Store: a query is answered empty with that reason, a deposit
             is refused with `control.error`, and no pre-check runs.
-        royal_jelly: The Royal Jelly Lab's and the Basket's handles (roadmap phase 9, built by
-            `hivemind.cli.compose.royal_jelly`); None (the default) wires neither.
+        royal_jelly: The Lab's and the Basket's handles (phase 9); None wires neither.
         sandboxes: Provisions the Comb's sandbox Cell; None leaves only the subprocess sandbox.
         tool_lane: Her tool jobs and Basket transfers beside the tick (`ToolLane`).
         uplink_keys: The key a Warden's node signs a Basket manifest with; None trusts the Hive key.
         nurse_max_rounds: `[nurse] max_rounds`: Nurse rejections sent back before one escalates.
         requeening: Requeening's state (ADR-0062): its store, cadences and any recovery settling.
+        supersedure: Supersedure's wiring and the one move under way, if any (ADR-0065).
         human_channel: How the Queen tells the human's devices something is waiting (a reply, a
-            question, an Alarm, a goal request settled or finished); the Hive Entrance's own
-            implementation in production, `NullHumanChannel` (tells nobody) by default.
+            question, an Alarm, a goal request's end); `NullHumanChannel` tells nobody.
         wake: The in-process signal her tick awaits beside her Warden links (ADR-0040), set by a
             goal request, a human message or a finished plan; it starts set, so her first tick
             drains whatever rows a crash left behind.
@@ -946,3 +946,4 @@ class QueenDeps:
     uplink_keys: UplinkKeys | None = None
     nurse_max_rounds: int = _DEFAULT_NURSE_MAX_ROUNDS  # ADR-0061; defaulted like the rest.
     requeening: RequeeningBook = field(default_factory=RequeeningBook)  # ADR-0062.
+    supersedure: SupersedureBook = field(default_factory=SupersedureBook)  # ADR-0065.

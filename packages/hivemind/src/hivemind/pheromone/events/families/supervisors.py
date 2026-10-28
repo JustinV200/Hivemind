@@ -183,6 +183,12 @@ class QueenEvent(PheromoneEvent):
             "queen.requeened",
             # Roadmap 13.7 (ADR-0064): `hive restore` put a backup back; checksums and counts.
             "queen.restored",
+            # Roadmap 13.2a (ADR-0065): Supersedure's start, the candidate's readiness, and its
+            # two outcomes; ids, a sequence and instants only.
+            "queen.supersedure_started",
+            "queen.supersedure_ready",
+            "queen.superseded",
+            "queen.supersedure_aborted",
         }
     )
 

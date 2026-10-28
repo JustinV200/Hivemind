@@ -64,6 +64,7 @@ _CALL_SITES: dict[EnforcementPoint, tuple[str, ...]] = {
     EnforcementPoint.ISOLATION: ("hivemind.queen.isolation.authority:_request",),
     EnforcementPoint.STING_CUT: ("hivemind.queen.sting_cut.authority:_request",),
     EnforcementPoint.ABSCONDING: ("hivemind.cli.abscond.consent:_request",),
+    EnforcementPoint.SUPERSEDURE: ("hivemind.queen.supersedure.door:_request",),
     EnforcementPoint.DEVICE_COMMAND: (
         "hivemind.swarm.session.guard:EnforcedCommandGuard.authorise",
     ),

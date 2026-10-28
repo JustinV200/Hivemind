@@ -49,6 +49,9 @@ __all__ = [
     "QueenError",
     "SandboxUnavailableError",
     "StingCutRefusedError",
+    "SupersedureFailedError",
+    "SupersedurePendingError",
+    "SupersedureRefusedError",
     "UnknownCellError",
     "UnknownGuardReportError",
     "UnknownWardenError",
@@ -224,3 +227,64 @@ class SandboxUnavailableError(QueenError):
         """
         super().__init__(reason)
         self.reason = reason
+
+
+class SupersedureRefusedError(PermissionDeniedError):
+    """Raise when a Supersedure the human asked for may not start (roadmap 13.2a, ADR-0065).
+
+    The `supersedure` point refused it (already on the trail as `guard.denied`), the candidate
+    failed its preflight, one is already under way, or this Hive has no way to reach a candidate.
+    The Hive Entrance answers 403.
+    """
+
+    code: ClassVar[str] = "hivemind.queen.supersedure_refused"
+
+    def __init__(self, node: str, reason: str) -> None:
+        """Build the error for a refused Supersedure.
+
+        Args:
+            node: The candidate the human named.
+            reason: Why, as a short phrase.
+        """
+        super().__init__(f"Supersedure onto {node} refused: {reason}")
+        self.node = node
+
+
+class SupersedurePendingError(ConflictError):
+    """Raise when this node's trail says its Queen may not start (ADR-0065: never two Queens).
+
+    Its newest `queen.supersedure_started` names it as the old Queen with no outcome yet (the
+    operator settles it), or as an old Queen that was superseded, or as a candidate that was
+    rolled back.
+    """
+
+    code: ClassVar[str] = "hivemind.queen.supersedure_pending"
+
+    def __init__(self, started_id: str, reason: str) -> None:
+        """Build the error for a start the trail forbids.
+
+        Args:
+            started_id: The `queen.supersedure_started` event that decides it.
+            reason: What the operator should do, as one sentence.
+        """
+        super().__init__(f"Supersedure {started_id}: {reason}")
+        self.started_id = started_id
+
+
+class SupersedureFailedError(QueenError):
+    """Raise when a step of a Supersedure under way fails: the copy, the restore or the start.
+
+    Never a refusal: the driver catches it and rolls the Supersedure back (ADR-0065).
+    """
+
+    code: ClassVar[str] = "hivemind.queen.supersedure_failed"
+
+    def __init__(self, step: str, reason: str) -> None:
+        """Build the error for a failed step.
+
+        Args:
+            step: The step that failed (`copy`, `restore`, `start`).
+            reason: One sentence naming what failed; ids and digests, never a secret.
+        """
+        super().__init__(f"Supersedure {step} failed: {reason}")
+        self.step = step

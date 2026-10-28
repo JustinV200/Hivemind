@@ -78,6 +78,7 @@ AUTHORISED_AT: tuple[tuple[str, P], ...] = (
     ("warden.spawned", P.WARDEN_SPAWN),
     ("warden.started", P.LEASE_CREATION),  # Its lease opened.
     ("warden.migrated", P.SUPERSEDURE),
+    ("queen.supersedure_started", P.SUPERSEDURE),  # The human's move of the Hive Stand (13.2a).
     ("swarm.invited", P.ENTRANCE_ROUTE),  # The operator's own device administration.
     ("swarm.enrolled", P.ENTRANCE_ROUTE),
     ("swarm.revoked", P.ENTRANCE_ROUTE),
@@ -196,6 +197,9 @@ NOT_ACTIONS: tuple[tuple[str, str], ...] = (
     ("queen.replied", _DECISION),  # Words to the human in the chat; nothing else changes.
     ("queen.requeened", _LIFECYCLE),  # REQUEENING settled; each act inside recorded its own.
     ("queen.restored", _OFFLINE),  # Roadmap 13.7: `hive restore` under both locks, no Queen.
+    ("queen.supersedure_ready", _LIFECYCLE),  # The candidate is up and held for the old Queen.
+    ("queen.superseded", _OUTCOME),  # How a Supersedure authorised at its point ended.
+    ("queen.supersedure_aborted", _OUTCOME),  # Rolled back, or settled so by the human.
     ("warden.watch", _LIFECYCLE),
     ("warden.active", _LIFECYCLE),
     ("warden.clustered", _LIFECYCLE),
@@ -303,7 +307,6 @@ PENDING_POINTS: Mapping[P, str] = MappingProxyType(
         # set itself; what is left is refusing through this point, on the trail.
         P.HONEY_ACCESS: "a phase 7 follow-up (the store checks the set, not the Guard)",
         P.TACTIC_INVOCATION: "phase 6 (the Pheromone Mask tactics)",
-        P.SUPERSEDURE: "phase 13 (Supersedure)",
         # Phase 9: the Basket's receiver decides clearance, taint and tier by rule from the start;
         # step 9.2a wires that check, and the deposit and shipment events, through this point.
         P.BASKET_TRANSFER: "step 9.2a (the Basket's transfer: the receiver's clearance check)",
