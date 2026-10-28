@@ -1,11 +1,12 @@
-"""Tests for templates/pollinate.sh: a machine signed in to another tailnet stops before any secret.
+"""Tests for templates/pollinate.sh: a machine it cannot work on stops before any secret is used.
 
 Fits into the Hive:
     Covers src/hivemind/swarm/packet/templates/pollinate.sh, which has no Python module of its
     own. A packet is written as `hive swarm packet` writes one and its installer run under bash
     with a fake `tailscale` first on PATH, so nothing is installed and no network is touched. What
     is asserted is the preflight: signed in as anything but the packet's tagged node, connected or
-    not, the script stops with the logout advice and leaves `secrets/` for the next run.
+    not, or a daemon that does not answer, stops the script with its advice and leaves `secrets/`
+    for the next run.
 
 Key invariants:
     - None: this module holds tests only.
@@ -36,8 +37,10 @@ from hivemind.swarm.packet import (
 from hivemind.swarm.packet.writer import PacketFiles
 
 _BASH = shutil.which("bash")
-# A `tailscale status --json` that a signed-in, untagged node answers, in the given state.
+# A `tailscale status --json` that a signed-in, untagged node answers, in the given state; with no
+# state, a daemon that does not answer (nothing on stdout, exit 1).
 _FAKE_TAILSCALE = """#!/bin/sh
+[ -n "$FAKE_TS_STATE" ] || exit 1
 printf '{\\n  "BackendState": "%s",\\n  "Self": {"Tags": null}\\n}\\n' "$FAKE_TS_STATE"
 """
 
@@ -47,9 +50,16 @@ printf '{\\n  "BackendState": "%s",\\n  "Self": {"Tags": null}\\n}\\n' "$FAKE_TS
 @pytest.mark.skipif(
     _BASH is None or sys.platform == "win32", reason="needs a POSIX bash on this host"
 )
-@pytest.mark.parametrize("state", ["Running", "Stopped"])
-def test_pollinate_sh_stops_on_another_account_before_touching_secrets(
-    tmp_path: Path, state: str
+@pytest.mark.parametrize(
+    ("state", "advice"),
+    [
+        ("Running", "tailscale logout"),
+        ("Stopped", "tailscale logout"),
+        ("", "systemctl start tailscaled"),  # Installed, but the daemon does not answer.
+    ],
+)
+def test_pollinate_sh_stops_before_touching_secrets_when_it_cannot_work(
+    tmp_path: Path, state: str, advice: str
 ) -> None:
     # Arrange a packet written as `hive swarm packet` writes one, and a fake tailscale.
     build = tmp_path / "build"
@@ -65,6 +75,7 @@ def test_pollinate_sh_stops_on_another_account_before_touching_secrets(
     (fake_bin / "tailscale").chmod(0o755)
     env = {**os.environ, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}"}
     env["FAKE_TS_STATE"] = state
+    env["POLLINATE_DAEMON_WAIT"] = "2"  # Seconds, not the real fifteen.
 
     # SAFETY: a test-only run of the written installer under bash, with a fake tailscale first on
     # PATH; argv is fixed and nothing reaches a shell string.
@@ -78,5 +89,5 @@ def test_pollinate_sh_stops_on_another_account_before_touching_secrets(
     )
 
     assert ran.returncode == 1
-    assert "another Tailscale account" in ran.stderr and "tailscale logout" in ran.stderr
+    assert "STOPPED" in ran.stderr and advice in ran.stderr
     assert (packet / SECRETS_DIR / INVITE_FILE).is_file()

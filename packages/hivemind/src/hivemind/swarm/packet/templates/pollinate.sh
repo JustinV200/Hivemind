@@ -21,6 +21,7 @@ AUTH_KEY_FILE="$SECRETS/tailscale-authkey.txt"
 INVITE_FILE="$SECRETS/invite.txt"
 POLLEN="$HOME/.local/bin/pollen"   # Per user: no root needed to run it.
 WAIT_SECONDS=120                   # How long to wait for the tailnet and the Hive Stand.
+DAEMON_WAIT_SECONDS="${POLLINATE_DAEMON_WAIT:-15}"  # Preflight's wait for tailscaled to report a state.
 MAC_TAILSCALE=/Applications/Tailscale.app/Contents/MacOS/Tailscale   # The Mac app's own CLI.
 
 say() { printf 'pollinate: %s\n' "$*"; }
@@ -67,7 +68,7 @@ backend_state() {
 
 # Signed in means any state but logged out, connected or not (Stopped counts).
 signed_in() {
-  case "$(backend_state)" in ''|NeedsLogin|NoState) return 1 ;; *) return 0 ;; esac
+  case "$(backend_state)" in ''|NeedsLogin) return 1 ;; *) return 0 ;; esac
 }
 
 # Without peers, the only tags in the status are this node's own.
@@ -137,6 +138,16 @@ preflight() {
     || { [ -z "$(ts_status)" ] && [ -n "$plain" ]; }; then
     stop "Tailscale's state could not be read; update Tailscale, then run this script again."
   fi
+  # Fail closed on a daemon that does not answer (or has not loaded its state yet): letting the
+  # run go on would spend the packet, or `up --reset` another account's settings if it woke later.
+  local waited=0 state
+  state="$(backend_state)"
+  while [ -z "$state" ] || [ "$state" = NoState ]; do
+    if [ "$waited" -ge "$DAEMON_WAIT_SECONDS" ]; then
+      stop "Tailscale is installed but not running; start it (sudo systemctl start tailscaled, or open the Tailscale app), then run this script again."
+    fi
+    sleep 1; waited=$((waited + 1)); state="$(backend_state)"
+  done
   if signed_in && ! tagged_hive_device; then
     stop "This machine is signed in to another Tailscale account. Run 'tailscale logout', then run this script again."
   fi

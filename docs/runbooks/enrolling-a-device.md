@@ -241,6 +241,10 @@ standard error, the tailnet key's id and when the packet lapses. It never prints
 key is minted, the key and the invite are revoked and the folder removed, so a failed build leaves
 nothing live.
 
+Build it on NTFS, ext4 or APFS, not straight onto a FAT32 or exFAT stick: `secrets/` is made
+owner-only, and those file systems keep no permissions to make it so. Once built, the folder can be
+copied to a stick.
+
 Carry the folder to the device yourself (a USB stick), not by chat, email or a shared drive: until
 it is used, its `secrets/` folder is a key to the Hive. On the device, open a terminal in the folder
 as the account pollen should run under, and run what the README says:

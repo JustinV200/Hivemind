@@ -167,11 +167,18 @@ function Start-TailscaleService {
 function Get-PreflightProblem {
     if (-not (Test-Path $TailscaleExe)) { return '' }
     if (-not (Start-TailscaleService)) { return 'The Tailscale service will not start; start it, or reinstall Tailscale, then run this script again.' }
-    $result = Invoke-Quiet { & $TailscaleExe status --json }
-    $status = $null
-    if ($result.Output.Trim()) { try { $status = $result.Output | ConvertFrom-Json } catch { $status = $null } }
-    if (-not $status -or -not $status.BackendState) { return "Tailscale's state could not be read; update Tailscale, then run this script again." }
-    $signedIn = ($status.BackendState -notin @('NeedsLogin', 'NoState')) -or $status.CurrentTailnet
+    # NoState: the service runs but has not loaded its state yet. Re-read until it has, so a
+    # signed-in account is never mistaken for none.
+    $deadline = (Get-Date).AddSeconds($WaitSeconds)
+    do {
+        $result = Invoke-Quiet { & $TailscaleExe status --json }
+        $status = $null
+        if ($result.Output.Trim()) { try { $status = $result.Output | ConvertFrom-Json } catch { $status = $null } }
+        $loading = $status -and $status.BackendState -eq 'NoState'
+        if ($loading) { Start-Sleep -Seconds 1 }
+    } while ($loading -and (Get-Date) -lt $deadline)
+    if (-not $status -or -not $status.BackendState -or $loading) { return "Tailscale's state could not be read; update Tailscale, then run this script again." }
+    $signedIn = ($status.BackendState -ne 'NeedsLogin') -or $status.CurrentTailnet
     if ($signedIn -and -not (Test-HiveTagged $status)) { return "This PC is signed in to another Tailscale account. Run 'tailscale logout', then run this script again." }
     return ''
 }
