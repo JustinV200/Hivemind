@@ -3046,6 +3046,13 @@ borrowed device and revoking every grant.
   enabled), `hive run` with no Docker needed, then Docker Desktop for Virtual Cells, then `hive entrance
   expose` plus an invite to enrol a phone and speak a goal into it. Tested on
   clean Windows and Ubuntu machines, once per provider path.
+  **Text written 2026-10-28**; not ticked, since the clean-machine runs (Windows and Ubuntu, once
+  per provider path) are the operator's. The README's Getting Started now goes: install `uv`,
+  `uv sync`, `hive init --provider anthropic|ollama|openai-compatible`, `hive doctor`, the haiku
+  goal through `hive run` on the Hive Stand, then Docker Desktop (`--extra docker`, the
+  `base-ubuntu` image, `[virtual_cells]` with `listen_host = "0.0.0.0"` and `[placement] prefer =
+  "virtual"`), then `hive entrance expose`, `hive serve`, an invite and an approval for a phone,
+  with `docs/runbooks/remote-access.md` holding the long form.
 - [x] **14.2 `hive init` and `hive doctor`.** Manifest generator with `--provider`; checks for
   scratch root, Docker if enabled, every provider reachable, every slot's model present, Forage
   sanity, sqlite-vec loads, escalation policy file valid.
@@ -3065,13 +3072,25 @@ borrowed device and revoking every grant.
   Docker backend; 13.2a's `--supersedure NODE` is folded in. Proved by
   `tests/e2e/test_init_doctor.py` (init, then doctor over real sockets against the scripted
   OpenAI-compatible server: served, missing model, nothing listening).
-- [ ] **14.3 Docs pass.** Subsystem READMEs, ADRs, protocol spec, runbooks including
+- [x] **14.3 Docs pass.** Subsystem READMEs, ADRs, protocol spec, runbooks including
   `moving-a-slot-to-local.md`, `real-cells.md`, `wardens-and-alarms.md`, `clustering.md`, `nucs.md`,
   `supersedure.md`, `remote-access.md` (the VPN, enrolling a phone or a program, a lost device, the
   Entrance Reducer).
+  **Built 2026-10-28.** The five missing runbooks are written (`real-cells.md`,
+  `wardens-and-alarms.md`, `clustering.md`, `nucs.md`, `remote-access.md`; `supersedure.md` and
+  `backup.md` landed with 13.2a and 13.7) and `docs/runbooks/README.md` lists every runbook. Every
+  package directory has its README (`pollen` and `waggle.outbox` were missing theirs). The ADR index
+  lists every ADR (0061 to 0066 are still Proposed, for the owner to accept), and every one of the
+  catalogue's 89 message kinds and classes appears in `docs/waggle/spec.md` at protocol 1.16.
 - [ ] **14.4 Security review.** Coding rules section 15 across the tree; `pip-audit`;
   `docs/security.md` covering the Swarm, leases, grants and attenuation, Nucs offline, the Lab,
   the Exoskeleton, and prompt injection through Honey, hot state and tool results.
+  **Review and `docs/security.md` done 2026-10-28**; not ticked, since the local `pip-audit` run
+  waits on the operator's go-ahead for its network lookup (CI's `audit` job runs it, and `pnpm
+  audit`, on every push). The section 15 walk is the table at the end of `docs/security.md`. It
+  fixed two things: the subprocess sandbox was only warned about outside `env = "dev"` and is now
+  refused by the manifest and by `hive tools quarantine`, and three QEMU runner subprocess calls
+  gained their `# SAFETY:` comments. What is still open is listed there too.
 - [ ] **14.5 License.** Choose and add `LICENSE`; update README.
 - [ ] **14.6 Release.** Tag `brood-1.0`, wheels, `pollen` binaries, the Observation Hive build
   and the Android APK, changelog from conventional commits.
