@@ -17,7 +17,11 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import shutil
+import threading
+import time
 from datetime import timedelta
 from pathlib import Path
 from typing import NoReturn
@@ -114,12 +118,15 @@ async def test_build_packet_leaves_no_live_key_or_invite_when_a_step_fails(
         order.folder.mkdir(parents=True)
         (order.folder / "older.txt").write_text("keep me", encoding="utf-8")
 
-    with pytest.raises(PacketError):
+    with pytest.raises(PacketError) as caught:
         await build_packet(_deps(rig, keys), order)
 
-    # A failed invite revocation must not stop the key's revocation after it.
+    # A failed invite revocation must not stop the key's revocation after it, and is reported.
     assert keys.live == {}
     invites = await rig.registry.invites()
+    if failure == "invite_revoke_fails":
+        (left,) = getattr(caught.value, "__notes__", [])
+        assert invites[0].code_hash in left
     if failure != "invite_revoke_fails":
         assert not [i for i in invites if i.state is InviteState.ISSUED]
     # The key is minted first, so when it is refused no invite was ever written.
@@ -133,3 +140,33 @@ async def test_build_packet_leaves_no_live_key_or_invite_when_a_step_fails(
 async def _refuse_revoke(code_hash: str, event: object = None) -> NoReturn:
     """Stand in for a registry whose invite revocation fails."""
     raise HiveMindError(f"cannot revoke {code_hash[:8]}")
+
+
+async def test_build_packet_cancelled_mid_write_waits_for_the_write_then_undoes_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange a copy of the build that is still running on its worker thread when the build is
+    # cancelled; the thread then goes on to write the installer and the secrets.
+    rig, keys = make_hive_rig(), FakeTailnetKeys()
+    order = _order(tmp_path, PacketPlatform.WINDOWS_X86_64)
+    copying, copied, copy = threading.Event(), threading.Event(), shutil.copyfile
+
+    def slow_copy(source: Path, target: Path) -> object:
+        copying.set()
+        time.sleep(0.3)
+        result = copy(source, target)
+        copied.set()
+        return result
+
+    monkeypatch.setattr("hivemind.swarm.packet.writer.shutil.copyfile", slow_copy)
+    build = asyncio.ensure_future(build_packet(_deps(rig, keys), order))
+    await asyncio.to_thread(copying.wait)
+
+    build.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await build
+
+    # The undo waited for the thread before removing the folder, so nothing the thread wrote
+    # outlives the removal, and nothing minted is left live.
+    assert copied.is_set()
+    assert not order.folder.exists() and keys.live == {}

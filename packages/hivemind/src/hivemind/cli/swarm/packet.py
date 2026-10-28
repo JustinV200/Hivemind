@@ -57,6 +57,7 @@ from hivemind.cli.swarm.context import (
 )
 from hivemind.cli.swarm.invite import AccessOption, ShieldOption
 from hivemind.cli.tools.context import EXIT_BAD_INPUT, run_or_exit
+from hivemind.common.errors import HiveMindError
 from hivemind.swarm import EnrolmentDoor, ListenerConfig, SwarmRecorder, SwarmRegistry
 from hivemind.swarm.packet import (
     TAILSCALE_API,
@@ -147,7 +148,14 @@ async def _build(
     async with httpx.AsyncClient(base_url=TAILSCALE_API) as client:
         keys = TailscaleApiKeys(source, client)
         deps = PacketDeps(door, registry, keys, recorder, ttl, manifest.hive.id)
-        return order, await build_packet(deps, order)
+        try:
+            return order, await build_packet(deps, order)
+        except HiveMindError as exc:
+            # What the build could not undo (ids and the remedy, never a secret), before
+            # run_or_exit prints the error itself.
+            for note in getattr(exc, "__notes__", ()):
+                typer.echo(f"warning: {note}", err=True)
+            raise
 
 
 def _order(cli_ctx: SwarmCliContext, request: _Request) -> PacketOrder:

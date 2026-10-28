@@ -32,7 +32,6 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import shutil
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -105,19 +104,23 @@ async def build_packet(deps: PacketDeps, order: PacketOrder) -> BuiltPacket:
     _claim(order.folder)
     key: TailnetKey | None = None
     minted: MintedInvite | None = None
-    is_built = False
+    write: asyncio.Future[int] | None = None
     try:
         # The key first: the likeliest failure, and a refusal here has minted nothing.
         key = await deps.keys.mint(deps.ttl)
         minted = await deps.door.mint_invite(order.access, order.shield, order.label)
-        count = await asyncio.to_thread(_write, order, minted, key)
+        # A worker thread cannot be cancelled, so the write is shielded and, on cancellation,
+        # waited for in `_undo`: the folder is never removed while the thread still writes into it.
+        write = asyncio.ensure_future(asyncio.to_thread(_write, order, minted, key))
+        count = await asyncio.shield(write)
         await deps.recorder.record(_built_event(deps, minted, key, order, count))
-        is_built = True
         return BuiltPacket(order.folder, key.key_id, minted.code_hash, minted.expires_at)
-    finally:
+    except BaseException as exc:
         # Any failure, cancellation included: nothing minted may stay live without its packet.
-        if not is_built:
-            await _undo(deps, order.folder, key, minted)
+        # What could not be undone rides on the original error as notes; that error propagates.
+        for note in await _undo(deps, order.folder, (key, minted), write):
+            exc.add_note(note)
+        raise
 
 
 def _claim(folder: Path) -> None:
@@ -155,22 +158,53 @@ def _built_event(
 
 
 async def _undo(
-    deps: PacketDeps, folder: Path, key: TailnetKey | None, minted: MintedInvite | None
-) -> None:
-    """Remove the folder, then revoke the invite, then the key, keeping the original error."""
+    deps: PacketDeps,
+    folder: Path,
+    minted: tuple[TailnetKey | None, MintedInvite | None],
+    write: asyncio.Future[int] | None,
+) -> list[str]:
+    """Remove the folder, then revoke the invite, then the key; return what could not be undone."""
+    key, invite = minted
+    left: list[str] = []
     # The secrets on disk go first: they are the copy someone could walk off with. Each later step
     # runs in a `finally`, so an error or a cancellation in one never skips the next; each is best
-    # effort, because the error that brought us here is the one the operator must see, and a key or
-    # invite that could not be revoked still lapses within the invite's lifetime.
+    # effort, and a key or invite that could not be revoked still lapses within the invite's
+    # lifetime, so it is reported with how to revoke it by hand rather than raised.
     try:
+        await _settled(write)
         # The folder is this build's own (`_claim` made it); a small tree, on a worker thread.
         await asyncio.to_thread(shutil.rmtree, folder, ignore_errors=True)
     finally:
         try:
-            if minted is not None:
-                with contextlib.suppress(HiveMindError, OSError):
-                    await deps.invites.revoke_invite(minted.code_hash)
+            if invite is not None:
+                try:
+                    await deps.invites.revoke_invite(invite.code_hash)
+                except (HiveMindError, OSError):
+                    # No command revokes an unused invite, so the remedy is to keep it unusable.
+                    left.append(
+                        f"The invite {invite.code_hash} could not be revoked and stays usable "
+                        f"until {invite.expires_at.isoformat()}; keep the Hive's swarm listener "
+                        "stopped until then."
+                    )
         finally:
             if key is not None:
-                with contextlib.suppress(HiveMindError, OSError):
+                try:
                     await deps.keys.revoke(key.key_id)
+                except (HiveMindError, OSError):
+                    left.append(
+                        f"The tailnet key {key.key_id} is still live until it lapses; delete it "
+                        "in the Tailscale admin console under Settings, Keys."
+                    )
+    return left
+
+
+async def _settled(write: asyncio.Future[int] | None) -> None:
+    """Wait for a write still running on its worker thread, whatever it ends with."""
+    if write is None:
+        return
+    if not write.done():
+        # Seconds at most (five small files); a second cancellation here propagates as usual.
+        await asyncio.wait({write})
+    # Retrieve its outcome so asyncio never warns of an exception nobody read.
+    if not write.cancelled():
+        write.exception()
