@@ -6,7 +6,9 @@
  * with the body's SHA-256), signing the exact bytes it then sends. A non-GET request is checked
  * against `write_guard.ts` first, so a path the UI may not write to is refused before anything
  * leaves the device. Non-2xx answers become a typed `LandingBoardError`; a 401 on a signed
- * request also tells the owner the session is gone, so the shell can drop to login.
+ * request also tells the owner the session is gone, so the shell can drop to login. On the Hive
+ * Stand's own tab the stand key rides every request as `X-Hive-Stand`, and a bare 403 (the
+ * loopback listener's refusal of a loopback-only action without it) says to open the link.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/landing_board/client/`. Built by `index.ts`; used by
@@ -26,7 +28,7 @@
  */
 import type { InitArgs, Method, OperationOf, PathsWith, QueryOf, ResponseOf } from '../call_types';
 import type { AudioRecorder, Browser, Bytes, RecordedClip } from './browser';
-import { clientError, CLIENT_CODES, LandingBoardError } from './errors';
+import { clientError, CLIENT_CODES, ERROR_TABLE, LandingBoardError } from './errors';
 import type { ErrorBody } from './errors';
 import type { SessionHolder } from './keys';
 import { signWith } from './keys';
@@ -110,6 +112,13 @@ async function errorFrom(response: Response): Promise<LandingBoardError> {
   if (body && typeof body.error === 'string' && typeof body.detail === 'string') {
     return new LandingBoardError(response.status, body as ErrorBody);
   }
+  // Only the loopback listener refuses 403 bare: a loopback-only action without the stand key.
+  if (response.status === 403) {
+    return new LandingBoardError(403, {
+      error: CLIENT_CODES.standKeyRequired,
+      detail: ERROR_TABLE[CLIENT_CODES.standKeyRequired]!.action,
+    });
+  }
   return new LandingBoardError(response.status, {
     error: 'hivemind.entrance.http_refused',
     detail: `The Hive answered ${response.status}.`,
@@ -120,6 +129,9 @@ async function signedHeaders(deps: HttpDeps, outgoing: Outgoing): Promise<Record
   const session = deps.holder.get();
   const headers: Record<string, string> = {};
   if (outgoing.body) headers['Content-Type'] = outgoing.contentType;
+  // The Hive Stand's own tab holds the stand key (ADR-0068); it is not part of the signature.
+  const stand = deps.browser.standKey?.();
+  if (stand) headers['X-Hive-Stand'] = stand;
   if (!session) return headers;
   const { browser } = deps;
   const timestamp = unixSeconds(browser.nowMs());

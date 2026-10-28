@@ -33,6 +33,7 @@ export { describeError, LandingBoardError } from './errors';
 export { chooseBrowser } from './platform/choose';
 export type { Choice } from './platform/choose';
 export { realBrowser } from './platform/real_browser';
+export { adoptStandLink } from './platform/stand_link';
 export type { DescribedError } from './errors';
 export type { DeviceDescription, Enrolled, OpenedSession, SessionClient } from './session';
 export type { StreamEnd, StreamHandle, StreamOptions, StreamState } from './socket';

@@ -142,6 +142,29 @@ describe('errors', () => {
     });
   });
 
+  it('maps a bare 403 to the stand key message: open the Hive Stand browser link', async () => {
+    const { fake, http } = await signedClient();
+    fake.respond('POST /v1/entrance/invites', 403);
+    await expect(
+      http.call('post', '/v1/entrance/invites', { body: { label: 'phone' } }),
+    ).rejects.toMatchObject({
+      status: 403,
+      code: 'hivemind.client.stand_key_required',
+      detail: expect.stringContaining('Hive Stand browser link') as unknown,
+    });
+  });
+
+  it.each([
+    ['k'.repeat(43), 'k'.repeat(43)],
+    [null, undefined],
+  ])('sends the stand key %s as X-Hive-Stand only when the tab holds one', async (held, sent) => {
+    const { fake, http } = await signedClient();
+    fake.browser.standKey = () => held;
+    fake.respond('GET /v1/cells', 200, { cells: [] });
+    await http.call('get', '/v1/cells');
+    expect(fake.requests[0]!.headers['X-Hive-Stand']).toBe(sent);
+  });
+
   it('maps a failed fetch to the network code', async () => {
     const { fake, http } = await signedClient();
     fake.browser.fetch = () => Promise.reject(new TypeError('offline'));

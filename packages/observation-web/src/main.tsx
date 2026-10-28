@@ -35,7 +35,7 @@ import './styles/head.css';
 import './styles/components.css';
 import './styles/thoughts.css';
 import App from './app';
-import { chooseBrowser, realBrowser } from './landing_board/client';
+import { adoptStandLink, chooseBrowser, realBrowser } from './landing_board/client';
 import { registerServiceWorker } from './pwa/register';
 import { applyStoredTheme } from './shell/theme';
 
@@ -51,6 +51,14 @@ if (!rootElement) {
 // ADR-0050: the platform is chosen once, here. The Android half is loaded only inside the APK, so
 // the web bundle never carries it.
 const isNative = Capacitor.isNativePlatform();
+
+// ADR-0068: the Hive Stand browser link carries the stand key in its fragment; keep it for this tab
+// and put the address back to `/` before the hash router reads it.
+if (!isNative) {
+  adoptStandLink(window.location, window.sessionStorage, (url) =>
+    window.history.replaceState(null, '', url),
+  );
+}
 
 void chooseBrowser({
   isNative: () => isNative,

@@ -37,6 +37,8 @@ export const CLIENT_CODES = {
   network: 'hivemind.client.network',
   microphone: 'hivemind.client.microphone',
   viewFailed: 'hivemind.client.view_failed',
+  // A bare 403 is the loopback listener's own refusal, before any route: no stand key (ADR-0068).
+  standKeyRequired: 'hivemind.client.stand_key_required',
 } as const;
 
 const ENTRANCE = 'hivemind.entrance.';
@@ -186,6 +188,11 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
   [CLIENT_CODES.microphone]: {
     sentence: 'The microphone could not be used.',
     action: 'Allow the microphone for this page, or type instead.',
+  },
+  [CLIENT_CODES.standKeyRequired]: {
+    sentence: 'Only the Hive Stand browser link can do that.',
+    action:
+      'Open the Hive Stand browser link `hive serve` printed (it changes every serve), on localhost.',
   },
   [CLIENT_CODES.viewFailed]: {
     sentence: 'This view could not be drawn from what the Hive sent.',

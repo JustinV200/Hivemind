@@ -24,6 +24,7 @@ import type { Browser, SocketLike } from '../browser';
 import { indexedDbStore } from './indexed_db';
 import { assertWithPasskey, createWithPasskey } from './passkey';
 import { realRecorder } from './recorder';
+import { heldStandKey } from './stand_link';
 import { subscribeWebPush } from './web_push';
 
 // Adapts a WebSocket to SocketLike so the stream wrapper never sees DOM events.
@@ -61,6 +62,8 @@ export function realBrowser(overrides: Partial<Browser> = {}): Browser {
     assertPasskey: assertWithPasskey,
     createPasskey: createWithPasskey,
     subscribeWebPush,
+    // Read per request, so a key the link stored after start is used at once.
+    standKey: () => heldStandKey(window.sessionStorage),
     // A device that cannot record simply carries no recorder, so push-to-talk is hidden.
     ...(recorder ? { recorder } : {}),
     ...overrides,

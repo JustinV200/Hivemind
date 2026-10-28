@@ -144,4 +144,7 @@ export interface Browser {
   inviteLinks?: InviteLinks;
   // Absent on a device that cannot record (no microphone API); a view hides push-to-talk then.
   recorder?: AudioRecorder;
+  // The stand key this tab took from the Hive Stand browser link (ADR-0068), sent as
+  // `X-Hive-Stand`; absent or null everywhere else, which is every device but the Hive Stand.
+  standKey?: () => string | null;
 }
