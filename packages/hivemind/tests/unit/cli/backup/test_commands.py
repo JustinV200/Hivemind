@@ -100,15 +100,25 @@ def _far(tmp_path: Path, path: Path) -> Path:
     return far / "hive.toml"
 
 
-@pytest.mark.parametrize("case", ["other hive", "no secrets", "other identity key", "queen runs"])
-def test_restore_refuses_and_writes_nothing(tmp_path: Path, case: str) -> None:
+@pytest.mark.parametrize(
+    ("case", "reason"),
+    [
+        ("other hive", "not this manifest"),
+        ("no secrets", "lacks"),
+        ("other identity key", HIVE_SIGNING_KEY),
+        ("queen runs", "a running Queen"),
+    ],
+)
+def test_restore_refuses_and_writes_nothing(tmp_path: Path, case: str, reason: str) -> None:
     path = fake_manifest(tmp_path)
     manifest, _, _ = _seed(path)
     archive = tmp_path / "hive.tar.gz"
     _hive("backup", str(archive), "--manifest", str(path))
     target = _far(tmp_path, path)
     secrets = manifest.resolve_path(manifest.hive.secrets_dir)
-    if case != "no secrets":
+    if case == "no secrets":
+        (target.parent / "secrets").mkdir()  # A store, but an empty one.
+    else:
         shutil.copytree(secrets, target.parent / "secrets")
     if case == "other identity key":
         other = Ed25519Signer.generate().private_key_bytes
@@ -125,4 +135,5 @@ def test_restore_refuses_and_writes_nothing(tmp_path: Path, case: str) -> None:
 
     assert result.exit_code == 1
     assert "hive restore refused" in result.output, result.output
+    assert reason in result.output, result.output
     assert not db.exists()

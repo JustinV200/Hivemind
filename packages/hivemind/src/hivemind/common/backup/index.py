@@ -8,10 +8,11 @@ the Entrance tables and the enrolled devices included, ADR-0006), and each file 
 named (the Basket's blob bytes), as `<tree>/<relative path>`. The archive is read back by a
 program that trusts nothing in it, so the shape of a member's name is checked here, once, for the
 writer and the reader alike: lowercase tree names, plain path parts, no `..`, no absolute path,
-no dotfile, and no two names that would collide on a case-insensitive file system.
+no dotfile, no trailing dot, no Windows device name, and no two names that would collide on a
+case-insensitive file system. Secret names are checked too, since a restore may print them.
 
 Fits into the Hive:
-    Layer 0 (primitives; imports nothing internal beyond waggle). Built by
+    Layer 0 (primitives; imports only waggle and the rest of `common`). Built by
     `hivemind.common.backup.write`, validated by `hivemind.common.backup.read` before a single
     byte is extracted. Its fields are what `hive restore` checks against the destination Hive.
 
@@ -35,6 +36,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivemind.common.errors import BackupError
+from hivemind.common.secrets.protocol import SECRET_NAME_PATTERN
 from waggle.messages.base import SHA256_PATTERN, HiveIdField, UtcDatetime
 
 FORMAT_VERSION = 1  # Bumped only when a reader of the old format could misread the new one.
@@ -43,9 +45,11 @@ DB_MEMBER = "hive.sqlite3"  # The database snapshot's name inside the archive.
 MAX_INDEX_BYTES = 16 * 1024 * 1024  # About 100,000 listed files; bounds what a reader parses.
 # A tree is named by the writer's caller (`basket`), never by a user: short, lowercase, plain.
 TREE_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
-# One path part: no leading dot (so never `.`, `..` or a hidden temp file), no separator, no
-# drive colon, nothing a shell or Windows treats specially.
-PATH_PART = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}")
+# One path part: no leading dot (so never `.`, `..` or a hidden temp file), no trailing dot
+# (Windows drops it, so `x.` and `x` would be one file), no separator, no drive colon.
+PATH_PART = re.compile(r"[A-Za-z0-9_-](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?")
+# Windows device names, which open the device whatever extension follows (`nul.txt` too).
+RESERVED_PART = re.compile(r"(?i)(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?")
 MAX_DEPTH = 8  # Parts below a tree's root; the Basket's own layout needs two.
 
 __all__ = [
@@ -105,6 +109,10 @@ class BackupIndex(BaseModel):
     @model_validator(mode="after")
     def _paths_are_safe_and_unique(self) -> BackupIndex:
         """Refuse an index whose member list could escape, collide or miss the database."""
+        # Archive text that a restore may print: plain secret names only, never control bytes.
+        for name in self.secret_names:
+            if SECRET_NAME_PATTERN.fullmatch(name) is None:
+                raise ValueError(f"secret name {name!r} is not a valid secret name")
         # Tree names are checked first: check_member_path reads them.
         for tree in self.trees:
             if TREE_NAME.fullmatch(tree) is None:
@@ -132,7 +140,8 @@ def check_member_path(path: str, trees: tuple[str, ...]) -> None:
 
     Raises:
         BackupError: The name is the index's own, outside every declared tree, too deep, or has a
-            part `PATH_PART` refuses (`..`, an absolute path, a drive, a dotfile, a backslash).
+            part `PATH_PART` refuses (`..`, an absolute path, a drive, a dotfile, a trailing dot,
+            a backslash) or a Windows device name (`nul`, `com1.txt`).
     """
     # The database is the one member outside every tree.
     if path == DB_MEMBER:
@@ -143,5 +152,5 @@ def check_member_path(path: str, trees: tuple[str, ...]) -> None:
     if tree not in trees or not rest or len(parts) > MAX_DEPTH:
         raise BackupError(f"Backup member {path!r} is outside the archive's declared layout.")
     for part in parts:
-        if PATH_PART.fullmatch(part) is None:
+        if PATH_PART.fullmatch(part) is None or RESERVED_PART.fullmatch(part) is not None:
             raise BackupError(f"Backup member {path!r} has a path part a backup never writes.")

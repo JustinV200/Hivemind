@@ -99,6 +99,23 @@ def _case_twin(index: dict[str, Any], members: Members) -> Members:
     return [*members, ("basket/BLOB", b"blob")]
 
 
+def _dot_twin(index: dict[str, Any], members: Members) -> Members:
+    # Windows drops a trailing dot, so this would overwrite basket/blob once extracted.
+    _relist(index, "basket/blob.", b"evil")
+    return [*members, ("basket/blob.", b"evil")]
+
+
+def _device_name(index: dict[str, Any], members: Members) -> Members:
+    _relist(index, "basket/nul", b"x")
+    return [*members, ("basket/nul", b"x")]
+
+
+def _hostile_secret_name(index: dict[str, Any], members: Members) -> Members:
+    # A restore may print the names it lacks: no terminal control sequence may get that far.
+    index["secret_names"] = ["[2Jowned"]
+    return members
+
+
 def _corrupt_db(index: dict[str, Any], members: Members) -> Members:
     garbage = b"SQLite format 3\x00" + b"\xff" * 4080
     _relist(index, DB_MEMBER, garbage)
@@ -137,6 +154,9 @@ Tamper = Callable[[dict[str, Any], Members], Members]
         _swapped,
         _duplicate,
         _case_twin,
+        _dot_twin,
+        _device_name,
+        _hostile_secret_name,
         _corrupt_db,
         _symlink,
         _resized,
