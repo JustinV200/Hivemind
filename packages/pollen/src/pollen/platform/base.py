@@ -421,3 +421,18 @@ class PlatformShim(Protocol):
             What was removed.
         """
         ...
+
+    def accept_interrupts(self) -> None:
+        """Make sure the running packet hears the polite stop ``ask_to_stop`` sends it."""
+        ...
+
+    def ask_to_stop(self, pid: int) -> bool:
+        """Ask the packet ``pid`` to stop as it would at a terminal, so it releases its leases.
+
+        Args:
+            pid: A running packet, found from another (short-lived) process.
+
+        Returns:
+            True if the request was delivered; False if there was no way to ask.
+        """
+        ...

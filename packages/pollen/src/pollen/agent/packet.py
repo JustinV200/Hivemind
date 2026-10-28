@@ -14,6 +14,8 @@ can fix. Programs and background processes belong to their lease, not to the con
 dropped link stops their streaming and never the program. At startup, before the first dial, and
 again when the loop stops, the packet releases every lease in its table (cause ORPHAN_SWEEP): a
 crash leaves leases behind, and none may outlive the packet. The reports wait in the outbox.
+``sweep`` does the same once for a packet that will not run again (``pollen uninstall`` after the
+running packet had to be forced, which skips its own sweep).
 
 Fits into the Hive:
     Parallel to hivemind's layer table, inside the pollen package. Assembled by the composition
@@ -85,11 +87,13 @@ _KNOWN_FAILURES: tuple[type[Exception], ...] = (
 )
 
 SHUTDOWN_RELEASE_TIMEOUT_S = 30.0  # The most a startup or shutdown sweep of the leases may take.
+SHUTDOWN_WAIT_S = 20.0  # How long a stop waits for the packet to finish before cancelling it.
 LINK_DRAIN_S = 5.0  # How long the reader gets to explain a link the pulse found dead.
 
 __all__ = [
     "LINK_DRAIN_S",
     "SHUTDOWN_RELEASE_TIMEOUT_S",
+    "SHUTDOWN_WAIT_S",
     "PacketParts",
     "PollenPacket",
     "failure_code",
@@ -178,6 +182,11 @@ class PollenPacket(TickLoop):
                 await self._sweep()
                 with contextlib.suppress(PollenError, OSError):
                     await parts.sentinel.persist()
+
+    async def sweep(self) -> None:
+        """Release every lease in the table as an orphan, once, without dialling anything."""
+        async with self._parts.scope:
+            await self._sweep()
 
     async def _sweep(self) -> None:
         """Release every lease in the table as an orphan: one a crash left, or the packet's own."""

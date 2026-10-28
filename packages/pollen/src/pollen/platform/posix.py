@@ -164,6 +164,24 @@ class PosixShim:
             return False  # It exited between the check and the signal: nothing left to do.
         return True
 
+    def accept_interrupts(self) -> None:
+        """Do nothing: SIGTERM, which ``ask_to_stop`` sends, cannot be inherited as ignored here."""
+
+    def ask_to_stop(self, pid: int) -> bool:
+        """Send the packet ``pid`` SIGTERM, which it turns into a clean stop; False if it is gone.
+
+        Args:
+            pid: A running packet.
+
+        Returns:
+            Whether the signal was sent.
+        """
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            return False
+        return True
+
     def python_candidates(self) -> tuple[tuple[str, ...], ...]:
         """Return the interpreters a POSIX host usually has, newest first, then this process's own.
 

@@ -37,8 +37,8 @@ See Also:
 Public API:
     - ColonizeService: the executor that serves ``swarm.colonize`` (service).
     - WardenKeeper, BootstrapTimings, stop_recorded, warden_environment, operator_screen: the
-      on-device Warden's
-      process, its waits, stopping a recorded one, and the environment it is started with (warden).
+      on-device Warden's process, its waits, stopping a recorded one, the environment it is
+      started with, and the operator's screen when the manifest lends it (warden).
     - prepare_runtime, installed_version, entry_point, VERSION_PATTERN, ENTRY_POINT: the
       runtime's environment (runtime).
 """

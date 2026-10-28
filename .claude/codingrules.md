@@ -185,7 +185,7 @@ HiveMind/
 │   │   │   ├── executors/        # What the device can do: base.py (DeviceExecutor), session.py (exec), files.py, process.py (background programs), info.py (platform, capabilities, capacity), observe.py (watch mode's fixed collectors)
 │   │   │   ├── lease/            # Device-side lease: lease.py (DeviceLease), table.py (persisted), restore.py, quota.py, deadman.py
 │   │   │   ├── bootstrap/        # Colonization: runtime.py (install the pinned hivemind runtime in a venv), warden.py (start and stop the on-device Warden)
-│   │   │   └── platform/         # OS-specific shims: base.py (PlatformShim), linux.py, windows.py, macos.py, select.py
+│   │   │   └── platform/         # OS-specific shims: base.py (PlatformShim), linux.py, windows.py (with job_objects.py and console.py), macos.py, select.py
 │   │   ├── tests/
 │   │   └── pyproject.toml
 │   └── observation-web/          # OBSERVATION HIVE front end: TypeScript (strict) + React, Vite. Served by the Entrance as static files.

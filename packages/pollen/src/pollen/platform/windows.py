@@ -34,13 +34,9 @@ See Also:
 from __future__ import annotations
 
 import asyncio
-import ctypes
-import os
 import platform
 import shutil
-import signal
 import subprocess
-import sys
 from collections.abc import Mapping
 from pathlib import Path, PureWindowsPath
 
@@ -57,14 +53,12 @@ from pollen.platform.base import (
     own_interpreter,
     run_command,
 )
-from pollen.platform.job_objects import SUSPENDED_FLAG, JobTable
+from pollen.platform.console import accept_interrupts, interrupt_console, send_break
+from pollen.platform.job_objects import CONSOLE_HOST, SUSPENDED_FLAG, JobTable
 from waggle.messages.labels import OsFamily
 from waggle.messages.session import ProcessSignal
 
 TASK_NAME = "HiveMind Pollen"  # The Scheduled Task's name, as schtasks is given it.
-# The console host, under SystemRoot; ``--headless`` gives a console with no window (1809 on).
-CONSOLE_HOST = ("System32", "conhost.exe")
-CONSOLE_PIDS_MAX = 1024  # Room for every process on the packet's console: itself, a Warden, a few.
 CREATE_TIME_TOLERANCE_S = (
     1.0  # psutil's creation time is stable per process; this absorbs rounding.
 )
@@ -72,9 +66,8 @@ CREATE_TIME_TOLERANCE_S = (
 # fallbacks are never used on Windows itself.
 _NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-_BREAK_EVENT = getattr(signal, "CTRL_BREAK_EVENT", signal.SIGINT)
 
-__all__ = ["CONSOLE_HOST", "TASK_NAME", "WindowsShim"]
+__all__ = ["TASK_NAME", "WindowsShim"]
 
 
 class WindowsShim:
@@ -183,14 +176,14 @@ class WindowsShim:
         """
         if not self.group_alive(ref):
             return False
-        if signal_ is ProcessSignal.INTERRUPT and _send_break(ref.pid):
+        if signal_ is ProcessSignal.INTERRUPT and send_break(ref.pid):
             return True  # The Warden, in the packet's console: Ctrl+Break, as at a terminal.
         if signal_ is not ProcessSignal.KILL:
             # /T takes the whole tree, the nearest thing Windows has to signalling a POSIX group.
             # A polite taskkill only closes windows, and a console program has none, so it
             # refuses: the break event its process group was made for is tried next.
             polite = self._runner(["taskkill", "/T", "/PID", str(ref.pid)])
-            if polite.returncode == 0 or _send_break(ref.pid):
+            if polite.returncode == 0 or send_break(ref.pid):
                 return True
             # Nothing reached it: a console program in a console of its own, which no break event
             # from here can reach. It is ended as an unhandled SIGTERM would end it on POSIX.
@@ -247,21 +240,7 @@ class WindowsShim:
             The result; ``is_active`` true when schtasks created and started the task, else the
             command that starts the packet by hand.
         """
-        command = subprocess.list2cmdline(list(plan.command))
-        hidden = _windowless(plan, self._env.get("SYSTEMROOT", "C:\\Windows"))
-        created = self._runner(
-            ["schtasks", "/Create", "/TN", TASK_NAME, "/TR", hidden, "/SC", "ONLOGON", "/F"]
-        )
-        if created.returncode != 0:
-            return ServiceResult(
-                unit_path=None,
-                is_active=False,
-                manual_command=command,
-                detail="The Scheduled Task could not be created here; start the packet by hand "
-                "with the command shown.",
-            )
-        self._runner(["schtasks", "/Run", "/TN", TASK_NAME])
-        return ServiceResult(None, True, None, "The packet is installed as a Scheduled Task.")
+        return _install(self._runner, plan, self._env.get("SYSTEMROOT", "C:\\Windows"))
 
     def uninstall_service(self) -> ServiceResult:
         """End and delete the Scheduled Task.
@@ -269,14 +248,50 @@ class WindowsShim:
         Returns:
             Whether a task was there to delete.
         """
-        self._runner(["schtasks", "/End", "/TN", TASK_NAME])
-        deleted = self._runner(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"])
-        detail = (
-            "The Scheduled Task was removed."
-            if deleted.returncode == 0
-            else "There was no Scheduled Task to remove."
+        return _uninstall(self._runner)
+
+    def accept_interrupts(self) -> None:
+        """Let Ctrl+C reach the packet, which may have inherited "ignore Ctrl+C" at logon."""
+        accept_interrupts()
+
+    def ask_to_stop(self, pid: int) -> bool:
+        """Press Ctrl+C on the console of ``pid`` (the packet); False if it has no console.
+
+        Only ever called from a short-lived CLI process (``pollen uninstall``); see
+        pollen.platform.console for why the packet itself must never do this.
+        """
+        return interrupt_console(pid)
+
+
+def _install(runner: CommandRunner, plan: ServicePlan, system_root: str) -> ServiceResult:
+    """Create and start the task for ``plan``; on refusal, return the command to run by hand."""
+    command = subprocess.list2cmdline(list(plan.command))
+    hidden = _windowless(plan, system_root)
+    created = runner(
+        ["schtasks", "/Create", "/TN", TASK_NAME, "/TR", hidden, "/SC", "ONLOGON", "/F"]
+    )
+    if created.returncode != 0:
+        return ServiceResult(
+            unit_path=None,
+            is_active=False,
+            manual_command=command,
+            detail="The Scheduled Task could not be created here; start the packet by hand "
+            "with the command shown.",
         )
-        return ServiceResult(unit_path=None, is_active=False, manual_command=None, detail=detail)
+    runner(["schtasks", "/Run", "/TN", TASK_NAME])
+    return ServiceResult(None, True, None, "The packet is installed as a Scheduled Task.")
+
+
+def _uninstall(runner: CommandRunner) -> ServiceResult:
+    """End and delete the task by its name, touching nothing else."""
+    runner(["schtasks", "/End", "/TN", TASK_NAME])
+    deleted = runner(["schtasks", "/Delete", "/TN", TASK_NAME, "/F"])
+    detail = (
+        "The Scheduled Task was removed."
+        if deleted.returncode == 0
+        else "There was no Scheduled Task to remove."
+    )
+    return ServiceResult(unit_path=None, is_active=False, manual_command=None, detail=detail)
 
 
 def _windowless(plan: ServicePlan, system_root: str) -> str:
@@ -313,31 +328,3 @@ def _tree_alive(ref: ProcessRef) -> bool:
         return any(child.is_running() for child in leader.children(recursive=True))
     except psutil.Error:
         return False
-
-
-def _send_break(pid: int) -> bool:
-    """Send the break event to the process group ``pid`` leads; False if it cannot reach it.
-
-    Every program the shim spawns leads a process group of its own, so the event reaches that
-    group alone. It reaches only a process attached to the packet's console (the Warden): for any
-    other the call reports success and nothing arrives, so it is not made.
-    """
-    if not _on_our_console(pid):
-        return False
-    try:
-        os.kill(pid, _BREAK_EVENT)
-    except OSError:
-        return False
-    return True
-
-
-def _on_our_console(pid: int) -> bool:
-    """Say whether ``pid`` is attached to this process's console; False when there is none."""
-    # The else is load-bearing for mypy's Linux run, as in pollen.platform.posix.
-    if sys.platform != "win32":
-        return True  # The stand-in event off Windows is SIGINT, which reaches any pid.
-    else:
-        pids = (ctypes.c_ulong * CONSOLE_PIDS_MAX)()
-        # SAFETY: a read-only query into a buffer sized by ctypes; it fills nothing when too small.
-        count = ctypes.windll.kernel32.GetConsoleProcessList(pids, CONSOLE_PIDS_MAX)
-        return 0 < count <= CONSOLE_PIDS_MAX and pid in pids[:count]

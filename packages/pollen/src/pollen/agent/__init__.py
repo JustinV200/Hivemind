@@ -28,6 +28,7 @@ See Also:
 
 Public API:
     - PollenPacket, PacketParts: the loop and what it drives.
+    - SHUTDOWN_WAIT_S, SHUTDOWN_RELEASE_TIMEOUT_S: how long a stop and its lease release take.
     - Dispatcher, DispatchDeps, DropReason, admit: frame admission and routing.
     - Courier, Identity: sending.
     - Link, LiveVerifier: one connection and its swappable keys.
@@ -46,10 +47,17 @@ from pollen.agent.heartbeat import Pulse, PulseParts, Sentinel, SentinelParts, T
 from pollen.agent.leases import LeaseService
 from pollen.agent.link import Link, LiveVerifier
 from pollen.agent.moved import accept_moved, dial_plan, hive_nodes, pin_for, settle, trusted_keys
-from pollen.agent.packet import PacketParts, PollenPacket
+from pollen.agent.packet import (
+    SHUTDOWN_RELEASE_TIMEOUT_S,
+    SHUTDOWN_WAIT_S,
+    PacketParts,
+    PollenPacket,
+)
 from pollen.agent.status import PacketStatus, StatusDocument, read_status, write_status
 
 __all__ = [
+    "SHUTDOWN_RELEASE_TIMEOUT_S",
+    "SHUTDOWN_WAIT_S",
     "ControlService",
     "Courier",
     "DispatchDeps",

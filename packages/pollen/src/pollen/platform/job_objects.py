@@ -52,11 +52,11 @@ _PROCESS_ID_LIST = 3  # JobObjectBasicProcessIdList, the class that names them.
 _LISTED_MAX = 256  # A job with more members than this is not named, only counted.
 # The host of a windowless console, which ends with its programs; matched by its full path so a
 # lease's own program that is merely named conhost.exe still counts as running.
-_CONSOLE_HOST = ("System32", "conhost.exe")
+CONSOLE_HOST = ("System32", "conhost.exe")
 _KILLED_EXIT_CODE = 1  # What every process a job ends exits with, as taskkill /F gives it.
 _CREATE_TIME_TOLERANCE_S = 1.0  # As the shims': psutil's creation time is stable per process.
 
-__all__ = ["SUSPENDED_FLAG", "JobTable"]
+__all__ = ["CONSOLE_HOST", "SUSPENDED_FLAG", "JobTable"]
 
 
 class _Accounting(ctypes.Structure):
@@ -261,7 +261,7 @@ def _is_console_host(pid: int) -> bool:
     Anything that cannot be read is counted as running: a member hidden by a refused query would
     escape the lease's tracking, while one counted wrongly only keeps the lease's record a while.
     """
-    host = Path(os.environ.get("SYSTEMROOT", r"C:\Windows"), *_CONSOLE_HOST)
+    host = Path(os.environ.get("SYSTEMROOT", r"C:\Windows"), *CONSOLE_HOST)
     try:
         exe = psutil.Process(pid).exe()
     except psutil.NoSuchProcess:

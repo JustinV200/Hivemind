@@ -149,7 +149,10 @@ On the Hive Stand, `hive swarm revoke kitchen-pi` ends the enrolment for good: t
 closes the link, stops the device's Warden, which releases any lease and leaves the device as it
 found it, and forgets its key. The device's row stays, marked revoked, for the audit. On the
 device, stop the packet (Ctrl-C if you ran it by hand), then `pollen uninstall` removes the unit
-and stops the Warden the packet started, if one runs, and nothing else; delete the data directory
+and stops the Warden the packet started, if one runs, and nothing else. A packet the unit leaves
+running (the Windows task's) is asked to stop as Ctrl-C would, so it releases its leases; one that
+does not go is forced and its leases are released for it. On Windows the Warden is forced too,
+since nothing outside its console can ask it politely. Then delete the data directory
 (`~/.local/share/pollen` on Linux) to forget the enrolment, and the binary (`sudo rm
 /usr/local/bin/pollen`) to take the packet off the machine. Nothing else of the packet's is left:
 the single-file build unpacks itself into a temporary directory and removes it when it ends.

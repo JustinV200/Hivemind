@@ -50,7 +50,7 @@ from types import FrameType
 
 import psutil
 
-from pollen.agent import PollenPacket, StatusDocument, read_status
+from pollen.agent import SHUTDOWN_WAIT_S, PollenPacket, StatusDocument, read_status
 from pollen.bootstrap import stop_recorded
 from pollen.build import build_packet
 from pollen.enrol import EnrolPlan, enrol_device, parse_invite
@@ -66,12 +66,11 @@ from pollen.platform import (
     select_shim,
 )
 from pollen.state import DataLayout, InstallSettings, PacketState, load_state, save_state
-from pollen.teardown import end_packet
+from pollen.teardown import Ending, end_packet
 from waggle.clock import SystemClock
 from waggle.envelope import PROTOCOL_VERSION
 from waggle.messages.swarm import RuntimeLevel
 
-SHUTDOWN_WAIT_S = 20.0  # How long a stop waits for the packet to finish before cancelling it.
 LOG_FILE_BYTES = 1_000_000  # A log file is rolled over at this size; one old file is kept.
 LOG_FILE_NAME = "packet.log"  # In the data directory, for ``pollen run --log-to-file``.
 STATUS_FRESH_S = 120.0  # A status document older than this was left by a packet no longer running.
@@ -290,6 +289,7 @@ def _run(args: argparse.Namespace) -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    shim.accept_interrupts()  # So ``pollen uninstall`` can ask it to stop and sweep its leases.
     packet = build_packet(layout, shim, SystemClock())
     asyncio.run(_run_until_signalled(packet))
     return 0
@@ -357,12 +357,18 @@ def _uninstall(args: argparse.Namespace) -> int:
     layout, shim = _context(args)
     result = shim.uninstall_service()
     print(result.detail)
-    stuck = end_packet(layout)
-    if stuck is not None:
-        print(f"pollen: the packet (pid {stuck}) could not be ended.", file=sys.stderr)
+    ended = asyncio.run(end_packet(layout, shim, SystemClock()))
+    if ended.stuck is not None:
+        print(f"pollen: the packet (pid {ended.stuck}) could not be ended.", file=sys.stderr)
+    for pid in ended.survivors:
+        print(
+            f"pollen: a program the packet started (pid {pid}) could not be ended.", file=sys.stderr
+        )
+    if ended.is_unreleased:
+        print("pollen: the leases the packet held could not be released.", file=sys.stderr)
     status = asyncio.run(_withdraw_warden(layout, shim))
     print("The data directory was left in place; delete it yourself to forget the enrolment.")
-    return status if stuck is None else 1
+    return status if ended == Ending() else 1
 
 
 async def _withdraw_warden(layout: DataLayout, shim: PlatformShim) -> int:

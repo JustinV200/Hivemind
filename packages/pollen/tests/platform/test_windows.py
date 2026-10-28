@@ -254,8 +254,8 @@ def test_interrupt_and_terminate_end_a_console_program_a_break_cannot_reach(
     shim = WindowsShim(tmp_path, {}, taskkill)
     monkeypatch.setattr(shim, "group_alive", lambda _ref: True)
     monkeypatch.setattr(shim._jobs, "kill", job_kill)
-    monkeypatch.setattr("pollen.platform.windows._on_our_console", lambda _pid: reaches_console)
-    monkeypatch.setattr("pollen.platform.windows.os.kill", lambda _pid, sig: sent.append(sig))
+    monkeypatch.setattr("pollen.platform.console.on_our_console", lambda _pid: reaches_console)
+    monkeypatch.setattr("pollen.platform.console.os.kill", lambda _pid, sig: sent.append(sig))
 
     assert shim.signal_group(ProcessRef(7, 1.0), signal_) is True
     assert (ran, len(sent), len(killed)) == expected
@@ -273,7 +273,7 @@ async def test_a_kill_taskkill_refuses_is_reported_and_never_softened_into_a_bre
     sent: list[int] = []
     try:
         with monkeypatch.context() as patch:
-            patch.setattr("pollen.platform.windows.os.kill", lambda _pid, sig: sent.append(sig))
+            patch.setattr("pollen.platform.console.os.kill", lambda _pid, sig: sent.append(sig))
             assert shim.signal_group(shim.process_ref(process.pid), ProcessSignal.KILL) is False
         assert sent == []  # A forced stop that failed is reported, never turned into a request.
     finally:
