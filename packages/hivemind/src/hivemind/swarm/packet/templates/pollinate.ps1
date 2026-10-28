@@ -34,6 +34,13 @@ function Invoke-Quiet([scriptblock]$Block) {
     return @{ Code = $LASTEXITCODE; Output = $output }
 }
 
+# The same, keeping what the program wrote to stderr, for an error message worth reading.
+function Invoke-Captured([scriptblock]$Block) {
+    $ErrorActionPreference = 'Continue'
+    $output = & $Block 2>&1 | ForEach-Object { "$_" } | Out-String
+    return @{ Code = $LASTEXITCODE; Output = $output.Trim() }
+}
+
 # Tailscale: winget first (signed by the Windows package source), else the official MSI, checked
 # against its published SHA-256 and its Authenticode signature before it runs.
 function Install-Tailscale {
@@ -84,9 +91,10 @@ function Get-TailscaleStatus {
 # command line. Unattended: Tailscale stays connected with nobody logged in and reconnects by
 # itself on any network.
 function Join-Tailnet {
-    # Running here means this packet's tagged node (a re-run): Test-OtherTailnet refused any other.
+    # Skipped only when this is the packet's own tagged node, up (a re-run); any other signed-in
+    # account was refused by Test-OtherTailnet before the run began.
     $status = Get-TailscaleStatus
-    if ($status -and $status.BackendState -eq 'Running') { Say 'This PC is already on the tailnet.'; return }
+    if ($status -and $status.BackendState -eq 'Running' -and (Test-HiveTagged $status)) { Say 'This PC is already on the tailnet.'; return }
     if (-not (Test-Path $AuthKeyFile)) { throw 'This packet has been used: its Tailscale key is gone. Ask for a new packet.' }
     $deadline = (Get-Date).AddSeconds($WaitSeconds)
     while ((Get-Service Tailscale -ErrorAction SilentlyContinue).Status -ne 'Running') {
@@ -94,9 +102,10 @@ function Join-Tailnet {
         Start-Sleep -Seconds 2
     }
     Say 'Joining the tailnet...'
-    $result = Invoke-Quiet { & $TailscaleExe up "--auth-key=file:$AuthKeyFile" --unattended --reset "--timeout=$($WaitSeconds)s" }
+    # The key is passed as a file: path, so tailscale's own error text cannot contain it.
+    $result = Invoke-Captured { & $TailscaleExe up "--auth-key=file:$AuthKeyFile" --unattended --reset "--timeout=$($WaitSeconds)s" }
     Remove-Item -Force $AuthKeyFile   # Spent or refused, it is of no further use.
-    if ($result.Code -ne 0) { throw "tailscale up failed (exit $($result.Code))." }
+    if ($result.Code -ne 0) { throw "tailscale up failed (exit $($result.Code)): $($result.Output)" }
 }
 
 function Test-HiveStand {
@@ -137,10 +146,28 @@ function Register-Pollen {
 
 # Signed in already, but not as a Hive device: another Tailscale account. Checked before anything
 # can spend or delete the secrets, so the same packet works after `tailscale logout`.
+function Test-HiveTagged($Status) {
+    return ($Status.Self -and (@($Status.Self.Tags) -contains 'tag:hive-device'))
+}
+
+# Signed in means any state but logged out, connected or not (Stopped counts), or a tailnet named.
 function Test-OtherTailnet {
     if (-not (Test-Path $TailscaleExe)) { return $false }
     $status = Get-TailscaleStatus
-    return ($status -and $status.BackendState -eq 'Running' -and -not (@($status.Self.Tags) -contains 'tag:hive-device'))
+    if (-not $status) { return $false }
+    $signedIn = ($status.BackendState -notin @('NeedsLogin', 'NoState', '')) -or $status.CurrentTailnet
+    return ($signedIn -and -not (Test-HiveTagged $status))
+}
+
+# Delete the secrets, retrying once (an antivirus scan can hold a file for a moment); say so
+# loudly if they are still there, since they stay a key to the Hive until they lapse.
+function Remove-PacketSecrets {
+    if (-not (Test-Path $Secrets)) { return }
+    foreach ($attempt in 1, 2) {
+        try { Remove-Item -Recurse -Force $Secrets -ErrorAction Stop; Say "Deleted this packet's secrets."; return }
+        catch { Start-Sleep -Seconds 1 }
+    }
+    Write-Host "pollinate: secrets\ could NOT be deleted; delete it now: $Secrets" -ForegroundColor Red
 }
 
 function Invoke-Pollinate {
@@ -161,8 +188,6 @@ if (Test-OtherTailnet) {
 $failed = $false
 try { Invoke-Pollinate }
 catch { $failed = $true; Write-Host "pollinate: FAILED: $($_.Exception.Message)" -ForegroundColor Red }
-finally {
-    if (Test-Path $Secrets) { Remove-Item -Recurse -Force $Secrets; Say "Deleted this packet's secrets." }
-}
+finally { Remove-PacketSecrets }
 if ($failed) { exit 1 }
 Say 'Done: this PC is on the tailnet, enrolled, and pollen starts at every login.'

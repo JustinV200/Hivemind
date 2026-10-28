@@ -48,19 +48,28 @@ install_tailscale() {
   say 'Installing Tailscale...'; curl -fsSL https://tailscale.com/install.sh | sh
 }
 
-tailnet_running() {
-  "$(tailscale_bin)" status --json --peers=false 2>/dev/null | grep -q '"BackendState": *"Running"'
+ts_status() { "$(tailscale_bin)" status --json --peers=false 2>/dev/null || true; }
+
+backend_state() {
+  ts_status | sed -n 's/.*"BackendState": *"\([A-Za-z]*\)".*/\1/p' | head -n 1
 }
 
-tagged_hive_device() {
-  "$(tailscale_bin)" status --json --peers=false 2>/dev/null | grep -q '"tag:hive-device"'
+# Signed in means any state but logged out, connected or not (Stopped counts).
+signed_in() {
+  case "$(backend_state)" in ''|NeedsLogin|NoState) return 1 ;; *) return 0 ;; esac
 }
+
+# Without peers, the only tags in the status are this node's own.
+tagged_hive_device() { ts_status | grep -q '"tag:hive-device"'; }
 
 # Join with the single-use key read from its file, so it is never on a command line. The node is
 # not ephemeral: it stays in the tailnet while offline and reconnects by itself on any network.
 join_tailnet() {
-  # Running here means this packet's tagged node (a re-run): preflight stopped any other account.
-  if tailnet_running; then say 'This machine is already on the tailnet.'; return; fi
+  # Skipped only when this is the packet's own tagged node, up (a re-run); any other signed-in
+  # account was stopped by preflight before the run began.
+  if [ "$(backend_state)" = Running ] && tagged_hive_device; then
+    say 'This machine is already on the tailnet.'; return
+  fi
   [ -f "$AUTH_KEY_FILE" ] || fail 'This packet has been used: its Tailscale key is gone. Ask for a new packet.'
   say 'Joining the tailnet...'
   local code=0
@@ -108,7 +117,7 @@ preflight() {
   if [ "$(uname -s)" != Linux ] && ! tailscale_installed; then
     stop 'Install the Tailscale app from https://tailscale.com/download, then run this script again.'
   fi
-  if tailscale_installed && tailnet_running && ! tagged_hive_device; then
+  if tailscale_installed && signed_in && ! tagged_hive_device; then
     stop "This machine is signed in to another Tailscale account. Run 'tailscale logout', then run this script again."
   fi
 }
