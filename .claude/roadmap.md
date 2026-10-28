@@ -3232,8 +3232,9 @@ neither track changes it, and 15.3a rebases on it once it merges.
   time. Remote is allowed (it is the point of the feature) over the VPN overlay, except that a shell
   on the Hive Stand itself, or on any Cell the Queen derives as `shares_hive_stand_host` (15.5), is
   loopback-only, and its screen is refused at the door in this phase. Whether a request is
-  remote is read from the `StepUpProof`, which carries the listener the step-up arrived on
-  (15.4a), never from anything the client says. `[inspection] hive_stand_remote` defaults to
+  remote is read from the `StepUpProof` (15.4a), never from anything the client says, and the
+  proof says `LOOPBACK` only when the step-up carried ADR-0068's stand key: arriving on the
+  loopback listener is not enough, because a guest reaches it too. `[inspection] hive_stand_remote` defaults to
   false and is **Justin's decision** (open decision 17): turning it on means a remote session can
   reach the Entrance's loopback listener from the Hive Stand's own shell, so device approval,
   capability widening and reopening stop being loopback-only in practice, and a stolen phone plus
@@ -3246,9 +3247,14 @@ neither track changes it, and 15.3a rebases on it once it merges.
   this phase starts) keeps the network as it is and protects the loopback-only rows with a
   per-boot stand key that never enters a Cell, so a loopback-only row requested from inside a
   guest, with a forged `Host` and no stand key, gets 403; restricting SLIRP, removing the alias
-  and moving the listener to a socket were all rejected there. With the stand key a guest gains
-  nothing a remote client lacks, so remote shell Inspection of a Virtual Cell needs no refusal
-  per backend. Unreachability is still needed for two arbitrary ports the stand key does not
+  and moving the listener to a socket were all rejected there. The stand key guards only the
+  loopback-only rows; every other row, step-up included (`entrance/routes/auth.py:170-201`, both
+  listeners), still answers a guest that tunnels to the loopback listener, and records it as
+  arriving on loopback. So loopback is never trusted by listener alone: a step-up counts as
+  `LOOPBACK` only with the stand key (15.4a), and opening a shell on the Hive Stand or a Cell
+  sharing its host is itself a stand-key row (15.5). With those two, a guest, or an attacker in
+  a remote shell on a Virtual Cell, can do no more there than any remote client, and remote
+  shell Inspection of a Virtual Cell needs no refusal per backend. Unreachability is still needed for two arbitrary ports the stand key does not
   cover, 15.13b's VNC servers and 15.17's loopback TCP bridge, and no current backend gives it:
   every QEMU and Docker Desktop guest reaches the host's `127.0.0.1`. So on the Hive Stand, or on
   any machine running Virtual Cell backends, neither ever listens on host loopback TCP: the only
@@ -3369,9 +3375,11 @@ in daily use.
   five seconds with reason `DEVICE_ENDED`. *Size:* small, 1.5 agent-days.
 - [ ] **15.4a Inspection authority.** Human authority is a `StepUpProof` that only the Entrance's
   step-up verifier (`entrance/auth/step_up/`) can construct, naming the device, the session, the
-  moment of the step-up and the listener it arrived on (`LOOPBACK` or `REMOTE`, the arrival the
-  Entrance already records, `entrance/auth/step_up/ceremony.py:104,181`), so the door knows
-  whether an open is remote without trusting the client. `QueenDoor.open_inspection` requires one and records the Inspection
+  moment of the step-up and whether it was local (`LOOPBACK` or `REMOTE`). It is `LOOPBACK` only
+  when the step-up request carried a valid ADR-0068 stand key, and `REMOTE` otherwise, whatever
+  listener it arrived on: the arrival the Entrance records
+  (`entrance/auth/step_up/ceremony.py:104,181`) says loopback for a guest that tunnelled through
+  `10.0.2.2` or `host.docker.internal` too, so the door never trusts the listener alone. `QueenDoor.open_inspection` requires one and records the Inspection
   in the door's live table with an unguessable nonce that only the door holds; an
   `InspectionWarrant` is the Inspection id plus that nonce, and is valid only while it matches a
   live row. An import-linter contract keeps `StepUpProof` and the warrant's constructor out of
@@ -3469,10 +3477,11 @@ in daily use.
   or Patrol ran meanwhile, and the same holds for an `--alongside` Inspection on the Nuc; a Cell
   routed to the Nuc's model server falls back during the Inspection and returns after it. *Size:* large, 5 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs ADR-0068's guest-loopback fix landed
-  first. Docker: an exec with a tty attached from the Hive Stand. QEMU: a virtio console whose
-  socket (a named pipe on Windows) is created for each Inspection and exists only while it is
-  open, owner-only (an explicit DACL on Windows), under a Hive state path the guard floor denies
-  to every bee; the guest's console runs a login program from the image that accepts only a
+  first. Docker: an exec with a tty attached from the Hive Stand. QEMU: a virtio console on a Unix
+  socket, `AF_UNIX` on Windows too (QEMU supports it there; a `-chardev pipe` would be created with
+  default security), created for each Inspection and existing only while it is open, inside an
+  owner-only directory (an explicit DACL on Windows) under a Hive state path the guard floor
+  denies to every bee; the guest's console runs a login program from the image that accepts only a
   one-time code derived from a per-Cell secret placed by cloud-init at provisioning, never an
   autologin, and takes one client. The Hive Stand: a local PTY in a new sub-package
   `hivemind/cell/local/pty/`, since `cell/` is where subprocess is allowed and `cell/local/`
@@ -3503,12 +3512,15 @@ in daily use.
   talk X to that display, also disclosed. Where `bee_account_privileged` is true the separation
   does not hold, so an Inspection there is refused while any task runs on the Cell and says why.
   A Night Veil Cell uses the same host-side attach, which crosses no network. The Hive Stand rule
-  is enforced here, at the door, from the proof's listener (15.4a): with `hive_stand_remote =
-  false` the door refuses a remote shell on the Hive Stand, and on any Cell sharing its host,
-  before any lease opens. `shares_hive_stand_host` is not a reported capability, since a
+  is enforced here, at the door, from the proof's stand-key remoteness (15.4a): with
+  `hive_stand_remote = false` the door refuses a remote shell on the Hive Stand, and on any Cell
+  sharing its host, before any lease opens, and the open row for such a shell is itself a
+  stand-key row, refused without the key whatever listener it arrives on. `shares_hive_stand_host` is not a reported capability, since a
   reported field flipping when the Hive Stand moves would trip 13.4a's dire pattern: the Queen
   derives it at open time by comparing the machine id the device reports (15.2) with the Hive
-  Stand's own, and recomputes it whenever the Hive Stand moves. It covers a Pollen packet
+  Stand's own, and recomputes it whenever the Hive Stand moves. It fails closed: a Cell whose
+  machine id is missing, empty or unreadable is treated as sharing the host, so its remote shell
+  and its screen are refused. It covers a Pollen packet
   installed on the Hive Stand, and after a Supersedure the *new* Hive Stand, the former
   candidate, whose packet and Warden keep running there (13.2a); the old, superseded machine no
   longer shares the host. The door reads the derived fact, never the Cell's kind. ADR-0068's
@@ -3538,7 +3550,9 @@ in daily use.
   `hive_stand_remote = false`, a remote open of a Hive Stand shell is refused before any lease
   opens while a loopback one succeeds; a remote shell on a Pollen Cell co-located with the Hive
   Stand is refused, and after a Supersedure the same holds for the new Hive Stand's packet and
-  not for the old machine's. *Size:*
+  not for the old machine's; a step-up followed by a Hive Stand shell open, both made from inside
+  a QEMU guest and a Docker Desktop guest through the loopback listener, is refused; a Pollen
+  Cell reporting no, an empty or an unreadable machine id has its remote shell refused. *Size:*
   medium, 4 agent-days.
 - [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
   behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
@@ -3606,7 +3620,8 @@ attached to the Entrance relay by a test harness.
   `READ_ONLY` and on a `SCRATCH` Cell; a shell-only opt-in refuses the screen at the door; a
   Night Veil Cell refuses the screen; a device without a fresh step-up gets `step_up_required` on
   `/inspect/screen`, and one without the scope gets 403; a screen on the Hive Stand is refused,
-  and so is one on a Pollen Cell co-located with it, from anywhere;
+  and so is one on a Pollen Cell co-located with it, or reporting no, an empty or an unreadable
+  machine id, from anywhere;
   `--alongside` with `screen_view` is refused, and a screen Inspection on a Cell with a running
   task pauses it; a screen socket with a bad signature, a wrong or reused token, or another
   Inspection's id is closed before any byte is relayed. *Size:* medium, 3 agent-days.
@@ -3622,8 +3637,8 @@ attached to the Entrance relay by a test harness.
   appears on the device. *Size:* medium, 2 agent-days.
 - [ ] **15.13b Headless Virtual Cell screens.** The Hive Stand attaches from the host side and
   opens no TCP port: on Docker, a `docker exec` whose stdio carries RFB to x11vnc on the
-  Exoskeleton's Xvfb and openbox inside the container (`-inetd`, never published); on QEMU, its own `-vnc` on a Unix socket (a named pipe on Windows) for the VM
-  console. Each session has a one-time VNC password. No VNC port is ever published on the host's
+  Exoskeleton's Xvfb and openbox inside the container (`-inetd`, never published); on QEMU, its own `-vnc` on a Unix socket (`AF_UNIX` on Windows too, since `-vnc` takes no named
+  pipe) inside the same owner-only directory as 15.5's console, for the VM console. Each session has a one-time VNC password. No VNC port is ever published on the host's
   `127.0.0.1`, because every QEMU and Docker Desktop guest can reach host loopback and no current
   backend prevents it. The Night Veil refusal applies to the screen as to the shell. *Exit:* control a headless Docker Cell and a QEMU Cell's
   console from the test client; no new listening TCP port appears on the host during either; a
@@ -3712,7 +3727,8 @@ sense landed together (its Hive Stand containment may land first as a preparator
   Cells refuse `screen_control` while a `FULL` Cell grants `screen_view`; a Night Veil Cell refuses the screen and recording; a device without `entrance:inspect` or
   without a fresh step-up is refused before any lease opens; with `hive_stand_remote = false`, a
   remote open of a shell on the Hive Stand or on a Cell sharing its host is refused before any
-  lease opens; every open is pushed to every other enrolled device.
+  lease opens, including a step-up and open made from inside a QEMU or Docker Desktop guest
+  through the loopback listener; every open is pushed to every other enrolled device.
 - A Sting Cut, Absconding, the Entrance Reducer, the idle timeout, `pollen inspect end` and the
   notice's "end now" each end an open Inspection within five seconds, and the trail has exactly one
   `cell.inspection_closed` with the right reason and no content.
@@ -3733,9 +3749,12 @@ sense landed together (its Hive Stand containment may land first as a preparator
   from the listener the `StepUpProof` carries, and the Hive Stand rule applied to any Cell the
   Queen derives as `shares_hive_stand_host` from the device's machine id (a packet on the Hive
   Stand, or the new Hive Stand after a Supersedure), recomputed when the Hive Stand moves, since
-  a same-account shell can read the serve record despite ADR-0068's per-boot stand key; reliance
-  on ADR-0068 for the loopback-only rows, so remote shell Inspection of a Virtual Cell needs no
-  per-backend refusal, while VNC servers and the screen bridge never listen on host loopback TCP
+  a same-account shell can read the serve record despite ADR-0068's per-boot stand key, failing
+  closed on a missing or unreadable machine id; loopback trusted only with the stand key, never by
+  listener (a step-up is `LOOPBACK` only with it, and a Hive Stand or co-located shell open is a
+  stand-key row), because the stand key guards only the loopback-only rows and a guest reaches
+  every other row on the loopback listener; with that, remote shell Inspection of a Virtual Cell
+  needs no per-backend refusal, while VNC servers and the screen bridge never listen on host loopback TCP
   where Virtual Cell backends run; the operator lease closed to every
   `cell.request` and `session.*` request; `inspect.open` built only by the Queen's door from an
   Entrance-built `StepUpProof`, every `inspect.*` frame checked against the door's live table at
