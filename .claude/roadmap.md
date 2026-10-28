@@ -3162,7 +3162,8 @@ borrowed device and revoking every grant.
 **Goal.** The operator can go into any connected Cell by hand and work it, the way a beekeeper
 opens a hive to inspect a frame: a live terminal on the Cell, and its screen with mouse and
 keyboard. Both work from the `hive` CLI and from the Observation Hive, on Real Cells enrolled
-through Pollen (plain, colonized and Nucs), on the Hive Stand and on Virtual Cells. The two tracks
+through Pollen (plain, colonized and Nucs) and on Virtual Cells; the terminal also works on the
+Hive Stand, whose own screen is out of scope for this phase. The two tracks
 are equal goals: **Track A, the terminal**, and **Track B, remote desktop**. Track A lands first
 because Track B reuses its lease, authorisation, audit and kill paths.
 
@@ -3223,7 +3224,7 @@ neither track changes it, and 15.3a rebases on it once it merges.
   and `screen_control`, never in a bee's set and never in the UI's default credentials; widened only
   on loopback. Opening needs an interactive device and a fresh step-up (`ActionKind.INSPECT`), every
   time. Remote is allowed (it is the point of the feature) over the VPN overlay, except that a shell
-  or screen on the Hive Stand itself is loopback-only. `[inspection] hive_stand_remote` defaults to
+  on the Hive Stand itself is loopback-only, and its screen is refused at the door in this phase. `[inspection] hive_stand_remote` defaults to
   false and is **Justin's decision** (open decision 17): turning it on means a remote session can
   reach the Entrance's loopback listener from the Hive Stand's own shell, so device approval,
   capability widening and reopening stop being loopback-only in practice, and a stolen phone plus
@@ -3359,7 +3360,8 @@ in daily use.
 Track A total: about 24 agent-days.
 
 Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
-Cell's screen, and every Real Cell exit below is run with it up. The Hive Stand's own screen is
+Cell's screen, and every Real Cell exit below is run with it up; until it lands, 15.11a and 15.11b
+run only on the operator's lab devices and Virtual Cells. The Hive Stand's own screen is
 out of scope for this phase: an operator at loopback is already at that machine, and a remote
 one would reach the loopback listener (see `hive_stand_remote`). Until the pane and `hive inspect
 --screen` land in 15.17, exits run through a test VNC client (TigerVNC's viewer on the Hive Stand)
@@ -3372,27 +3374,38 @@ attached to the Entrance relay by a test harness.
   Cell, because the notice (15.12) does not exist yet.
   *Exit:* numbers recorded in the transport ADR and the operator's choice made. *Size:* medium, 2
   agent-days.
-- [ ] **15.11a Screen data socket, device side.** A second outbound WebSocket from Pollen to the
-  Hive Stand, opened only inside an operator lease, authenticated by the device key and a one-time
-  token from the signed open, carrying RFB bytes from a loopback server started inside the lease.
+- [ ] **15.11a Screen data socket, device side.** A second outbound WebSocket from Pollen, opened
+  only inside an operator lease, carrying RFB bytes from a loopback server started inside the
+  lease. It dials the Queen's persisted swarm-listener URL, the only address a gateway may dial
+  (gateway-contract sections 5 and 16), at its own path (`/inspect/<inspection id>`), never the
+  Entrance. Its first frame is a hello signed with the device key carrying the one-time token from
+  the signed open; the listener checks both and binds the socket to that Inspection. It is a
+  separate byte channel, not Waggle frames, so the link's frame ceiling (6,000 a minute,
+  gateway-contract section 7) does not apply to it; the Inspection's byte budget and idle timeout
+  bound it instead.
   As in 15.3a, no build ever carries an ungated screen: the screen executor ships with its gate,
   refusing with `pollen.capability_denied` unless the device opted in with `--screen`, whatever
   the Hive asks. *Exit:* bytes round-trip against a test server with the Inspection's limits; a
   lease release closes the socket and stops the server; a device that opted in with `--shell` only
   refuses. *Size:* medium, 2.5 agent-days.
-- [ ] **15.11b Screen door and relay at the Entrance.** The Hive Stand side of that socket and a
-  binary `Duplex` view at `/v1/cells/{cell}/inspect/screen` behind `screen_view` or
+- [ ] **15.11b Screen door and relay at the Entrance.** The swarm listener's `/inspect/` path, which
+  hands the socket in process to a binary `Duplex` view at `/v1/cells/{cell}/inspect/screen` behind `screen_view` or
   `screen_control`, landing together with its gates so no build ever serves an ungated screen:
   `QueenDoor.open_inspection` learns the screen modes and checks each before any lease opens
-  (`screen_view` at every access level, `screen_control` only on `FULL`; never on Night Veil; only
-  with the device's `--screen` opt-in; and, for a Virtual Cell, only remotely once its backend
-  meets 15.5's guest-loopback rule); the route takes the same `ActionKind.INSPECT` fresh step-up
+  (`screen_view` at every access level, `screen_control` only on `FULL`; never on Night Veil; never
+  the Hive Stand's own screen; on a Real Cell only with the device's `--screen` opt-in, while a
+  Virtual Cell needs none because the Hive owns it; for a Virtual Cell, only remotely once its
+  backend meets 15.5's guest-loopback rule; and every screen mode always Smokes, so `--alongside`
+  is refused with any screen mode); the route takes the same `ActionKind.INSPECT` fresh step-up
   as 15.6 and gains its own route-test allow-list row; a view-only session drops input frames at
   the relay. *Exit:* a Sting Cut or a reduction closes both ends; a view-only device's input never
   reaches the device; `screen_view` on a `FULL` Cell succeeds; `screen_control` is refused on a
   `READ_ONLY` and on a `SCRATCH` Cell; a shell-only opt-in refuses the screen at the door; a
   Night Veil Cell refuses the screen; a device without a fresh step-up gets `step_up_required` on
-  `/inspect/screen`, and one without the scope gets 403. *Size:* medium, 3 agent-days.
+  `/inspect/screen`, and one without the scope gets 403; a screen on the Hive Stand is refused;
+  `--alongside` with `screen_view` is refused, and a screen Inspection on a Cell with a running
+  task pauses it; a screen socket with a bad signature, a wrong or reused token, or another
+  Inspection's id is closed before any byte is relayed. *Size:* medium, 3 agent-days.
 - [ ] **15.12 On-device notice and local end for the screen.** An always-on-top notice on the
   device's screen ("the HiveMind operator is controlling this device") with an "end now" button,
   plus a tray or menu bar icon, on Windows, X11 and macOS; Wayland and macOS also show their own
@@ -3446,8 +3459,13 @@ attached to the Entrance relay by a test harness.
   not on Windows targets, per 15.14b), touch on the phone; `hive inspect <cell> --screen` opens a
   loopback port bridged to the Entrance for any VNC viewer, or opens the browser pane. The port
   accepts one connection only, then closes its listener, and requires a one-time VNC password
-  shown to the operator in the terminal; a second or unauthenticated connection is refused.
-  *Exit:* the 15.13a and 15.13b runs from the Android app, and from TigerVNC on a laptop. *Size:* medium, 3
+  shown to the operator in the terminal; a second or unauthenticated connection is refused. On a
+  machine that runs Virtual Cell backends (the Hive Stand above all), host loopback is reachable
+  from guests, so a guest could take the one connection: there the bridge is a Unix socket or
+  named pipe for viewers that take one, or the browser pane only, and a loopback TCP port opens
+  only when every local backend passes 15.5's guest-loopback check. *Exit:* the 15.13a and 15.13b
+  runs from the Android app, and from TigerVNC on a laptop; on the Hive Stand with a backend that
+  fails the check, `hive inspect --screen` opens no TCP port. *Size:* medium, 3
   agent-days.
 - [ ] **15.18 Clipboard and file transfer (optional extras).** Text clipboard both ways through RFB,
   off by default, capped in size, counted on the trail, `C2`; files through the existing session
@@ -3501,7 +3519,9 @@ events only make sense landed together, and 15.14a because capture and input are
 - `remote-desktop-transport.md` (RFB through loopback servers and an outbound data socket, against
   own capture, against WebRTC; the spike's numbers; the loopback-listener exception to "no inbound
   socket" (gateway-contract `:629`) and the operator-lease exception to "capture the screen or the
-  input" (`:641`); licensing of bundled servers).
+  input" (`:641`); the screen socket's second connection to the Queen's persisted URL at its own
+  path, signed hello and one-time token (amending sections 5 and 16, `:149-152` and `:642`), and
+  its exemption from the frame ceiling (section 7, `:263-266`); licensing of bundled servers).
 - `inspection-audit-and-recording.md` (trail events and counts; optional `C2` recordings; the Night
   Veil host-side attach, and the two `cell.inspection_*` events this adds to the lifecycle
   skeleton in codingrules section 12).
@@ -3576,7 +3596,7 @@ events only make sense landed together, and 15.14a because capture and input are
    real QEMU and Docker Desktop host to prove.
 18. Inspection (phase 15): whether the Observation Hive may carry a terminal and a screen for a
    device the operator widened (the 8.11 amendment); Smoke by default or bees alongside; whether a
-   shell or screen on the Hive Stand itself is ever reachable remotely (default no; yes would let a
+   shell on the Hive Stand itself is ever reachable remotely (its screen is out of scope; default no; yes would let a
    remote session reach the loopback listener, so a stolen phone plus the password and a step-up
    could enrol a new device; Justin's call); how the loopback listener is kept unreachable from
    Virtual Cell guests (SLIRP `restrict=on` with only the Queen's `guestfwd` and no host-gateway
