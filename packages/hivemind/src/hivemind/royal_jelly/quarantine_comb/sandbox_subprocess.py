@@ -6,8 +6,9 @@ filesystem isolation, so everything it knows about containing a tool comes from 
 audit hook and resource limits, which are a Python-level control and not a security boundary.
 That is exactly what ADR-0047 accepts for `hive tools quarantine <path>` on a developer's machine
 and for the unit tests, and exactly why the manifest selects it only by an explicit
-`[royal_jelly] sandbox = "subprocess"` and the composition root logs a warning and refuses it
-outside `env = "dev"`. Production proof of a tool happens in `SandboxCell`, inside a Virtual Cell.
+`[royal_jelly] sandbox = "subprocess"`, the manifest refuses that setting outside `env = "dev"`,
+and the composition root logs a warning when it builds one. Production proof of a tool happens
+in `SandboxCell`, inside a Virtual Cell.
 It is the one module in the Royal Jelly package that starts a process (the import-linter
 contract names it); it does so through asyncio's subprocess API with an argument list.
 

@@ -43,6 +43,7 @@ Key invariants:
     - An explicit `royal_jelly.sandbox = "virtual"` implies `virtual_cells.backend` is set; the dev
       `subprocess` sandbox needs no backend, and the unstated default is left to the composition
       root (a Real-only Hive has no Virtual sandbox, so its Lab promotes nothing).
+    - `royal_jelly.sandbox = "subprocess"` loads only with `hive.env = "dev"`.
     - Every `[forage.map.<source_id>].provider` names a key in `llm.providers`; nothing else about
       the two sections is cross-checked (a slot's model need not appear anywhere on the map: the
       map and the slot table are two independent ways of naming what a call may use).
@@ -249,5 +250,17 @@ class HiveManifest(BaseModel):
             raise ValueError(
                 '[royal_jelly] sandbox = "virtual" needs [virtual_cells] backend to be set; set '
                 'a backend, or for development only use sandbox = "subprocess".'
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _subprocess_sandbox_is_dev_only(self) -> HiveManifest:
+        """Reject the subprocess sandbox outside `env = "dev"` (codingrules section 15)."""
+        # It shares the Hive Stand's machine with no isolation (ADR-0047), so a Hive that says it
+        # is not a developer's own is refused here rather than only warned about at build.
+        if self.royal_jelly.sandbox is SandboxKind.SUBPROCESS and self.hive.env != "dev":
+            raise ValueError(
+                '[royal_jelly] sandbox = "subprocess" is for development only and is refused '
+                f'with [hive] env = "{self.hive.env}"; use sandbox = "virtual" with a backend.'
             )
         return self

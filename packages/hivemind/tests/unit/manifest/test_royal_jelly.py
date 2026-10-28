@@ -132,6 +132,16 @@ def test_the_subprocess_sandbox_needs_no_backend(tmp_path: Path) -> None:
     assert manifest.virtual_cells.backend is None
 
 
+def test_the_subprocess_sandbox_is_refused_outside_dev(tmp_path: Path) -> None:
+    # codingrules 15: the dev sandbox has no isolation, so a prod Hive may not select it.
+    path = fake_manifest(tmp_path)
+    text = path.read_text(encoding="utf-8").replace("[hive]\n", '[hive]\nenv = "prod"\n', 1)
+    path.write_text(text + '\n[royal_jelly]\nsandbox = "subprocess"\n', encoding="utf-8")
+
+    with pytest.raises(ManifestError, match="development only"):
+        load_manifest(path)
+
+
 def test_a_manifest_that_never_mentions_the_lab_still_loads_without_a_backend(
     tmp_path: Path,
 ) -> None:

@@ -935,7 +935,7 @@ drop = 5.0
 # sandbox before the Comb Registry will keep it.
 # Where candidate tools are proven: "virtual" (a disposable Virtual Cell with no network; needs
 # [virtual_cells] backend, which is set above) or "subprocess" (a local process of the Hive Stand;
-# development only, and the Hive logs a warning at start when it is chosen).
+# development only: refused unless [hive] env = "dev", and logged as a warning when chosen).
 sandbox = "virtual"
 # The images/<name> the sandbox Virtual Cell boots.
 sandbox_image = "base-ubuntu"

@@ -154,3 +154,16 @@ def test_a_manifest_supplies_the_limits_and_a_missing_one_is_bad_input(tmp_path:
     assert with_manifest.exit_code == 0, with_manifest.output
     assert missing.exit_code == 2
     assert "PASSED" not in missing.stdout
+
+
+def test_a_prod_manifest_refuses_the_dev_sandbox_before_any_gate_runs(tmp_path: Path) -> None:
+    package = _write(tmp_path / "echo_tool", make_package_files())
+    manifest = make_hive(tmp_path)
+    text = manifest.read_text(encoding="utf-8").replace("[hive]\n", '[hive]\nenv = "prod"\n', 1)
+    manifest.write_text(text, encoding="utf-8")
+
+    result = invoke(manifest, "quarantine", str(package))
+
+    assert result.exit_code == 1
+    assert "development only" in result.stderr
+    assert "PASSED" not in result.stdout

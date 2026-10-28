@@ -170,6 +170,7 @@ class ProcessQemuRunner:
     async def _list_accelerators(self) -> str:
         """Return `qemu-system-x86_64 -accel help`'s own stdout, or `""` if it could not run."""
         try:
+            # SAFETY: an argument list, never a shell; the binary is the runner's fixed QEMU name.
             process = await asyncio.create_subprocess_exec(
                 self._qemu_system_bin,
                 "-accel",
@@ -243,6 +244,8 @@ class ProcessQemuRunner:
         qmp_port = await asyncio.to_thread(_allocate_free_port) if self._qmp_over_tcp else None
         args = _build_qemu_args(spec, qmp_port)
         try:
+            # SAFETY: an argument list, never a shell, built by _build_qemu_args from the
+            # backend's own QemuVmSpec (paths and ids the Hive minted, never model text).
             process = await asyncio.create_subprocess_exec(
                 self._qemu_system_bin,
                 *args,
@@ -406,6 +409,8 @@ def _overlay_size_bytes(overlay_path: Path) -> int:
 async def _run(binary: str, args: Sequence[str], subject: str) -> None:
     """Run `binary args` to completion; raise QemuRunnerError naming `subject` on a bad exit."""
     try:
+        # SAFETY: an argument list, never a shell; `binary` is the runner's qemu-img or a fixed
+        # ISO tool name, and `args` are paths under the backend's own state directory.
         process = await asyncio.create_subprocess_exec(
             binary, *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
         )

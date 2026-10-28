@@ -9,7 +9,8 @@ the registry would store) or a `.zip` package already made. The command reads th
 reason, then what the run spent, and exits 0 on a pass or 1 on a fail.
 
 It always uses the subprocess sandbox, a temporary directory and a scrubbed environment on this
-machine, with no isolation worth the name (ADR-0047): the command says so in one line, every time.
+machine, with no isolation worth the name (ADR-0047): the command says so in one line, every time,
+and refuses to run under a manifest whose `[hive] env` is not `dev` (codingrules section 15).
 A pass here proves the tool for the dev loop and nothing more; promotion always runs the Comb in a
 sandbox Cell, and nothing here touches the registry, the Basket or the trail.
 
@@ -88,6 +89,14 @@ def quarantine_command(
 ) -> None:
     """Run the Quarantine Comb over PATH in the development subprocess sandbox; exit 1 on a fail."""
     manifest = manifest_or_none(ctx)
+    # codingrules 15: the subprocess sandbox is refused for a Hive that is not a developer's own.
+    if manifest is not None and manifest.hive.env != "dev":
+        typer.echo(
+            f'hive tools quarantine refused: [hive] env = "{manifest.hive.env}"; the subprocess '
+            "sandbox is for development only.",
+            err=True,
+        )
+        raise typer.Exit(code=EXIT_REFUSED)
     package, spec = _load_package(path)
     limits = input_or_exit(lambda: _limits(manifest, limits_json))
     typer.echo(SANDBOX_NOTE)
