@@ -127,6 +127,7 @@ def test_a_dropped_link_mid_task_is_redialled_and_the_task_finishes(
     report = asyncio.run(bounded("link dropped", _drop_mid_task(hive, made)))
 
     assert report.succeeded, report
+    assert len(made[0].provision_calls) == 1  # Redialled, not taken back onto a fresh Cell.
     asyncio.run(assert_nothing_left_open(hive))
 
 
