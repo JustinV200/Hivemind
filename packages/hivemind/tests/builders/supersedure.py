@@ -60,11 +60,12 @@ def endpoint(node_id: str, port: int) -> Endpoint:
 
 @dataclass
 class FakeCandidate:
-    """A candidate machine: ready after `ready_after` asks, or never; a copy step may fail."""
+    """A candidate machine: ready after `ready_after` asks, or never; a step may fail or stall."""
 
     calls: list[str]
     ready_after: int | None = 0
     fail_step: str | None = None
+    stalls: bool = False  # The restore never returns, as a candidate that stopped answering.
     received: list[str] = field(default_factory=list)  # The digests it was sent.
 
     async def send_backup(self, archive: Path, sha256: str) -> None:
@@ -73,8 +74,10 @@ class FakeCandidate:
         self.received.append(sha256)
 
     async def restore(self, sha256: str) -> None:
-        """Restore, unless this step is the one that fails."""
+        """Restore, unless this step is the one that fails; or never return, when it stalls."""
         self._step("restore", sha256 in self.received)
+        if self.stalls:
+            await asyncio.Event().wait()
 
     async def start_queen(self) -> None:
         """Start, unless this step is the one that fails."""

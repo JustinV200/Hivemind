@@ -5,7 +5,10 @@ the old Queen (every provider clustered, then SUPERSEDING) and records `queen.su
 with a fresh notice sequence and the grace deadline, before a byte is copied. `finish` copies the
 stores and starts the candidate's Queen (`.copy`), then asks the candidate every `poll_s` whether
 she is ready: the first yes hands over (`.handover`); a failed copy, or no yes by the deadline,
-rolls back (`.rollback`). Whatever happens, exactly one outcome lands on the old Queen's trail.
+rolls back (`.rollback`). The copy itself is bounded by the deadline too: a candidate that stops
+answering mid-copy is one not ready in time (`NOT_READY`), and must not hold the old Queen
+SUPERSEDING for ever (found by the roadmap 13.6 chaos suite). Whatever happens, exactly one
+outcome lands on the old Queen's trail.
 
 Fits into the Hive:
     Layer 6 (the kernel), inside `hivemind.queen.supersedure`. Called by `.door` (the running
@@ -14,7 +17,8 @@ Fits into the Hive:
 
 Key invariants:
     - `queen.supersedure_started` is recorded after the freeze and before the copy.
-    - `finish` always ends in `hand_over` or `roll_back`, never neither.
+    - `finish` always ends in `hand_over` or `roll_back`, never neither, and by the deadline
+      (plus the rollback's own steps) whatever the candidate does.
 
 See Also:
     - docs/runbooks/supersedure.md for what the operator sees at each step.
@@ -22,6 +26,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -122,10 +127,16 @@ async def finish(
         The handover, or the rollback with its cause.
     """
     recorder = ports.recorder
+    remaining_s = (record.grace_until - recorder.clock.now()).total_seconds()
     try:
-        await copy_stores(source, ports.link, plan.workdir, recorder.clock)
+        # External awaits: an archive over the candidate's session and a restore there, bounded
+        # by what is left of the window; past it the candidate cannot be ready in time anyway.
+        async with asyncio.timeout(max(remaining_s, 0.0)):
+            await copy_stores(source, ports.link, plan.workdir, recorder.clock)
     except SupersedureFailedError:
         return await _roll_back(record, AbortCause.COPY_FAILED, plan, ports)
+    except TimeoutError:
+        return await _roll_back(record, AbortCause.NOT_READY, plan, ports)
     while recorder.clock.now() < record.grace_until:
         if await ports.link.is_ready(record.started_id):
             parts = (ports.controls, ports.link, ports.sender)

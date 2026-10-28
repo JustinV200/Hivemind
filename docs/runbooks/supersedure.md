@@ -71,7 +71,8 @@ machine. Each machine's trail ends up with exactly one outcome for this Supersed
 ## If the candidate is not ready in time
 
 If the copy fails, or the candidate has not recorded `queen.supersedure_ready` by the grace
-deadline, the old Queen rolls back on her own. She records `queen.supersedure_aborted` (with the
+deadline, the old Queen rolls back on her own. The copy counts against the same deadline: a
+candidate that stops answering mid-copy is rolled back as `NOT_READY` when the window ends. She records `queen.supersedure_aborted` (with the
 cause: `COPY_FAILED` or `NOT_READY`), tells the candidate to discard its copy, returns to
 `CLUSTERED`, resumes every provider the freeze clustered (one that was already down before the
 move stays clustered until its health probe answers), and sends a `QueenMoved` pointing every device back

@@ -56,7 +56,7 @@ from hivemind.queen.supersedure import (
     next_sequence,
 )
 from hivemind.queen.ticks.results import AttemptBook, retry_task
-from waggle.clock import FakeClock
+from waggle.clock import Clock, FakeClock, SystemClock
 
 
 def _source(tmp_path: Path, hive_id: str) -> BackupSource:
@@ -69,10 +69,10 @@ def _source(tmp_path: Path, hive_id: str) -> BackupSource:
 
 
 async def _run(
-    tmp_path: Path, candidate: FakeCandidate, grace_s: float
+    tmp_path: Path, candidate: FakeCandidate, grace_s: float, clock: Clock | None = None
 ) -> tuple[Handover | Rollback, list[str], FakeSender, SupersedurePorts]:
-    """Run one Supersedure over the fakes and return what it did."""
-    clock = FakeClock()
+    """Run one Supersedure over the fakes and return what it did (on a FakeClock by default)."""
+    clock = clock if clock is not None else FakeClock()
     recorder = make_recorder(clock)
     sender = FakeSender(candidate.calls)
     ports = SupersedurePorts(recorder, FakeControls(candidate.calls), candidate, sender)
@@ -119,16 +119,21 @@ async def test_a_ready_candidate_is_handed_the_hive_in_order(tmp_path: Path) -> 
         (FakeCandidate([], fail_step="restore"), 60.0, AbortCause.COPY_FAILED, ["copy", "restore"]),
         (
             FakeCandidate([], ready_after=None),
-            0.0,
+            0.3,
             AbortCause.NOT_READY,
             ["copy", "restore", "start"],
         ),
+        # A restore that never returns is cut off by the window, never waited on for ever.
+        (FakeCandidate([], stalls=True), 0.3, AbortCause.NOT_READY, ["copy", "restore"]),
     ],
 )
 async def test_a_failed_copy_or_a_late_candidate_is_rolled_back(
     tmp_path: Path, candidate: FakeCandidate, grace_s: float, cause: AbortCause, copied: list[str]
 ) -> None:
-    outcome, calls, sender, ports = await _run(tmp_path, candidate, grace_s)
+    # A real clock: the window has to run out while the candidate keeps saying no, or stalls.
+    outcome, calls, sender, ports = await _run(tmp_path, candidate, grace_s, SystemClock())
+    # It asks as often as the window allows; the order of everything else is what matters.
+    calls = [call for call in calls if call != "is_ready"]
 
     assert isinstance(outcome, Rollback) and outcome.cause is cause
     assert calls == ["freeze", *copied, "discard", "wake", "broadcast"]
