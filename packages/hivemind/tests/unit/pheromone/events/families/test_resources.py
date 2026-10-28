@@ -216,14 +216,15 @@ _PHASE_11_SWARM_KINDS = {
     "swarm.shield_refused",
     "swarm.node_held",
     "swarm.watch_changed",
+    "swarm.packet_built",
 }
 
 
-def test_swarm_event_kinds_keep_the_six_original_kinds_and_gain_the_phase_11_nine() -> None:
+def test_swarm_event_kinds_keep_the_six_original_kinds_and_gain_the_phase_11_ten() -> None:
     # The original six are unchanged, so a stored event of an old kind still decodes.
     assert SwarmEvent.FAMILY == "swarm"
     assert _ORIGINAL_SWARM_KINDS | _PHASE_11_SWARM_KINDS == SwarmEvent.KINDS
-    assert len(SwarmEvent.KINDS) == 15
+    assert len(SwarmEvent.KINDS) == 16
 
 
 @pytest.mark.parametrize("kind", sorted(_ORIGINAL_SWARM_KINDS | _PHASE_11_SWARM_KINDS))

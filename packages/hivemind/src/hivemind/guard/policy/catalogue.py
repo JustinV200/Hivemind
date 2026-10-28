@@ -80,6 +80,7 @@ AUTHORISED_AT: tuple[tuple[str, P], ...] = (
     ("warden.migrated", P.SUPERSEDURE),
     ("queen.supersedure_started", P.SUPERSEDURE),  # The human's move of the Hive Stand (13.2a).
     ("swarm.invited", P.ENTRANCE_ROUTE),  # The operator's own device administration.
+    ("swarm.packet_built", P.ENTRANCE_ROUTE),  # An invite and a tailnet key, minted by hand.
     ("swarm.enrolled", P.ENTRANCE_ROUTE),
     ("swarm.revoked", P.ENTRANCE_ROUTE),
     ("swarm.promoted", P.NUC_PROMOTION),

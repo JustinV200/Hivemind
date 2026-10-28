@@ -65,6 +65,7 @@ __all__ = [
     "NodeNotFoundError",
     "NodeRevokedError",
     "NodeStatusConflictError",
+    "PacketError",
     "ShieldUnverifiedError",
     "SwarmError",
     "TransferIntegrityError",
@@ -255,6 +256,16 @@ class LadderError(SwarmError, ConflictError):
         self.from_level = from_level
         self.to_level = to_level
         self.device_id = device_id
+
+
+class PacketError(SwarmError):
+    """Raise when `hive swarm packet` cannot build a Pollen Packet; nothing minted is left live.
+
+    The message names the step that failed (a missing build, an unset or unreadable OAuth source,
+    Tailscale refusing a key, a folder that already exists) and never carries a secret.
+    """
+
+    code: ClassVar[str] = "hive.swarm.packet_failed"
 
 
 class GatewayUnavailableError(SwarmError, CellError):

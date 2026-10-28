@@ -239,6 +239,7 @@ class SwarmEvent(PheromoneEvent):
             "swarm.shield_verified",  # A PROPOLIS device's tunnel checks passed before a lease.
             "swarm.shield_refused",  # They failed: the lease was released and the task not placed.
             "swarm.node_held",  # The Queen held a lost device's tasks for the grace period.
+            "swarm.packet_built",  # `hive swarm packet` wrote a packet: ids and counts only.
         }
     )
 

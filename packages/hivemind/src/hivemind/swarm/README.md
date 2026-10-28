@@ -122,6 +122,14 @@ hears that release and records it, so the lease is never left looking open.
   `UnknownNodeError`, `AmbiguousNodeError`, `TierRefusedError`, `RungUnavailableError`,
   `WatchRootRefusedError`. It is not re-exported above this sub-package: import it from
   `hivemind.swarm.operator`.
+- **Pollen Packet** (`packet`, ADR-0067): `build_packet(PacketDeps, PacketOrder)` writes the folder
+  `hive swarm packet` hands an operator: the cached pollen build (`find_pollen_build`), an
+  installer and README from `templates/`, and an owner-only `secrets/` holding a single-use
+  tailnet key (`TailnetKeys`: `TailscaleApiKeys` over Tailscale's API, `FakeTailnetKeys` in tests)
+  and a single-use invite from the enrolment door. The key is minted first; any later failure
+  revokes both and removes the folder. The OAuth client the key is minted with comes from a
+  `SecretSource` (`parse_secret_source`: `credman:` or `env:`). Records `swarm.packet_built`. Not
+  re-exported above this sub-package: import it from `hivemind.swarm.packet`.
 
 ## Who runs the Warden
 
