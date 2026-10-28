@@ -1033,6 +1033,18 @@ default_access = "FULL"
 # what the packet itself falls back on, so leaving this out changes nothing.
 scratch_quota_mb = 512
 
+[swarm.packet]
+# What `hive swarm packet` needs to build a self-contained Pollen Packet (ADR-0067).
+# Where the Tailscale OAuth client (auth_keys write scope, allowed to assign tag:hive-device) is
+# read from: "credman:<target>" (a Windows Credential Manager generic credential whose user name
+# is the client id and whose password is the client secret) or "env:<prefix>" (the
+# <prefix>_CLIENT_ID and <prefix>_CLIENT_SECRET variables). Never the secret itself. Empty refuses
+# to build a packet.
+tailscale_oauth = "credman:tailscale-oauth-hivemind"
+# Cached pollen builds, relative to this file: one folder per platform holding its binary
+# (dist/pollen/windows-x86_64/pollen.exe, dist/pollen/linux-arm64/pollen).
+pollen_dir = "dist/pollen"
+
 [swarm.ladder]
 # When is moving a device's Warden onto the device (colonizing it) worth it? Only when the device
 # can hold a Warden plus one sub-bee, and the Hive Stand needs relief, a task must survive a lost

@@ -46,8 +46,8 @@ Public API:
       GuardRoleSection, DEFAULT_DIRE_PATTERNS (phase 10), DEFAULT_STING_CUT_PATTERNS and
       DEFAULT_MAX_AUTONOMOUS_STING_CUTS_PER_HOUR (13.4a), RoyalJellySection,
       QuarantineLimitsSection, SandboxKind, BasketSection (phase 9), SwarmSection,
-      SwarmLadderSection, SwarmNucSection, ReconnectBudgetSection, WatchSection, WatchTuning
-      (phase 11), NurseSection (ADR-0061).
+      SwarmLadderSection, SwarmNucSection, SwarmPacketSection, ReconnectBudgetSection,
+      WatchSection, WatchTuning (phase 11), NurseSection (ADR-0061).
     - Loading (`hivemind.manifest.loader`): load_manifest.
     - The device manifest (`hivemind.manifest.device`, roadmap steps 11.6a and 11.8):
       DeviceManifest, DeviceForageSection, DeviceSupervisionSection, DeviceWatchSection and
@@ -124,6 +124,7 @@ from hivemind.manifest.schema import (
     SupervisionSection,
     SwarmLadderSection,
     SwarmNucSection,
+    SwarmPacketSection,
     SwarmSection,
     TierProfile,
     VirtualCellsOverwinterSection,
@@ -183,6 +184,7 @@ __all__ = [
     "SupervisionSection",
     "SwarmLadderSection",
     "SwarmNucSection",
+    "SwarmPacketSection",
     "SwarmSection",
     "TierProfile",
     "VirtualCellsOverwinterSection",

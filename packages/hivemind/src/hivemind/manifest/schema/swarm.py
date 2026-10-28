@@ -6,20 +6,22 @@ the Queen, the central orchestrator, runs on). ``[swarm]`` declares the one thin
 the swarm listener, where those packets connect and are admitted by a one-time invite (``enabled``,
 ``listen_host``, ``listen_port``, the ``advertise_url`` a packet is told to dial, and the
 certificate and key a non-loopback listener must serve), how long an invite lives, how a device's
-liveness is judged (the heartbeat cadence and the number of beats it may miss, the dead-man limit
-a device with no Warden on it enforces on itself, and how long the Queen holds a lost device's
-tasks before deciding), the access level an invite gets when the operator names none, the most
-scratch one lease may hold on a device when the Queen's ceilings name no figure of their own
-(``scratch_quota_mb``), and two sub-tables of thresholds: ``[swarm.ladder]`` (when moving a
-device's Warden onto it, colonizing it, is worth doing) and ``[swarm.nuc]`` (when giving it a model
-server of its own is). Each sub-table also holds the two times that keep the Queen from flapping a
-device between rungs when she moves it on her own: how long every reason for a move must have been
-gone before she undoes it (``lower_after_s``), and how long she leaves a device alone after an
-attempt on it failed (``retry_after_s``). The schema checks only what a value is, and the one rule
-that keeps a secret off the wire in the clear: a listener on any address other than loopback serves
-``wss://``, so it needs both halves of a certificate. A device packet pins that certificate's
-fingerprint from the invite, so a self-signed one is fine. Everything here defaults to off or to
-loopback: a manifest that never mentions ``[swarm]`` has no listener at all.
+liveness is judged (the heartbeat cadence and the number of beats it may miss, the dead-man limit a
+device with no Warden on it enforces on itself, and how long the Queen holds a lost device's tasks
+before deciding), the access level an invite gets when the operator names none, the most scratch one
+lease may hold on a device when the Queen's ceilings name no figure of their own
+(``scratch_quota_mb``), and two sub-tables of thresholds: ``[swarm.ladder]`` (when moving a device's
+Warden onto it, colonizing it, is worth doing) and ``[swarm.nuc]`` (when giving it a model server of
+its own is), plus ``[swarm.packet]``, what ``hive swarm packet`` needs to build a self-contained
+Pollen Packet (where the Tailscale OAuth client's credentials are read from, and where cached
+``pollen`` builds live). Each of the first two sub-tables also holds the two times that keep the
+Queen from flapping a device between rungs when she moves it on her own: how long every reason for a
+move must have been gone before she undoes it (``lower_after_s``), and how long she leaves a device
+alone after an attempt on it failed (``retry_after_s``). The schema checks only what a value is, and
+the one rule that keeps a secret off the wire in the clear: a listener on any address other than
+loopback serves ``wss://``, so it needs both halves of a certificate. A device packet pins that
+certificate's fingerprint from the invite, so a self-signed one is fine. Everything here defaults to
+off or to loopback: a manifest that never mentions ``[swarm]`` has no listener at all.
 
 Fits into the Hive:
     Layer 1 (foundational services; capacity as data). Embedded by
@@ -36,12 +38,15 @@ Key invariants:
       empty means the invite builder derives it from the listener's own address.
     - No secret lives here: the certificate and key are paths to files, never their contents, and
       the invite token is minted per invite and kept only as a hash (codingrules section 13).
+      ``[swarm.packet] tailscale_oauth`` names where the OAuth client is read from
+      (``credman:<target>`` or ``env:<prefix>``), never the client itself.
 
 See Also:
     - docs/adr/0051-pollen-packet-is-a-gateway-and-the-trust-model.md for the listener, the
       invite and the trust model these fields parameterise.
     - docs/adr/0052-runtime-ladder-warden-moves-first.md for the ladder these thresholds decide.
     - docs/adr/0053-nucs-warden-migration-and-offline-operation.md for the unreachable grace.
+    - docs/adr/0067-the-pollen-packet-carries-a-tailnet-key-and-an-invite.md for [swarm.packet].
     - docs/manifests/full.toml for every key written out.
     - waggle.uris for the endpoint rule ``advertise_url`` and ``listen_host`` follow.
 """
@@ -85,6 +90,12 @@ MAX_PORT = 65535  # The highest TCP port; 0 is allowed and means "let the OS cho
 MAX_HOST_CHARS = 253  # The longest fully qualified domain name the DNS wire format allows.
 MAX_PATH_TEXT_CHARS = 4_096  # A certificate or key path; PATH_MAX on Linux.
 MAX_ADVERTISE_URL_CHARS = 512  # Matches the wire's bound for a URL a device is told to dial.
+DEFAULT_POLLEN_DIR = "dist/pollen"  # Under `dist/`, where scripts/build_pollen.py writes, beside
+# the manifest; one folder per platform under it (`dist/pollen/windows-x86_64/pollen.exe`).
+# Where a Tailscale OAuth client is read from: Windows Credential Manager's generic credential of
+# that target name, or the `<prefix>_CLIENT_ID` and `<prefix>_CLIENT_SECRET` environment
+# variables. Empty means "not set up"; `hive swarm packet` refuses until it is.
+OAUTH_SOURCE_PATTERN = r"^((credman|env):[A-Za-z0-9_.-]{1,128})?$"
 
 # A DNS-style host name: labels of letters, digits and hyphens, joined by dots. Anything else that
 # is not an IP literal (a scheme, a port, a path, whitespace) is rejected, so `listen_host` can
@@ -97,6 +108,7 @@ __all__ = [
     "DEFAULT_LOWER_AFTER_S",
     "DEFAULT_MIN_FREE_MEMORY_BYTES",
     "DEFAULT_NUC_SEAT_PRESSURE",
+    "DEFAULT_POLLEN_DIR",
     "DEFAULT_RELIEF_PRESSURE",
     "DEFAULT_RETRY_AFTER_S",
     "DEFAULT_SWARM_ACCESS",
@@ -107,8 +119,10 @@ __all__ = [
     "DEFAULT_SWARM_SCRATCH_QUOTA_MB",
     "DEFAULT_UNREACHABLE_GRACE_S",
     "MAX_RETRY_DOUBLINGS",
+    "OAUTH_SOURCE_PATTERN",
     "SwarmLadderSection",
     "SwarmNucSection",
+    "SwarmPacketSection",
     "SwarmSection",
 ]
 
@@ -183,6 +197,30 @@ class SwarmNucSection(BaseModel):
         description="Seconds the Queen waits after a Nuc promotion or demotion she began on her "
         "own failed before she tries that device again; each further failure in a row doubles "
         "the wait, up to 32 times this.",
+    )
+
+
+class SwarmPacketSection(BaseModel):
+    """``[swarm.packet]``: what `hive swarm packet` reads to build a self-contained packet."""
+
+    model_config = _MODEL_CONFIG
+
+    tailscale_oauth: str = Field(
+        default="",
+        pattern=OAUTH_SOURCE_PATTERN,
+        description="Where the Tailscale OAuth client (auth_keys write scope) that mints each "
+        "packet's single-use tailnet key is read from: `credman:<target>` (a generic credential "
+        "in Windows Credential Manager, user name = client id, password = client secret) or "
+        "`env:<prefix>` (the <prefix>_CLIENT_ID and <prefix>_CLIENT_SECRET variables). Never the "
+        "secret itself; empty refuses to build a packet.",
+    )
+    pollen_dir: str = Field(
+        default=DEFAULT_POLLEN_DIR,
+        min_length=1,
+        max_length=MAX_PATH_TEXT_CHARS,
+        description="Directory of cached pollen builds, resolved relative to the manifest's own "
+        "directory: one folder per platform holding its binary "
+        "(<pollen_dir>/windows-x86_64/pollen.exe, <pollen_dir>/linux-arm64/pollen).",
     )
 
 
@@ -280,6 +318,10 @@ class SwarmSection(BaseModel):
     nuc: SwarmNucSection = Field(
         default_factory=SwarmNucSection,
         description="Thresholds for promoting a colonized device to a Nuc.",
+    )
+    packet: SwarmPacketSection = Field(
+        default_factory=SwarmPacketSection,
+        description="What `hive swarm packet` needs: the Tailscale OAuth source and the builds.",
     )
 
     @field_validator("listen_host")

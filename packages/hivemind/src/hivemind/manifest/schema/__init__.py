@@ -42,7 +42,8 @@ Public API:
       EntrancePushSection, EntranceVoiceSection, EntranceAndroidSection.
     - Supervision and memory (supervision): SupervisionSection, ReconnectBudgetSection,
       WatchSection, WatchTuning, MemorySection.
-    - The Swarm (swarm): SwarmSection, SwarmLadderSection, SwarmNucSection.
+    - The Swarm (swarm): SwarmSection, SwarmLadderSection, SwarmNucSection,
+      SwarmPacketSection.
     - Security and clearance (security.tiers): SecuritySection, TierProfile, HoneySection,
       HoneyClearanceSection, ClearanceMatrix.
     - The Honey Store (honey): HoneyStoreSection, HoneyRipeningSection, HoneyRetrievalSection,
@@ -126,7 +127,12 @@ from hivemind.manifest.schema.supervision import (
     WatchSection,
     WatchTuning,
 )
-from hivemind.manifest.schema.swarm import SwarmLadderSection, SwarmNucSection, SwarmSection
+from hivemind.manifest.schema.swarm import (
+    SwarmLadderSection,
+    SwarmNucSection,
+    SwarmPacketSection,
+    SwarmSection,
+)
 
 __all__ = [
     "DEFAULT_DIRE_PATTERNS",
@@ -176,6 +182,7 @@ __all__ = [
     "SupervisionSection",
     "SwarmLadderSection",
     "SwarmNucSection",
+    "SwarmPacketSection",
     "SwarmSection",
     "TierProfile",
     "VirtualCellsOverwinterSection",
