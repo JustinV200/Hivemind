@@ -22,3 +22,7 @@ whole Hive), and backups. Populated as each of those capabilities lands, mostly 
 - [`absconding.md`](absconding.md): tearing the whole Hive down with `hive abscond` (roadmap step
   13.4): the operator password, the scope review, ticking Leavings, the typed phrase; what goes,
   what is kept, and what `left as found` means.
+- [`backup.md`](backup.md): `hive backup` (one checksummed archive of the stores, safe while the
+  Hive runs; never the secret store) and `hive restore` (stop the Hive, put the secret store in
+  place, restore with `--sha256`; refused for another Hive or a different identity key), and what
+  a restore leaves to Requeening.

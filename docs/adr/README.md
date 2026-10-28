@@ -317,3 +317,8 @@ ADRs that exist today, in numeric order:
   live room for a backend that draws on it, and an hourly cost cap from stated prices; a backend it
   allows nothing is held back with the bound's name, and the fleet shrinks through the usual
   release.
+- `0064-backups-are-one-checksummed-archive-without-secrets.md`: `hive backup` writes one gzip'd
+  tar indexed by `backup.json` (every member's size and SHA-256), the database snapshotted and
+  restored through SQLite's online backup API, plus the Basket's blobs; no secret is in it, and a
+  restore refuses another Hive or a secret store without the same `hive.ed25519`; the reader
+  trusts nothing in the archive; `queen.restored` records it.

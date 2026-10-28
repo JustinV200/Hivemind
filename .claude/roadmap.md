@@ -2926,7 +2926,21 @@ borrowed device and revoking every grant.
   and assert no grant widens, the Queen isolates on the Guard's report and the tainted Handoff is
   never assembled, forge a Swarm node's trail segment and assert the merge is refused. Every goal
   finishes or fails explicitly; nothing hangs; no lease or grant is left open.
-- [ ] **13.7 Backups.** `hive backup` / `hive restore`; `docs/runbooks/backup.md`.
+- [x] **13.7 Backups.** `hive backup` / `hive restore`; `docs/runbooks/backup.md`.
+  **Built 2026-10-27** (ADR-0064). `hivemind.common.backup` (Layer 0, so Supersedure's `copy.py`
+  can call it from the Queen): one gzip'd tar whose first member, `backup.json`, lists every other
+  with its size and SHA-256, the Hive id, the public half of `hive.ed25519` and the secret store's
+  names. `[hive] db` (every store, the Entrance tables and enrolled devices) is snapshotted through
+  SQLite's online backup API, never copied by hand, and the Basket's blob directory rides along.
+  The reader trusts nothing: index first, every member a regular file it lists once at its size
+  and digest, written to a path built from the validated name, then `PRAGMA integrity_check`.
+  `hive backup OUT` never overwrites and prints the archive's SHA-256. `hive restore ARCHIVE
+  [--sha256] [--replace]` holds the serve and Queen locks, refuses another Hive's backup, a
+  secret store missing any secret the backed-up Hive held or holding a different `hive.ed25519`,
+  then writes the database back through the same API, copies blobs in (never deleting) and records
+  `queen.restored` as the human. No secret is ever in a backup: the keypair moves only through the
+  secret store. Tests run on temp-dir databases only (`tests/unit/common/backup/`,
+  `tests/unit/cli/backup/`).
 
 ### Exit criteria
 
