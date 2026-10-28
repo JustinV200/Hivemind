@@ -29,7 +29,7 @@ See Also:
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
@@ -80,7 +80,8 @@ class EnvSecretSource:
     """`env:<prefix>`: the client in `<prefix>_CLIENT_ID` and `<prefix>_CLIENT_SECRET`."""
 
     prefix: str  # The variable names' common prefix, e.g. `TS_OAUTH`.
-    environ: Mapping[str, str]  # The environment, handed in by the composition root.
+    # The environment, handed in by the composition root; kept out of repr, as it holds the secret.
+    environ: Mapping[str, str] = field(repr=False)
 
     def read(self) -> OAuthClient:
         """Return the client the two variables hold.

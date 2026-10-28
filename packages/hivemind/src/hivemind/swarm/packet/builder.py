@@ -98,10 +98,9 @@ async def build_packet(deps: PacketDeps, order: PacketOrder) -> BuiltPacket:
         Where the packet is and the ids of its key and invite.
 
     Raises:
-        PacketError: The folder exists, the key could not be minted, or the secrets folder could
-            not be made owner-only. Anything minted is revoked, and the folder removed, first.
+        PacketError: The folder exists, the key could not be minted, or a file could not be
+            written or made owner-only. Anything minted is revoked, and the folder removed, first.
         InviteRefusedError: The shield is Night Veil; the key is revoked first.
-        OSError: A file could not be written; what was minted is revoked first.
     """
     _claim(order.folder)
     key: TailnetKey | None = None
@@ -132,7 +131,11 @@ def _claim(folder: Path) -> None:
 def _write(order: PacketOrder, minted: MintedInvite, key: TailnetKey) -> int:
     """Write the packet folder (blocking file work, run on a worker thread)."""
     files = PacketFiles(order.platform, order.pollen, order.target, order.label, minted.expires_at)
-    return write_packet(order.folder, files, minted.invite_string, key.key)
+    try:
+        return write_packet(order.folder, files, minted.invite_string, key.key)
+    except OSError as exc:
+        # One typed refusal for the CLI to print; the path is the operator's own folder or build.
+        raise PacketError(f"Could not write the packet: {type(exc).__name__}: {exc}") from exc
 
 
 def _built_event(

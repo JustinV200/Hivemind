@@ -42,6 +42,7 @@ def test_parse_secret_source_reads_the_named_client_or_refuses_without_the_secre
 
         assert client.client_id == client_id
         assert client.client_secret.get_secret_value() == _SECRET and _SECRET not in repr(client)
+        assert _SECRET not in repr(parse_secret_source(spec, environ))
         return
 
     with pytest.raises(PacketError) as refused:

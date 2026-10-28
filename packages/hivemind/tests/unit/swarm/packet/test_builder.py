@@ -20,11 +20,13 @@ from __future__ import annotations
 import json
 from datetime import timedelta
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 from builders.swarm import HiveRig, make_hive_rig
 
 from hivemind.cell import AccessLevel, CombShieldLevel
+from hivemind.common.errors import HiveMindError
 from hivemind.swarm import InviteState, parse_invite_string
 from hivemind.swarm.errors import PacketError
 from hivemind.swarm.packet import (
@@ -93,29 +95,41 @@ async def test_build_packet_writes_the_build_installer_and_owner_only_secrets(
     assert key not in recorded and invite.strip() not in recorded
 
 
-@pytest.mark.parametrize("failure", ["key_refused", "write_failed", "folder_exists"])
+@pytest.mark.parametrize(
+    "failure", ["key_refused", "write_failed", "invite_revoke_fails", "folder_exists"]
+)
 async def test_build_packet_leaves_no_live_key_or_invite_when_a_step_fails(
-    tmp_path: Path, failure: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
-    # Arrange one failure: Tailscale refuses the key, the build vanished before the copy, or the
-    # folder is already there (and may hold an older packet's secrets).
+    # Arrange one failure: Tailscale refuses the key, the build vanished before the copy (and, in
+    # one row, revoking the invite then fails too), or the folder is already there (and may hold
+    # an older packet's secrets).
     rig, keys = make_hive_rig(), FakeTailnetKeys(refuse=failure == "key_refused")
     order = _order(tmp_path, PacketPlatform.WINDOWS_X86_64)
-    if failure == "write_failed":
+    if failure in {"write_failed", "invite_revoke_fails"}:
         order.pollen.unlink()
+    if failure == "invite_revoke_fails":
+        monkeypatch.setattr(rig.registry, "revoke_invite", _refuse_revoke)
     if failure == "folder_exists":
         order.folder.mkdir(parents=True)
         (order.folder / "older.txt").write_text("keep me", encoding="utf-8")
 
-    with pytest.raises((PacketError, OSError)):
+    with pytest.raises(PacketError):
         await build_packet(_deps(rig, keys), order)
 
+    # A failed invite revocation must not stop the key's revocation after it.
     assert keys.live == {}
     invites = await rig.registry.invites()
-    assert not [i for i in invites if i.state is InviteState.ISSUED]
+    if failure != "invite_revoke_fails":
+        assert not [i for i in invites if i.state is InviteState.ISSUED]
     # The key is minted first, so when it is refused no invite was ever written.
     assert failure != "key_refused" or invites == ()
     # A folder this build made is gone; one that was there before is left untouched.
     assert order.folder.exists() == (failure == "folder_exists")
     if failure == "folder_exists":
         assert (order.folder / "older.txt").read_text(encoding="utf-8") == "keep me"
+
+
+async def _refuse_revoke(code_hash: str, event: object = None) -> NoReturn:
+    """Stand in for a registry whose invite revocation fails."""
+    raise HiveMindError(f"cannot revoke {code_hash[:8]}")
