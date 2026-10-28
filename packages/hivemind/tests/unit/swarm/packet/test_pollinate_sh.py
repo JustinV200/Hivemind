@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -41,7 +42,11 @@ printf '{\\n  "BackendState": "%s",\\n  "Self": {"Tags": null}\\n}\\n' "$FAKE_TS
 """
 
 
-@pytest.mark.skipif(_BASH is None, reason="needs bash")
+# Windows is skipped as test_diagnose_rig does: `bash` there may be the WSL launcher, which runs
+# another machine's shell and cannot see this PATH.
+@pytest.mark.skipif(
+    _BASH is None or sys.platform == "win32", reason="needs a POSIX bash on this host"
+)
 @pytest.mark.parametrize("state", ["Running", "Stopped"])
 def test_pollinate_sh_stops_on_another_account_before_touching_secrets(
     tmp_path: Path, state: str
