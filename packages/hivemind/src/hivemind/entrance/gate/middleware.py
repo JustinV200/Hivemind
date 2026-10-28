@@ -44,7 +44,7 @@ from collections.abc import Mapping, Sequence
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from hivemind.entrance.auth.limits import RateLimiter
+from hivemind.entrance.auth.limits import RateLimiter, address_bucket
 from hivemind.entrance.expose import (
     STAND_HEADER,
     loopback_request_allowed,
@@ -67,7 +67,6 @@ MAX_BODY_BYTES = 262_144  # 256 KiB: every Landing Board body is small JSON (a h
 BODY_READ_TIMEOUT_S = 30.0  # A small body arrives in well under a second; this is a stalled one.
 _POLICY_VIOLATION = 1008  # RFC 6455: a WebSocket refused for policy (sent before accepting).
 STAND_SCOPE_KEY = "hivemind.entrance.stand"  # True in the scope when the stand key came along.
-_STAND_BUCKET = "stand:"  # Prefixes a stand-key holder's address: its own rate bucket.
 # A loopback-only row as the gate matches it before routing: its method and its compiled path.
 StandRow = tuple[str, re.Pattern[str]]
 
@@ -172,8 +171,7 @@ class AddressLimit:
         client = scope.get("client")
         address = str(client[0]) if client else ""
         # The stand key's holder is the operator: a guest on the same address cannot exhaust it.
-        if scope.get(STAND_SCOPE_KEY):
-            address = _STAND_BUCKET + address
+        address = address_bucket(address, stand=bool(scope.get(STAND_SCOPE_KEY)))
         if self._limiter.allow_address(address):
             await self._app(scope, receive, send)
             return

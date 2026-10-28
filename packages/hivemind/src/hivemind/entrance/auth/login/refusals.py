@@ -30,6 +30,7 @@ from __future__ import annotations
 from pydantic import JsonValue
 
 from hivemind.common.logging import get_logger
+from hivemind.entrance.auth.limits import address_bucket
 from hivemind.entrance.auth.login.deps import AuthDeps
 from hivemind.entrance.auth.session.failures import (
     Failure,
@@ -76,7 +77,8 @@ async def refuse_proof(
     Returns:
         The generic error to raise.
     """
-    deps.guards.limiter.charge_address(arrival.address)
+    # The same bucket AddressLimit charged: the Hive Stand's own apart (ADR-0068).
+    deps.guards.limiter.charge_address(address_bucket(arrival.address, stand=arrival.stand))
     failure = Failure(FailureReason.PROOF, step, arrival, device_id)
     return await record_failure(deps.records, failure)
 

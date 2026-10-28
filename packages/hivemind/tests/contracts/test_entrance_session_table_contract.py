@@ -163,19 +163,20 @@ async def test_end_for_device_ends_only_that_devices_open_sessions(rig: _Rig) ->
     assert [session.token_hash for session in await rig.table.list_open()] == [theirs.token_hash]
 
 
-async def test_end_for_listener_ends_only_that_listeners_sessions(rig: _Rig) -> None:
+async def test_end_off_stand_ends_every_session_but_the_hive_stands(rig: _Rig) -> None:
     remote = make_session(rig.device, rig.clock)
-    loopback = make_session(rig.device, rig.clock, listener=Listener.LOOPBACK)
-    await rig.table.put(remote)
-    await rig.table.put(loopback)
+    guest = make_session(rig.device, rig.clock, listener=Listener.LOOPBACK)
+    stand = make_session(rig.device, rig.clock, listener=Listener.LOOPBACK, stand=True)
+    for session in (remote, guest, stand):
+        await rig.table.put(session)
 
-    ended = await rig.table.end_for_listener(Listener.REMOTE, rig.clock.now(), EndReason.REDUCED)
+    ended = await rig.table.end_off_stand(rig.clock.now(), EndReason.REDUCED)
 
     stored = await rig.table.get(remote.token_hash)
-    assert ended == 1
+    assert ended == 2
     assert stored is not None
     assert stored.end_reason is EndReason.REDUCED
-    assert await rig.table.list_open() == (loopback,)
+    assert await rig.table.list_open() == (stand,)
 
 
 async def test_list_open_returns_open_sessions_oldest_first(rig: _Rig) -> None:

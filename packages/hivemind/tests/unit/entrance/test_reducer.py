@@ -128,7 +128,9 @@ async def test_a_restart_comes_back_reduced_and_revives_no_remote_session(tmp_pa
     await _reducer(auth).reduce(ReduceReason.OPERATOR, "human")
     # A remote session that outlived the reduction (a crash between persist and end).
     late = await program_login(auth, device, signer, LOOPBACK)
-    stray = late.session.model_copy(update={"token_hash": "f" * 64, "listener": Listener.REMOTE})
+    stray = late.session.model_copy(
+        update={"token_hash": "f" * 64, "listener": Listener.REMOTE, "stand": False}
+    )
     await auth.store.sessions.put(stray)
     # A restart: a new store, book and reducer over the same file.
     reopened = await SqliteEntranceStore.create(connect(db), auth.clock)

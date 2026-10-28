@@ -44,15 +44,18 @@ def test_the_first_reason_given_is_the_one_kept() -> None:
     assert socket.reason is CloseReason.REDUCED
 
 
-async def test_close_remote_waits_for_each_remote_socket_to_go() -> None:
+async def test_close_remote_waits_for_each_socket_but_the_hive_stands_to_go() -> None:
     registry = SocketRegistry()
     remote = registry.open(Listener.REMOTE, _PHONE, "hash-a")
-    local = registry.open(Listener.LOOPBACK, _PHONE, "hash-b")
+    local = registry.open(Listener.LOOPBACK, _PHONE, "hash-b", stand=True)
+    guest = registry.open(Listener.LOOPBACK, _PHONE, "hash-c")  # No stand key: maybe a guest.
 
     async def serve(socket_reason: asyncio.Future[CloseReason]) -> None:
         # What a socket's task does: wait to be told, send its close, then leave the registry.
         socket_reason.set_result(await remote.wait_closed())
         registry.discard(remote)
+        await guest.wait_closed()
+        registry.discard(guest)
 
     told: asyncio.Future[CloseReason] = asyncio.get_running_loop().create_future()
     async with asyncio.TaskGroup() as group:
@@ -61,6 +64,7 @@ async def test_close_remote_waits_for_each_remote_socket_to_go() -> None:
         await registry.close_remote()
 
     assert told.result() is CloseReason.REDUCED
+    assert guest.reason is CloseReason.REDUCED
     assert local.reason is None
     assert registry.count(Listener.REMOTE) == 0
     assert registry.count() == 1

@@ -248,6 +248,8 @@ class SessionBook:
             needs_step_up=grant.needs_step_up,
             # ADR-0041: the loopback-bound console keeps its sessions in memory only.
             volatile=grant.device.loopback_bound,
+            # ADR-0068: only a loopback login with the stand key is the Hive Stand's own.
+            stand=grant.arrival.listener is Listener.LOOPBACK and grant.arrival.stand,
         )
         # Latency: one local insert (or an in-memory one for the console).
         await self._tables.put(session)
@@ -347,14 +349,17 @@ class SessionBook:
         await self.end_sessions(device_id, reason)
 
     async def end_remote(self) -> int:
-        """End every session opened on the remote listener (the Entrance Reducer's step).
+        """End every session but the Hive Stand's own (the Entrance Reducer's step).
+
+        That is every remote session, and every loopback one opened without the stand key, which
+        may be a Virtual Cell's guest's (ADR-0068).
 
         Returns:
             How many sessions this call ended.
         """
         now = self._records.clock.now()
         # Latency: one local session-table statement.
-        ended = await self._tables.end_for_listener(Listener.REMOTE, now, EndReason.REDUCED)
+        ended = await self._tables.end_off_stand(now, EndReason.REDUCED)
         # Many devices at once: the event is about the Hive whose door narrowed.
         if ended:
             hive_id = self._records.identity.hive_id

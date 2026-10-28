@@ -57,8 +57,8 @@ class FailureReason(Enum):
     PROOF = "proof"  # The device proof, its challenge or its binding key did not hold.
     PASSWORD = "password"  # noqa: S105 -- a failure category: a valid proof, a wrong password.
     DEVICE = "device"  # Unknown, not APPROVED, or its approval lapsed.
-    LISTENER = "listener"  # The loopback-bound console tried the remote listener.
-    REDUCED = "reduced"  # A remote login while the Entrance is reduced.
+    LISTENER = "listener"  # The console tried a door but the Hive Stand's (remote, or no key).
+    REDUCED = "reduced"  # A login but the Hive Stand's while the Entrance is reduced.
     REQUEST_SIGNATURE = "request_signature"  # A live token with a signature that did not verify.
     REQUEST_REPLAY = "request_replay"  # A live token and signature with a nonce already spent.
 

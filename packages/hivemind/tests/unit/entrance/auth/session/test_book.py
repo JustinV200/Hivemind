@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from builders.entrance import (
+    GUEST,
     LOOPBACK,
     REMOTE,
     admitted_program,
@@ -124,17 +125,20 @@ async def test_revoking_a_device_ends_its_sessions_through_the_offboarder() -> N
         assert await _ended(auth.store, opened.session.token_hash) is EndReason.REVOKED
 
 
-async def test_end_remote_ends_only_remote_sessions() -> None:
+async def test_end_remote_ends_every_session_but_the_hive_stands_own() -> None:
+    # ADR-0068: a keyless loopback session may be a Virtual Cell's guest's, so it goes too.
     auth = await auth_rig()
     device, signer = await admitted_program(auth.enrolment)
-    local = await program_login(auth, device, signer, LOOPBACK)
+    stand = await program_login(auth, device, signer, LOOPBACK)
+    guest = await program_login(auth, device, signer, GUEST)
     remote = await program_login(auth, device, signer, REMOTE)
 
     ended = await auth.book.end_remote()
 
-    assert ended == 1
+    assert ended == 2
     assert await _ended(auth.store, remote.session.token_hash) is EndReason.REDUCED
-    assert await _ended(auth.store, local.session.token_hash) is None
+    assert await _ended(auth.store, guest.session.token_hash) is EndReason.REDUCED
+    assert await _ended(auth.store, stand.session.token_hash) is None
 
 
 async def test_revalidate_ends_what_a_restart_must_not_revive() -> None:

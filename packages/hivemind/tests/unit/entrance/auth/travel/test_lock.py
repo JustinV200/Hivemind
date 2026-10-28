@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 from builders.entrance import (
     ADDRESS,
+    GUEST,
     LOOPBACK,
     REMOTE,
     admitted_program,
@@ -24,6 +25,7 @@ from builders.entrance import (
 )
 
 from hivemind.entrance.auth import FakePeerEndpointSource, TravelLock, open_travel_lock
+from hivemind.entrance.auth.session import Arrival
 from hivemind.entrance.errors import TravelLockUnavailableError
 from hivemind.manifest import EntranceSection
 
@@ -83,16 +85,19 @@ async def test_an_unplaceable_peer_is_never_trusted() -> None:
     assert await auth.store.logins.networks(device.id) == frozenset()
 
 
-async def test_the_loopback_listener_is_never_judged() -> None:
+@pytest.mark.parametrize(("arrival", "judged"), [(LOOPBACK, False), (GUEST, True)])
+async def test_only_the_hive_stand_itself_is_never_judged(arrival: Arrival, judged: bool) -> None:
+    # Loopback alone is not the Hive Stand: a guest forwarded there has no network anyone can
+    # place, so it steps up and every other device is told (ADR-0068).
     source = FakePeerEndpointSource({ADDRESS: _HOME})
     auth = await auth_rig(source=source)
     device, signer = await admitted_program(auth.enrolment)
 
-    opened = await program_login(auth, device, signer, LOOPBACK)
+    opened = await program_login(auth, device, signer, arrival)
 
-    assert not opened.session.needs_step_up
+    assert opened.session.needs_step_up is judged
     assert source.asked == []
-    assert await auth.enrolment.events(_KIND) == ()
+    assert len(await auth.enrolment.events(_KIND)) == int(judged)
 
 
 def test_open_travel_lock_is_off_by_default_and_refuses_outside_vpn_mode() -> None:

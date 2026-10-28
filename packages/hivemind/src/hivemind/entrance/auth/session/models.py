@@ -212,6 +212,11 @@ class Session(BaseModel):
         default=False,
         description="The Hive Stand console's session: kept in memory only, never persisted.",
     )
+    stand: bool = Field(
+        default=False,
+        description="Opened on loopback with this boot's stand key, so by the Hive Stand itself "
+        "(ADR-0068); the only sessions a reduction leaves open.",
+    )
     ended_at: UtcDatetime | None = Field(default=None, description="When it ended; None if open.")
     end_reason: EndReason | None = Field(default=None, description="Why it ended; None if open.")
 

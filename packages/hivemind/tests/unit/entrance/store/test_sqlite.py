@@ -72,7 +72,7 @@ async def test_create_records_the_entrance_series_once(tmp_path: Path) -> None:
     applied_again = apply_entrance_migrations(connection, clock)
 
     assert SUBSYSTEM == "entrance"
-    assert applied_versions(connection, SUBSYSTEM) == (1, 2)
+    assert applied_versions(connection, SUBSYSTEM) == (1, 2, 3)
     assert applied_again == ()
 
 

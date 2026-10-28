@@ -49,8 +49,32 @@ MAX_TRACKED_KEYS = 4_096  # Buckets kept per family: far more devices than any H
 _SECONDS_PER_MINUTE = 60.0  # The manifest's limits are per minute.
 _REQUEST_COST = 1.0  # One request, or one extra charge, takes one token.
 DEFAULT_AUDIO_S_PER_MINUTE = 120.0  # [entrance.voice] audio_seconds_per_minute's own default.
+_STAND_BUCKET = "stand:"  # Prefixes a stand-key holder's address: a bucket of its own (ADR-0068).
 
-__all__ = ["DEFAULT_AUDIO_S_PER_MINUTE", "MAX_TRACKED_KEYS", "ByteBudget", "RateLimiter"]
+__all__ = [
+    "DEFAULT_AUDIO_S_PER_MINUTE",
+    "MAX_TRACKED_KEYS",
+    "ByteBudget",
+    "RateLimiter",
+    "address_bucket",
+]
+
+
+def address_bucket(address: str, *, stand: bool) -> str:
+    """Name the per-address bucket a request is charged to.
+
+    A request carrying the stand key (ADR-0068) is the Hive Stand's own, so it is counted apart
+    from everything else on its address: a Virtual Cell's guest flooding ``127.0.0.1`` cannot
+    starve the operator's console.
+
+    Args:
+        address: The peer address the listener reported.
+        stand: Whether the request carried this boot's stand key.
+
+    Returns:
+        The bucket's key: the address, or the address under the stand prefix.
+    """
+    return _STAND_BUCKET + address if stand else address
 
 
 @dataclass(slots=True)

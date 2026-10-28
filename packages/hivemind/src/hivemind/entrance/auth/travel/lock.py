@@ -19,7 +19,8 @@ Fits into the Hive:
     Entrance tables, the Pheromone Trail and the notifier through ``EnrolmentDeps``.
 
 Key invariants:
-    - Only the remote listener is judged: the loopback listener is the Hive Stand itself.
+    - Only the Hive Stand itself (loopback with the stand key, ADR-0068) is never judged; a
+      keyless loopback arrival is judged with no network, so it always steps up.
     - An unknown network (None) is never remembered, so it can never become "known".
     - The event is on the trail before the notice is sent, and neither carries a credential.
 
@@ -72,10 +73,11 @@ class TravelLock:
 
         Returns:
             On the remote listener, what the endpoint source says (None when it cannot place the
-            peer); on loopback, the address's own network.
+            peer); on loopback with the stand key, the address's own network; on loopback without
+            it, None: it may be a Virtual Cell's guest, whose network no one can place (ADR-0068).
         """
-        if arrival.listener is not Listener.REMOTE:
-            return arrival.network
+        if arrival.listener is Listener.LOOPBACK:
+            return arrival.network if arrival.stand else None
         # Latency: one local-socket request to tailscaled, bounded by the source's own timeout.
         return await self._source.current_network(arrival.address)
 
@@ -89,10 +91,11 @@ class TravelLock:
 
         Returns:
             True when the session must step up before anything else (the event is recorded and
-            every other device told); False for the loopback listener or a known network.
+            every other device told); False for the Hive Stand itself or a known network.
         """
-        # The loopback listener is the Hive Stand itself: nothing there has travelled.
-        if arrival.listener is not Listener.REMOTE:
+        # Only the Hive Stand itself (loopback with the stand key, ADR-0068) has not travelled;
+        # a keyless loopback arrival is judged like an unplaceable remote one.
+        if arrival.listener is Listener.LOOPBACK and arrival.stand:
             return False
         records = self._deps.records
         # Latency: one local read.

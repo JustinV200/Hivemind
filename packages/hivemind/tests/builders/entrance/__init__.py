@@ -18,6 +18,7 @@ See Also:
 """
 
 from builders.entrance.auth import (
+    GUEST,
     LOOPBACK,
     PASSWORD,
     REMOTE,
@@ -84,6 +85,7 @@ from builders.entrance.records import (
 __all__ = [
     "ADDRESS",
     "APPROVAL_TTL",
+    "GUEST",
     "INVITE_TTL",
     "LOOPBACK",
     "ORIGIN",

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from hivemind.entrance.auth.session.models import EndReason, Listener, NonceClaim, Session
+from hivemind.entrance.auth.session.models import EndReason, NonceClaim, Session
 from hivemind.entrance.store.sessions.protocol import SessionTable
 from waggle.ids import DeviceId
 
@@ -83,11 +83,11 @@ class SplitSessionTable:
         ended = await self._volatile.end_for_device(device_id, at, reason)
         return ended + await self._durable.end_for_device(device_id, at, reason)
 
-    async def end_for_listener(self, listener: Listener, at: datetime, reason: EndReason) -> int:
-        """End a listener's sessions in both tables; see SessionTable.end_for_listener."""
+    async def end_off_stand(self, at: datetime, reason: EndReason) -> int:
+        """End every session but the Hive Stand's in both tables; see SessionTable.end_off_stand."""
         # Latency: local tables only (SQLite on its thread, or memory); sub-millisecond.
-        ended = await self._volatile.end_for_listener(listener, at, reason)
-        return ended + await self._durable.end_for_listener(listener, at, reason)
+        ended = await self._volatile.end_off_stand(at, reason)
+        return ended + await self._durable.end_off_stand(at, reason)
 
     async def list_open(self) -> tuple[Session, ...]:
         """Return the open sessions of both tables, oldest first; see SessionTable.list_open."""

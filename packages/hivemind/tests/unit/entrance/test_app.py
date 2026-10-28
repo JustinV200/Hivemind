@@ -325,26 +325,31 @@ async def test_a_loopback_only_row_needs_the_stand_key_even_inside_a_console_ses
 
 
 @pytest.mark.parametrize("holds_stand_key", [False, True])
+@pytest.mark.parametrize("step", ["login", "step-up"])
 @pytest.mark.parametrize("case", ["console", "any device while reduced"])
-async def test_a_loopback_login_as_the_console_or_while_reduced_needs_the_stand_key(
-    case: str, holds_stand_key: bool
+async def test_a_loopback_login_or_step_up_as_the_console_or_while_reduced_needs_the_stand_key(
+    case: str, step: str, holds_stand_key: bool
 ) -> None:
-    # Both factors held: without the stand key a guest still may not open the console's session,
-    # nor any session while the Entrance is reduced to the Hive Stand.
+    # Both factors held: without the stand key a guest may not open or step up the console's
+    # session, nor any session while the Entrance is reduced to the Hive Stand (ADR-0068). A
+    # step-up rides a session the Hive Stand opened, which a reduction leaves open.
     async with serving() as rig:
-        key = rig.console
+        _, session = await rig.console_session()
         if case == "any device while reduced":
-            _, program = await rig.program()
-            key = program.key
-            console, session = await rig.console_session()
-            reduced = await console.call(session, "POST", "/v1/entrance/reduce")
+            _, session = await rig.program(ProgramGrant(interactive=True))
+            console, console_session = await rig.console_session()
+            reduced = await console.call(console_session, "POST", "/v1/entrance/reduce")
             assert reduced.status_code == 200, reduced.text
+        guest = _guest(rig, holds_stand_key)
 
         try:
-            await _guest(rig, holds_stand_key).login(key)
-            opened = True
+            if step == "login":
+                await guest.login(session.key)
+            else:
+                await guest.step_up(session)
+            done = True
         except httpx.HTTPStatusError as refused:
             assert refused.response.status_code == 401
-            opened = False
+            done = False
 
-    assert opened is holds_stand_key
+    assert done is holds_stand_key

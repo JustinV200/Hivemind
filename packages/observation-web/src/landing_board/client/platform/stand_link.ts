@@ -48,7 +48,7 @@ export function adoptStandLink(
   } catch {
     return false;
   }
-  // Out of the address bar and the history, so a screenshot or a shared tab does not carry it.
+  // Out of the address bar and this history entry, so a screenshot or shared tab lacks it.
   replace('/');
   return true;
 }

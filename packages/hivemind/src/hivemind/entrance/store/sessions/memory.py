@@ -30,7 +30,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from hivemind.common.errors import InvariantViolationError
-from hivemind.entrance.auth.session.models import EndReason, Listener, NonceClaim, Session
+from hivemind.entrance.auth.session.models import EndReason, NonceClaim, Session
 from hivemind.entrance.store.sessions.protocol import check_new_session
 from waggle.ids import DeviceId
 
@@ -100,10 +100,10 @@ class MemorySessionTable:
         async with self._lock:
             return self._end_where(at, reason, lambda session: session.device_id == device_id)
 
-    async def end_for_listener(self, listener: Listener, at: datetime, reason: EndReason) -> int:
-        """End a listener's sessions; see SessionTable.end_for_listener."""
+    async def end_off_stand(self, at: datetime, reason: EndReason) -> int:
+        """End every session but the Hive Stand's own; see SessionTable.end_off_stand."""
         async with self._lock:
-            return self._end_where(at, reason, lambda session: session.listener is listener)
+            return self._end_where(at, reason, lambda session: not session.stand)
 
     async def list_open(self) -> tuple[Session, ...]:
         """Return every open session, oldest first; see SessionTable.list_open."""

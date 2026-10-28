@@ -5,7 +5,8 @@ password (ADR-0041). ``begin_login`` issues a single-use, 60-second challenge fr
 ``ChallengeBook``, bound to the device and, for a browser, to the WebCrypto P-256 key its session
 will be bound to (registering it here ties that key to the ceremony), with WebAuthn request
 options for a passkey device; it refuses a device that is unknown, not APPROVED or lapsed, the
-loopback-bound console on the remote listener, and any remote login while the Entrance is reduced.
+loopback-bound console anywhere but the Hive Stand itself (loopback with the stand key, ADR-0068),
+and any login but the Hive Stand's while the Entrance is reduced.
 ``finish_login`` spends the challenge and **verifies the device proof first**: a proof that does
 not hold never reaches the password check, is charged to the address and never to the device. A
 valid proof with the wrong password counts against the device and locks it at

@@ -1,6 +1,7 @@
 """Provide SqliteSessionTable: sessions and spent nonces in the Entrance tables.
 
-The durable ``SessionTable``, over ``entrance_sessions`` and ``entrance_nonces`` (migration 0002)
+The durable ``SessionTable``, over ``entrance_sessions`` and ``entrance_nonces`` (migration 0002,
+``stand`` added by 0003)
 in the Hive's own database file, through the connection every Entrance table shares
 (``SqliteLink``). Sessions are rows of plain columns rather than a JSON body because every
 authenticated request touches one (``last_seen_at``) and spends a nonce, and a column update needs
@@ -32,27 +33,27 @@ from datetime import datetime
 
 from hivemind.common.errors import InvariantViolationError
 from hivemind.common.sqlite import transaction
-from hivemind.entrance.auth.session.models import EndReason, Listener, NonceClaim, Session
+from hivemind.entrance.auth.session.models import EndReason, NonceClaim, Session
 from hivemind.entrance.store.link import SqliteLink
 from hivemind.entrance.store.sessions.protocol import check_new_session
 from waggle.ids import DeviceId
 
 # Plain literals, not f-strings, so ruff's S608 heuristic has nothing to flag; _row and the
-# SELECTs below list the same fourteen columns in the same order.
+# SELECTs below list the same fifteen columns in the same order.
 _INSERT_SQL = """
 INSERT INTO entrance_sessions (token_hash, device_id, binding_kind, binding_key, listener, address,
     network, created_at, last_seen_at, expires_at, stepped_up_until, needs_step_up, ended_at,
-    end_reason)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    end_reason, stand)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 _SELECT_SQL = """
 SELECT token_hash, device_id, binding_kind, binding_key, listener, address, network, created_at,
-    last_seen_at, expires_at, stepped_up_until, needs_step_up, ended_at, end_reason
+    last_seen_at, expires_at, stepped_up_until, needs_step_up, ended_at, end_reason, stand
 FROM entrance_sessions WHERE token_hash = ?
 """
 _OPEN_SQL = """
 SELECT token_hash, device_id, binding_kind, binding_key, listener, address, network, created_at,
-    last_seen_at, expires_at, stepped_up_until, needs_step_up, ended_at, end_reason
+    last_seen_at, expires_at, stepped_up_until, needs_step_up, ended_at, end_reason, stand
 FROM entrance_sessions WHERE ended_at IS NULL ORDER BY created_at, token_hash
 """
 _TOUCH_SQL = (
@@ -71,9 +72,9 @@ _END_DEVICE_SQL = (
     "UPDATE entrance_sessions SET ended_at = ?, end_reason = ? "
     "WHERE device_id = ? AND ended_at IS NULL"
 )
-_END_LISTENER_SQL = (
-    "UPDATE entrance_sessions SET ended_at = ?, end_reason = ? "
-    "WHERE listener = ? AND ended_at IS NULL"
+# A remote session is never the Hive Stand's, so "not stand" covers the remote listener too.
+_END_OFF_STAND_SQL = (
+    "UPDATE entrance_sessions SET ended_at = ?, end_reason = ? WHERE stand = 0 AND ended_at IS NULL"
 )
 _PURGE_NONCES_SQL = "DELETE FROM entrance_nonces WHERE expires_at <= ?"
 _CLAIM_NONCE_SQL = (
@@ -133,11 +134,11 @@ class SqliteSessionTable:
         # Blocking, sub-millisecond: one local statement or transaction on the link's thread.
         return await self._link.run(_write, _END_DEVICE_SQL, _end_args(at, reason, device_id))
 
-    async def end_for_listener(self, listener: Listener, at: datetime, reason: EndReason) -> int:
-        """End a listener's sessions; see SessionTable.end_for_listener."""
-        args = _end_args(at, reason, listener.value)
+    async def end_off_stand(self, at: datetime, reason: EndReason) -> int:
+        """End every session but the Hive Stand's own; see SessionTable.end_off_stand."""
+        args = (at.isoformat(), reason.value)
         # Blocking, sub-millisecond: one local statement or transaction on the link's thread.
-        return await self._link.run(_write, _END_LISTENER_SQL, args)
+        return await self._link.run(_write, _END_OFF_STAND_SQL, args)
 
     async def list_open(self) -> tuple[Session, ...]:
         """Return every open session, oldest first; see SessionTable.list_open."""
@@ -219,6 +220,7 @@ def _row(session: Session) -> tuple[str | int | None, ...]:
         int(session.needs_step_up),
         _iso(session.ended_at),
         session.end_reason.value if session.end_reason is not None else None,
+        int(session.stand),
     )
 
 
@@ -226,6 +228,7 @@ def _session(row: sqlite3.Row) -> Session:
     """Rebuild a Session from its row, validating it like any other."""
     fields = dict(row)
     fields["needs_step_up"] = bool(fields["needs_step_up"])
+    fields["stand"] = bool(fields["stand"])
     return Session.model_validate(fields)
 
 

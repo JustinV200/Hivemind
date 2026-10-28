@@ -32,7 +32,7 @@ from datetime import datetime
 from typing import Protocol
 
 from hivemind.common.errors import InvariantViolationError
-from hivemind.entrance.auth.session.models import EndReason, Listener, NonceClaim, Session
+from hivemind.entrance.auth.session.models import EndReason, NonceClaim, Session
 from waggle.ids import DeviceId
 
 __all__ = ["SessionTable", "check_new_session"]
@@ -111,11 +111,13 @@ class SessionTable(Protocol):
         """
         ...
 
-    async def end_for_listener(self, listener: Listener, at: datetime, reason: EndReason) -> int:
-        """End every open session opened on one listener.
+    async def end_off_stand(self, at: datetime, reason: EndReason) -> int:
+        """End every open session not opened by the Hive Stand itself (``Session.stand`` False).
+
+        The Entrance Reducer's step: every remote session, and every loopback one opened without
+        the stand key (ADR-0068).
 
         Args:
-            listener: The listener, REMOTE for the Entrance Reducer.
             at: When.
             reason: Why.
 

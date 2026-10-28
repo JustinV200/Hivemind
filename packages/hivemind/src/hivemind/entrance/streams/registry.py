@@ -49,12 +49,15 @@ class LiveSocket:
         listener: The listener it arrived on.
         device_id: The device whose session admitted it.
         token_hash: That session's token hash (never the token).
+        stand: Whether that session is the Hive Stand's own (``Session.stand``, ADR-0068); the
+            only sockets a reduction leaves open.
         reason: Why it was told to close; None while it may run.
     """
 
     listener: Listener
     device_id: DeviceId
     token_hash: str = field(repr=False)
+    stand: bool = False
     reason: CloseReason | None = None
     _closing: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     _gone: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
@@ -95,18 +98,21 @@ class SocketRegistry:
         # Mutated only on the event loop's thread, by socket tasks and the routes closing them.
         self._sockets: set[LiveSocket] = set()
 
-    def open(self, listener: Listener, device_id: DeviceId, token_hash: str) -> LiveSocket:
+    def open(
+        self, listener: Listener, device_id: DeviceId, token_hash: str, *, stand: bool = False
+    ) -> LiveSocket:
         """Register an admitted socket.
 
         Args:
             listener: The listener it arrived on.
             device_id: The device whose session admitted it.
             token_hash: That session's token hash.
+            stand: Whether that session is the Hive Stand's own (ADR-0068).
 
         Returns:
             Its handle; ``discard`` it when its task ends.
         """
-        socket = LiveSocket(listener, device_id, token_hash)
+        socket = LiveSocket(listener, device_id, token_hash, stand)
         self._sockets.add(socket)
         return socket
 
@@ -182,12 +188,15 @@ class SocketRegistry:
         return self._close(list(self._sockets), reason)
 
     async def close_remote(self) -> None:
-        """Close every socket on the remote listener: the Entrance Reducer's ``StreamCloser``.
+        """Close every socket but the Hive Stand's own: the Entrance Reducer's ``StreamCloser``.
+
+        That is every remote socket, and every loopback one whose session was opened without the
+        stand key (ADR-0068), so a guest's live views go with the reduction too.
 
         Waits up to ``REMOTE_CLOSE_WAIT_S`` for them to go (module docstring); a socket slower
         than that is closed by the listener's own shutdown instead.
         """
-        closing = [s for s in self._sockets if s.listener is Listener.REMOTE]
+        closing = [s for s in self._sockets if not s.stand]
         self._close(closing, CloseReason.REDUCED)
         try:
             # External wait: each socket's own task sending its close frame, bounded.

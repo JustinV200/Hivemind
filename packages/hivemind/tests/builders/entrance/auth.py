@@ -88,6 +88,8 @@ REMOTE_RELYING_PARTY = RelyingParty(
 )
 # A request on the Hive Stand itself: loopback, with the stand key only it holds (ADR-0068).
 LOOPBACK = Arrival(Listener.LOOPBACK, "127.0.0.1", stand=True)
+# A Virtual Cell's guest forwarded onto loopback: the same listener and address, no stand key.
+GUEST = Arrival(Listener.LOOPBACK, "127.0.0.1")
 REMOTE = Arrival(Listener.REMOTE, ADDRESS)  # A request from the overlay.
 SESSION_RULES = SessionRules(
     ttl=timedelta(hours=12),

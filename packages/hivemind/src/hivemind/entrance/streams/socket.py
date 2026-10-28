@@ -117,7 +117,8 @@ async def serve_socket(
     if caller is None:
         return
     sockets = services.streams.sockets
-    live = sockets.open(caller.listener, caller.device.id, caller.session.session.token_hash)
+    session = caller.session.session
+    live = sockets.open(caller.listener, caller.device.id, session.token_hash, stand=session.stand)
     try:
         context = StreamContext(websocket, caller, services, live)
         # One reader of the client's frames: a duplex view's own, or the one that only sees it go.
