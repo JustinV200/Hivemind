@@ -49,8 +49,10 @@ and never persisted beyond the running serve. The loopback application's `Loopba
 `Host` and forwarding-header checks and before the rate limit or any route, refuses with a bare
 `403` every request whose method and path match a loopback-only row (compiled with Starlette's own
 path compiler from the same route table) unless it carries the key, compared in constant time, in
-the `X-Hive-Stand` header or the `hive_stand` cookie. Rows served on both listeners need no stand
-key on loopback, so a program on the Hive Stand that only submits, answers or observes is
+the `X-Hive-Stand` header. That header is the only channel: no cookie carries the key, because a
+browser sends a `localhost` cookie to every port on the machine (cookies are not port-scoped), so
+any local dev server or model web UI would receive and could log it. Rows served on both listeners
+need no stand key on loopback, so a program on the Hive Stand that only submits, answers or observes is
 unchanged.
 
 **Only the Hive Stand holds it.** `hive serve` writes it into its serve record
@@ -59,12 +61,15 @@ already read to find the listener; they now send it on every request. The guard'
 names the serve record with the database, so a bee on the Hive Stand is refused `fs:read` of it as
 it is of the database. No Virtual Cell backend mounts the Hive's state directory.
 
-**The Hive Stand's browser gets it as a cookie from a printed link.** `hive serve` prints
-`http://localhost:<port>/stand?key=<key>`. The gate answers `GET /stand` with the right key with a
-`303` to `/` and `Set-Cookie: hive_stand=<key>; Path=/; HttpOnly; SameSite=Strict`, and any other
-key or method with a bare `403`. The cookie is same-origin, so the Observation Hive's approval
-screens work with no client change; script cannot read it and no other site's page makes the
-browser send it. The key changes with every serve, so the link is opened once per serve.
+**The Hive Stand's browser takes it from a printed link's fragment.** `hive serve` prints
+`http://localhost:<port>/stand#key=<key>`. The fragment never leaves the browser, so no server
+(the Entrance included) sees the key in a request line or a log. `/stand` serves the Observation
+Hive's page, as `/enrol` does; before the app renders, it keeps a well-formed key in the tab's
+`sessionStorage` (scoped to this origin, scheme, host and port, and to this tab) and replaces the
+address with `/`. Its one HTTP wrapper then sends the key as `X-Hive-Stand` on every request, and
+a bare `403` (only the loopback gate answers one) is shown as "Open the Hive Stand browser link
+`hive serve` printed (it changes every serve), on localhost." The key changes with every serve, so
+the link is opened again after each start, and in each new tab.
 
 **The stand key's holder gets its own rate bucket.** A request carrying the key is counted under
 `stand:<address>`, so a guest flooding `127.0.0.1` can no longer starve the console of the door it
@@ -85,13 +90,32 @@ cost the operator nothing.
 
 Negative: a third credential exists, and a program on the Hive Stand that calls a loopback-only
 row directly (rather than through `hive entrance`) must read the serve record for it. The browser
-on the Hive Stand opens the printed link once per serve before it can approve. The link appears in
-`hive serve`'s output, so whoever can read that terminal or its log holds the key until the serve
-stops; that is the Hive Stand's operator, or a process with the Hive's own operating-system user,
-which ADR-0041 already records as a risk. On Windows the serve record's access is the folder's
-own access list, not `0600`. Host-loopback services other than the Entrance (a model server bound
-to `127.0.0.1`, anything else the operator runs) remain reachable from QEMU and Docker Desktop
-guests, as before.
+on the Hive Stand opens the printed link after every serve start and in every new tab before it
+can approve. Where the key can still be read, until the serve stops:
+
+- `hive serve`'s output and whatever logs it, so whoever reads that terminal or log; that is the
+  operator, or a process running as the Hive's own operating-system user, which ADR-0041 already
+  records as a risk. On Windows the serve record's access is the folder's own access list, not
+  `0600`.
+- The browser's own history may keep the link with its fragment, since it records the address
+  before the app replaces it; the browser profile is the operator's.
+- Script running in the Entrance's own origin could read `sessionStorage`; the Entrance serves only
+  its own build, under `default-src 'self'` (ADR-0041), so that needs a compromised build. Pages on
+  other `localhost` ports cannot read it, and no request to them carries it.
+
+Host-loopback services other than the Entrance (Ollama, LM Studio, llama-server or any model server
+bound to `127.0.0.1`, a dev server, anything else the operator runs) remain reachable from QEMU
+guests under every policy but `NONE` and from Docker Desktop guests under every policy, as before.
+This ADR does not close that; see the follow-up below.
+
+## Follow-up (open)
+
+Close host-loopback reach in the network, tracked in `.claude/roadmap.md` (open decision 17 and
+the risk table): for QEMU, the control-NIC split the backend's module docstring describes (a
+control NIC with `restrict=on` and one `guestfwd` per host service a Cell needs: its Waggle link
+and each loopback model server, plus an egress NIC for NAT); for Docker Desktop, either the
+control subnet everywhere with no `host.docker.internal` alias, or a documented refusal to run
+untrusted work on Desktop. Both need a real QEMU and Docker Desktop host to verify.
 
 ## Alternatives considered
 
@@ -105,3 +129,6 @@ Binding the loopback listener to another loopback address, IPv6 or a Unix socket
 `fec0::2` to `::1`, a browser reaches the listener only as `localhost`, and WebAuthn needs that
 name. Requiring the stand key on every loopback request: breaks every program on the Hive Stand
 that uses only both-listener routes, for no gain, since those routes are already remote-reachable.
+An HttpOnly, SameSite=Strict cookie set by `/stand?key=`: needs no client change, but cookies are
+not port-scoped, so every other server on `localhost` would receive the key on every request the
+browser makes to it.

@@ -341,5 +341,6 @@ ADRs that exist today, in numeric order:
 - `0068-loopback-only-rows-need-the-stand-key.md`: a Virtual Cell's guest reaches the host's
   loopback through QEMU's SLIRP host alias or Docker Desktop's host gateway, from `127.0.0.1` and
   with a loopback `Host`, so the loopback-only rows also need a per-boot stand key, which only the
-  Hive Stand holds (the serve record, read by `hive entrance`; a cookie the printed `/stand` link
-  sets for its browser); a stand-key holder gets its own rate bucket; amends ADR-0041.
+  Hive Stand holds (the serve record, read by `hive entrance`; the printed `/stand#key=` link's
+  fragment, kept in the browser tab's `sessionStorage`), sent only as `X-Hive-Stand`, never a
+  cookie; a stand-key holder gets its own rate bucket; amends ADR-0041.

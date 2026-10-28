@@ -132,8 +132,9 @@ listen_port = 47800
 ```
 
 What it does not do. Anything on the Hive Stand bound to every interface answers on the control
-gateway too, so an isolated Cell that dials that address still reaches it; bind the model servers
-Cells use to docker0 (`172.17.0.1`) or to loopback behind a proxy, never `0.0.0.0`. Cutting that
+gateway too, so an isolated Cell that dials that address still reaches it; on native Linux
+Engine, bind the model servers Cells use to docker0 (`172.17.0.1`), never `0.0.0.0`. Do not count
+on loopback, with or without a proxy in front: see "Host loopback is not private" below. Cutting that
 path would take a host firewall rule (root, outside Docker's API), and the operator chose not to
 ship one; instead, when `hive run` makes the control network it probes, with one TCP connect of at
 most half a second each, every `[llm.providers]` `base_url` that names the Hive Stand itself
@@ -173,6 +174,27 @@ carrying the default route, with the cloud-init network config bringing both up 
 Queen's forwarded address through the control NIC. The cut is then QMP `set_link` on the egress
 NIC (`up=false`) and the lift `up=true`. Not built: this host has no QEMU to prove it on
 (ADR-0026).
+
+### Host loopback is not private
+
+A service bound to the Hive Stand's `127.0.0.1` is not out of a Cell's reach:
+
+- **QEMU**, every policy but `none`: user networking (SLIRP) without `restrict=on` maps `10.0.2.2`,
+  and every other unclaimed address in `10.0.2.0/24`, to the host's `127.0.0.1`. QEMU opens the
+  host socket itself, so the service sees a peer of `127.0.0.1`.
+- **Docker Desktop**, every policy: `host.docker.internal`, which every Docker Cell gets, is
+  proxied by Desktop's backend to services on the host's loopback, again from `127.0.0.1`.
+- **Native Linux Engine** does not do this: its host gateway is docker0, not loopback.
+
+So on QEMU and Docker Desktop a guest can reach Ollama, LM Studio, llama-server, a dev server or
+anything else listening on the Hive Stand's loopback, and cutting its egress does not change that
+on QEMU. The Hive Entrance's loopback listener is one such service; its loopback-only routes
+(approval, unlock, widening, reopening) also need a per-boot stand key that no Cell is given
+(ADR-0068), so a guest reaching the port gets no further than a remote client would. Nothing else
+on loopback has that protection: give such services their own authentication, or do not run
+untrusted work in QEMU or Docker Desktop Cells while they listen. Closing this in the network
+(QEMU's control-NIC split with `restrict=on`, and an answer for Docker Desktop) is an open item in
+the roadmap.
 
 ## The Hive Stand exception
 
@@ -254,6 +276,9 @@ resume and nothing else.
   gate).
 - The QEMU backend cannot cut egress yet (see above), and neither can Docker without a control
   subnet or for a Night Veil Cell.
+- QEMU guests (every policy but `none`) and Docker Desktop guests reach every service on the Hive
+  Stand's loopback ("Host loopback is not private" above); only the Entrance's loopback-only routes
+  are guarded against it (ADR-0068).
 - An isolation the Queen orders on a Cell whose link is gone (the Cell gate closes a link that
   carried a forged frame) finds no attached Warden: her decision records `cell_not_attached`,
   and the human still gets the CRITICAL Alarm naming the report.

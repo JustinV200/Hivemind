@@ -3213,6 +3213,15 @@ borrowed device and revoking every grant.
    structured intent the Queen parses out of a chat `HumanMessage`, a typed message kind in
    Waggle handled by the Queen, or a `POST /v1/honey/notes` row through the Queen's door added
    to codingrules 8.11's route test. Needs an ADR before the control exists.
+17. Virtual Cells reach the Hive Stand's loopback (ADR-0068, follow-up): QEMU's user networking
+   maps `10.0.2.2` to host `127.0.0.1` under every policy but `none`, and Docker Desktop proxies
+   `host.docker.internal` to host loopback, so a guest reaches Ollama, LM Studio, dev servers and
+   the Entrance's loopback listener (whose loopback-only routes the stand key now guards). The
+   network fix to decide and build: for QEMU, the control-NIC split (`restrict=on` with one
+   `guestfwd` per host service a Cell needs, the Waggle link and each loopback model server, plus
+   an egress NIC for NAT; see `hive/backends/qemu/network.py`); for Docker Desktop, the control
+   subnet everywhere with no `host.docker.internal` alias, or refusing untrusted work there. Needs a
+   real QEMU and Docker Desktop host to prove.
 
 ---
 
@@ -3242,4 +3251,5 @@ borrowed device and revoking every grant.
 | A prompt injection through Honey, hot state or a tool result steers a bee. | Untrusted content labelled and delimited in every prompt (3.9, 7.8); the scanner and its trail event (10.6b); tool calls validated against schema and capabilities whichever rung produced them (3.16); Capping on every side effect outside scratch (3.17); the Guard Bee's injection-then-denial rule (10.6); Queen-only isolation and tainted memory (10.6a); the chaos seeds (13.6). |
 | A compromised Swarm device lies in its reports or poisons its session output. | Pollen has no brain and holds no capabilities, so its key speaks only as that node (11.3); signed envelopes and replay rejection (1.7, 11.3); session output is untrusted content to the scanner (10.6b); a capability report changed without re-enrolment is a dire pattern (13.4a); trail segments verified on merge (11.9); the dead-man switch (11.4); isolation and Sting Cut on the Queen's decision only (10.6a, 13.4a). |
 | A bee on the Hive Stand reads or rewrites the Hive's own state (its database, secret store or manifest). | Bees run as the Hive's own OS user today. The console key is wrapped under the operator password, so reading the secret store yields nothing usable (ADR-0041); a guard floor denies every bee `fs:*` on the state paths, `exec` of the Hive's entry points and `net` to loopback (10.3); arbitrary commands stay Capping-gated; work that must not be trusted with the Hive Stand runs with `isolation = "required"`. A separate OS user for Hive Stand bees is the lasting fix, not yet scheduled. |
+| A Virtual Cell's guest reaches services on the Hive Stand's loopback (QEMU's SLIRP host alias, Docker Desktop's `host.docker.internal`). | The Entrance's loopback-only routes need a per-boot stand key no Cell holds (ADR-0068); the guard floor refuses a bee's `net` to the host-gateway names; `docs/guard/isolation.md` says plainly that other loopback services are exposed. The network fix is open decision 17. |
 | A stolen client key or an abusive enrolled program. | Sessions bound to the device key and step-up for anything sensitive (10.5e); narrow capability sets and spend caps per device (10.5d); lockout on capability-denial bursts, undone only on loopback (10.5e); revocation on loopback; every Entrance event pushed to every other device (10.5b). |
