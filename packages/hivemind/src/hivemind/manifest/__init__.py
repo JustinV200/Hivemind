@@ -58,6 +58,8 @@ Public API:
       InCellEnv, read_in_cell_env (roadmap step 5.5's own in-Cell Warden env vars).
     - Errors (`hivemind.manifest.errors`): ManifestError.
     - Advice (`hivemind.manifest.advice`): judge_shares_ripener, budget_over_compact_line.
+    - Starter (`hivemind.manifest.starter`, roadmap 14.2, imported from there): render_starter,
+      StarterChoice, StarterProvider, the validated manifest `hive init` writes.
 """
 
 from hivemind.manifest.advice import budget_over_compact_line, judge_shares_ripener

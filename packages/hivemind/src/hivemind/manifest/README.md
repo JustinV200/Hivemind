@@ -63,6 +63,14 @@ enums rather than the hivemind-side mirrors those two packages own.
   budget_fraction` exceeds the compact line (`DEFAULT_COMPACT_AT`, 0.5) or `handoff_threshold`,
   so a fresh episode would start already past it; `build_queen_deps` logs it as
   `manifest.budget_over_compact_line` when the Hive starts.
+- **Starter** (`hivemind.manifest.starter`, roadmap step 14.2): `render_starter(choice, clock) ->
+  str`, the validated text `hive init` writes for a `StarterChoice` (`StarterProvider.ANTHROPIC`,
+  `OLLAMA` or `OPENAI_COMPATIBLE`, plus the model, embedder model and base URL a server path
+  needs). Two templates ship beside it as package data, `anthropic.toml` and `local.toml`; both
+  enable the Hive Stand, bind every slot and give the Drone a footprint, and a loopback server
+  gets `[llm] offline = true`. Every value is TOML-quoted before it is spliced in, and a refused
+  choice (no model on a server path, no base URL for `openai-compatible`, a model or URL on the
+  hosted path) raises `ManifestError`. Tested in `tests/unit/manifest/test_starter.py`.
 
 ### The slot-table validators (`LlmSection`)
 
