@@ -3230,7 +3230,10 @@ neither track changes it, and 15.3a rebases on it once it merges.
   and `screen_control`, never in a bee's set and never in the UI's default credentials; widened only
   on loopback. Opening needs an interactive device and a fresh step-up (`ActionKind.INSPECT`), every
   time. Remote is allowed (it is the point of the feature) over the VPN overlay, except that a shell
-  on the Hive Stand itself is loopback-only, and its screen is refused at the door in this phase. `[inspection] hive_stand_remote` defaults to
+  on the Hive Stand itself, or on any Cell whose capabilities say `shares_hive_stand_host`, is
+  loopback-only, and its screen is refused at the door in this phase. Whether a request is
+  remote is read from the `StepUpProof`, which carries the listener the step-up arrived on
+  (15.4a), never from anything the client says. `[inspection] hive_stand_remote` defaults to
   false and is **Justin's decision** (open decision 17): turning it on means a remote session can
   reach the Entrance's loopback listener from the Hive Stand's own shell, so device approval,
   capability widening and reopening stop being loopback-only in practice, and a stolen phone plus
@@ -3363,8 +3366,10 @@ in daily use.
   and close raises the notification; `pollen inspect end` closes the harness's terminal within
   five seconds with reason `DEVICE_ENDED`. *Size:* small, 1.5 agent-days.
 - [ ] **15.4a Inspection authority.** Human authority is a `StepUpProof` that only the Entrance's
-  step-up verifier (`entrance/auth/step_up/`) can construct, naming the device, the session and
-  the moment of the step-up. `QueenDoor.open_inspection` requires one and records the Inspection
+  step-up verifier (`entrance/auth/step_up/`) can construct, naming the device, the session, the
+  moment of the step-up and the listener it arrived on (`LOOPBACK` or `REMOTE`, the arrival the
+  Entrance already records, `entrance/auth/step_up/ceremony.py:104,181`), so the door knows
+  whether an open is remote without trusting the client. `QueenDoor.open_inspection` requires one and records the Inspection
   in the door's live table with an unguessable nonce that only the door holds; an
   `InspectionWarrant` is the Inspection id plus that nonce, and is valid only while it matches a
   live row. An import-linter contract keeps `StepUpProof` and the warrant's constructor out of
@@ -3497,7 +3502,16 @@ in daily use.
   does not hold, so an Inspection there is refused while any task runs on the Cell and says why.
   A Night Veil Cell uses the same host-side attach, which crosses no network. A remote
   Inspection of a Virtual Cell is refused until its backend meets the loopback-listener rule
-  above. *Exit:* through the same harness, the shell works on a Docker Cell, a QEMU Cell, a Night
+  above. Both that refusal and the Hive Stand rule are enforced here, at the door, from the
+  proof's listener (15.4a): with `hive_stand_remote = false` the door refuses a remote shell on
+  the Hive Stand, and on any Cell reporting `shares_hive_stand_host`, before any lease opens, and
+  refuses those Cells' screen outright. `shares_hive_stand_host` is a sixth capability field,
+  set when the Cell's device is the Hive Stand's own machine, detected by the machine id the
+  packet reports matching the Hive Stand's, or by its Supersedure role (13.2a): a Pollen packet
+  installed on the Hive Stand, or a Nuc that a Supersedure left as the old Hive Stand. The door
+  reads the field, never the Cell's kind. ADR-0068's per-boot stand key limits what a local
+  process can do on loopback-only rows, but a shell running as the Hive's own account can still
+  read the serve record, so the rule is still needed. *Exit:* through the same harness, the shell works on a Docker Cell, a QEMU Cell, a Night
   Veil Docker Cell and the Hive Stand; from an Inspection shell on a QEMU Cell and on a Docker
   Desktop Cell, a request to the Entrance's loopback port through `10.0.2.2` or
   `host.docker.internal`, with a forged `Host: localhost`, is refused, and a backend that fails
@@ -3515,8 +3529,11 @@ in daily use.
   task kills that lease's processes before the shell starts and closing resumes the task on the
   same lease, a bee that ignores the Handoff request is retired and starts no process while the
   Inspection is open, and after an Inspection there that ran `mysql -psecret` and edited a file,
-  nothing from it is in Bee Bread and no Warden episode or Patrol ran meanwhile.
-  *Size:* medium, 3.5 agent-days.
+  nothing from it is in Bee Bread and no Warden episode or Patrol ran meanwhile; with
+  `hive_stand_remote = false`, a remote open of a Hive Stand shell is refused before any lease
+  opens while a loopback one succeeds; a remote shell on a Pollen Cell co-located with the Hive
+  Stand (`shares_hive_stand_host`) is refused, and its screen is refused from anywhere. *Size:*
+  medium, 4 agent-days.
 - [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
   behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
   gains its allow-list row. *Exit:* a device without the scope gets 403, one without fresh step-up
@@ -3532,7 +3549,7 @@ in daily use.
   with a retention window, announced in the client; refused on Night Veil. *Exit:* a recorded
   session replays; an unrecorded one leaves no bytes anywhere. *Size:* small, 1.5 agent-days.
 
-Track A total: about 32 agent-days.
+Track A total: about 33 agent-days.
 
 Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
 Cell's screen, and every Real Cell exit below is run with it up; until it lands, 15.11a and 15.11b
@@ -3574,7 +3591,7 @@ attached to the Entrance relay by a test harness.
   `screen_control`, landing together with its gates so no build ever serves an ungated screen:
   `QueenDoor.open_inspection` learns the screen modes and checks each before any lease opens
   (`screen_view` at every access level, `screen_control` only on `FULL`; never on Night Veil; never
-  the Hive Stand's own screen; only with the device's `--screen` opt-in, unless the Cell's
+  the Hive Stand's own screen or that of a Cell reporting `shares_hive_stand_host`; only with the device's `--screen` opt-in, unless the Cell's
   capabilities say `hive_owned` (15.5), since the Hive owns that machine; where
   `host_side_attach` is set, only remotely once its backend meets 15.5's guest-loopback rule; and every screen mode always Smokes, so `--alongside`
   is refused with any screen mode); the route takes the same `ActionKind.INSPECT` fresh step-up
@@ -3690,8 +3707,9 @@ sense landed together (its Hive Stand containment may land first as a preparator
 - A device that never ran `pollen allow inspect` refuses both tracks, and one that opted in with
   `--shell` only refuses the screen; a `SCRATCH` Cell refuses a shell; `READ_ONLY` and `SCRATCH`
   Cells refuse `screen_control` while a `FULL` Cell grants `screen_view`; a Night Veil Cell refuses the screen and recording; a device without `entrance:inspect` or
-  without a fresh step-up is refused before any lease opens; every open is pushed to every other
-  enrolled device.
+  without a fresh step-up is refused before any lease opens; with `hive_stand_remote = false`, a
+  remote open of a shell on the Hive Stand or on a Cell sharing its host is refused before any
+  lease opens; every open is pushed to every other enrolled device.
 - A Sting Cut, Absconding, the Entrance Reducer, the idle timeout, `pollen inspect end` and the
   notice's "end now" each end an open Inspection within five seconds, and the trail has exactly one
   `cell.inspection_closed` with the right reason and no content.
@@ -3708,7 +3726,11 @@ sense landed together (its Hive Stand containment may land first as a preparator
   may carry an Inspection for a device the operator widened, opened through the Queen's door
   like a Sting Cut; the device's own default shell allowed by gateway-contract `:633-634` inside
   an operator lease only; the Capping exemption for a human's keystrokes; if `hive_stand_remote`
-  is kept, the plain statement that it ends loopback-only approval in practice; the rule that the
+  is kept, the plain statement that it ends loopback-only approval in practice; remoteness read
+  from the listener the `StepUpProof` carries, and the Hive Stand rule applied to any Cell
+  reporting `shares_hive_stand_host` (a packet on the Hive Stand, or a Nuc left there by
+  Supersedure), since a same-account shell can read the serve record despite ADR-0068's
+  per-boot stand key; the rule that the
   Entrance's loopback listener is unreachable from any Virtual Cell guest, and that remote
   Inspection of a backend's Cells is refused until it holds; the operator lease closed to every
   `cell.request` and `session.*` request; `inspect.open` built only by the Queen's door from an
@@ -3721,7 +3743,8 @@ sense landed together (its Hive Stand containment may land first as a preparator
   chosen over freezing processes or a second account on a borrowed device, with un-handed-off
   sub-bees retired and every `CellSession` kind refusing work on non-operator leases; the kill by
   containment (a Job Object without breakaway, a cgroup v2 scope, else the process group), never
-  by account, extended to the Hive Stand's own leases; the five capability fields (`hive_owned`, `operator_account_isolation`,
+  by account, extended to the Hive Stand's own leases; the six capability fields (`hive_owned`,
+  `shares_hive_stand_host`, `operator_account_isolation`,
   `host_side_attach`, `bee_account_privileged`, `opt_in_source`) that replace any branch on a
   Cell's kind, and the loopback-only `hive_stand_shell` key. Disclosed and accepted residuals: persistence
   planted earlier runs outside any lease and survives Smoke (cron, `systemd --user` units,
@@ -3826,7 +3849,8 @@ sense landed together (its Hive Stand containment may land first as a preparator
    real QEMU and Docker Desktop host to prove.
 18. Inspection (phase 15): whether the Observation Hive may carry a terminal and a screen for a
    device the operator widened (the 8.11 amendment); Smoke by default or bees alongside; whether a
-   shell on the Hive Stand itself is ever reachable remotely (its screen is out of scope; default no; yes would let a
+   shell on the Hive Stand itself, or on a Cell sharing its host (`shares_hive_stand_host`), is
+   ever reachable remotely (its screen is out of scope; default no; yes would let a
    remote session reach the loopback listener, so a stolen phone plus the password and a step-up
    could enrol a new device; Justin's call); how the loopback listener is kept unreachable from
    Virtual Cell guests (SLIRP `restrict=on` with only the Queen's `guestfwd` and no host-gateway
