@@ -29,7 +29,6 @@ See Also:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 
 from hivemind.common.backup import BackupIndex, BackupSource, OpenedBackup
 from hivemind.common.errors import BackupError
@@ -49,7 +48,6 @@ __all__ = [
     "BASKET_TREE",
     "RESTORED_KIND",
     "backup_source",
-    "basket_root",
     "check_destination",
     "record_restored",
     "secret_store",
@@ -59,13 +57,6 @@ __all__ = [
 def secret_store(manifest: HiveManifest) -> FileSecretStore:
     """The Hive's secret store, as `[hive] secrets_dir` names it."""
     return FileSecretStore(manifest.resolve_path(manifest.hive.secrets_dir))
-
-
-def basket_root(manifest: HiveManifest) -> Path:
-    """The Basket's blob directory: `[basket] root`, or `basket` beside the database."""
-    root = manifest.basket.root
-    db = manifest.resolve_path(manifest.hive.db)
-    return manifest.resolve_path(root) if root is not None else db.parent / "basket"
 
 
 async def backup_source(manifest: HiveManifest) -> BackupSource:
@@ -86,7 +77,7 @@ async def backup_source(manifest: HiveManifest) -> BackupSource:
     return BackupSource(
         db=manifest.resolve_path(manifest.hive.db),
         hive_id=manifest.hive.id,
-        trees={BASKET_TREE: basket_root(manifest)},
+        trees={BASKET_TREE: manifest.basket_root()},
         identity_key=await _identity_key(store),
         secret_names=await store.names(),
     )

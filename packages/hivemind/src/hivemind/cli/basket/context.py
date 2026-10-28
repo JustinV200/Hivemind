@@ -132,11 +132,8 @@ def open_store(cli_ctx: BasketCliContext) -> SqliteBasketStore:
     """
     manifest = cli_ctx.manifest
     # The same rule `open_default_stores` applies, so this command and the running Hive read and
-    # write one byte tree: an explicit root resolves like every manifest path, else `basket/`
-    # beside the database.
-    root = manifest.basket.root
-    resolved = manifest.resolve_path(root) if root is not None else cli_ctx.db.parent / "basket"
-    return open_basket_store(cli_ctx.db, resolved, manifest.basket.max_blob_bytes)
+    # write one byte tree.
+    return open_basket_store(cli_ctx.db, manifest.basket_root(), manifest.basket.max_blob_bytes)
 
 
 def open_lab(cli_ctx: BasketCliContext) -> OpenedLab:

@@ -199,15 +199,9 @@ def open_default_stores(manifest: HiveManifest) -> HiveStores:
         goal_requests=open_goal_requests(db),
         chat=open_chat_log(db),
         comb_registry=open_comb_registry(db),  # ADR-0046: the Comb Registry, in the one file.
-        basket=open_basket_store(db, _basket_root(manifest, db), manifest.basket.max_blob_bytes),
+        basket=open_basket_store(db, manifest.basket_root(), manifest.basket.max_blob_bytes),
         guard_requests=open_guard_requests(db),
     )
-
-
-def _basket_root(manifest: HiveManifest, db: Path) -> Path:
-    """Resolve `[basket] root` like every manifest path, or default to `basket/` beside the db."""
-    root = manifest.basket.root
-    return manifest.resolve_path(root) if root is not None else db.parent / "basket"
 
 
 def build_hive_stand_source(

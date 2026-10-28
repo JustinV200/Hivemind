@@ -20,7 +20,7 @@ See Also:
 
 Public API:
     - backup_command, restore_command: the two commands (commands).
-    - BASKET_TREE, RESTORED_KIND, backup_source, basket_root, check_destination,
+    - BASKET_TREE, RESTORED_KIND, backup_source, check_destination,
       record_restored, secret_store: the Hive's side of a backup (hive).
 """
 
@@ -29,7 +29,6 @@ from hivemind.cli.backup.hive import (
     BASKET_TREE,
     RESTORED_KIND,
     backup_source,
-    basket_root,
     check_destination,
     record_restored,
     secret_store,
@@ -40,7 +39,6 @@ __all__ = [
     "RESTORED_KIND",
     "backup_command",
     "backup_source",
-    "basket_root",
     "check_destination",
     "record_restored",
     "restore_command",

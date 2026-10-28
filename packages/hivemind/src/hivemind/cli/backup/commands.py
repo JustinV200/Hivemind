@@ -36,7 +36,6 @@ import typer
 from hivemind.cli.backup.hive import (
     BASKET_TREE,
     backup_source,
-    basket_root,
     check_destination,
     record_restored,
 )
@@ -97,7 +96,7 @@ def _restore(manifest: HiveManifest, archive: Path, sha256: str | None, *, repla
         with tempfile.TemporaryDirectory(dir=db.parent, prefix=".hive-restore-") as work:
             opened = open_backup(archive, Path(work), sha256)
             asyncio.run(check_destination(opened.index, manifest))
-            written = restore_backup(opened, db, {BASKET_TREE: basket_root(manifest)})
+            written = restore_backup(opened, db, {BASKET_TREE: manifest.basket_root()})
             record_restored(manifest, opened, written, SystemClock())
     return written
 

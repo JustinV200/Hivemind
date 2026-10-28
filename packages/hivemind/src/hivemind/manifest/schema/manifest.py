@@ -206,6 +206,16 @@ class HiveManifest(BaseModel):
         base = self.source_path.parent if self.source_path is not None else Path.cwd()
         return base / path
 
+    def basket_root(self) -> Path:
+        """The Basket's blob directory: `[basket] root` resolved, or `basket` beside the database.
+
+        The one rule every opener of the Basket uses, so the running Hive, the CLI and a backup
+        read and write one byte tree.
+        """
+        if self.basket.root is not None:
+            return self.resolve_path(self.basket.root)
+        return self.resolve_path(self.hive.db).parent / "basket"
+
     @model_validator(mode="after")
     def _forage_map_providers_are_declared(self) -> HiveManifest:
         """Reject a [forage.map] entry whose provider has no [llm.providers] entry."""

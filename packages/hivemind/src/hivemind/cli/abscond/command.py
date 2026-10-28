@@ -137,9 +137,7 @@ def _open(manifest: HiveManifest) -> tuple[ScopeSources, AbscondDeps]:
         # A Night Veil Cell ended here is purged from every store, whichever process ends it.
         stores = open_default_stores(manifest)
         attach_side_channels(virtual_cells.night_veil, virtual_cells.registry, stores, ledger)
-    root = manifest.basket.root
-    basket_root = manifest.resolve_path(root) if root is not None else db.parent / "basket"
-    basket = open_basket_store(db, basket_root, manifest.basket.max_blob_bytes)
+    basket = open_basket_store(db, manifest.basket_root(), manifest.basket.max_blob_bytes)
     leavings = open_leavings(db)
     sources = ScopeSources(manifest, trail, ledger, virtual_cells, basket, leavings)
     orders = open_cluster_orders(db)
