@@ -3219,7 +3219,8 @@ neither track changes it, and 15.3a rebases on it once it merges.
   retired), then the processes of every non-operator lease are killed while the lease itself stays open, its scratch, restore records
   and grants untouched, as an isolated Cell keeps its lease (codingrules.md:1849, Appendix C).
   While the Inspection is open, new dispatch and leases on the Cell are refused; on close each
-  task resumes on the same lease (15.4b). `--alongside` gets layer 1 only: the bees keep running
+  task this Inspection Smoked resumes on the same lease, unless the Cell is isolated or the
+  Handoff is tainted (15.4b). `--alongside` gets layer 1 only: the bees keep running
   and writing their own task memory, so they can see the operator's processes and files like any
   other process on the Cell and read what the operator types, passwords included; the operator
   is told exactly that before such an Inspection opens. `--alongside` is for a terminal only and
@@ -3325,7 +3326,9 @@ lab devices, never on an enrolled device in daily use.
   remembered screen approval) on the packet's heartbeat in the same minor; it is Inspection
   availability, not a capability report, so a change never counts toward 13.4a's dire pattern.
   The same minor adds the device's machine id (`/etc/machine-id`, the Windows `MachineGuid`, the
-  macOS platform UUID) to the packet's heartbeat, from which the Queen derives
+  macOS platform UUID; under WSL, detected from `/proc/version` or `WSL_DISTRO_NAME`, also the
+  Windows host's `MachineGuid`, read through interop with `reg.exe query`) and
+  `bee_account_privileged` (15.5) to the packet's heartbeat, from which the Queen derives
   `shares_hive_stand_host` (15.5), and one device action for Smoke, `cell.lease_stop` ("kill this lease's
   processes, keep the lease"), from the Queen or the Cell's Warden, answered with the count it
   killed: gateway-contract section 9 gains it and the conformance suite a case for it; Pollen
@@ -3334,8 +3337,9 @@ lab devices, never on an enrolled device in daily use.
   in-Cell Warden carries it out through its session's process tracking.
   *Exit:* contract suite covers open, resize, input, close and a replayed or out-of-order frame
   refused; an `inspect.open` signed by the Cell's Warden (on a colonized device or a Nuc) is
-  dropped; flipping a device's opt-in shows in the next heartbeat and raises no Guard request or
-  Sting Cut; `cell.lease_stop` leaves no process of the lease running while the lease, its scratch
+  dropped; flipping the opt-in in a test fixture of the opt-in store (the real `pollen allow
+  inspect` is 15.3a's) shows in the next heartbeat and raises no Guard request or Sting Cut, and
+  so does flipping `bee_account_privileged`; `cell.lease_stop` leaves no process of the lease running while the lease, its scratch
   and its restore records remain, and a later release restores it as found. *Size:* medium, 4
   agent-days.
 - [ ] **15.3a Pollen PTY on POSIX and the operator lease.** A PTY executor on Linux and macOS
@@ -3362,7 +3366,8 @@ lab devices, never on an enrolled device in daily use.
   refuses a PTY on any lease whose granted access is below `FULL`. *Exit:* through a Waggle-level
   test harness standing in for the operator's terminal (the clients arrive in 15.7 and 15.8), on
   Ubuntu and Arch, a device that has not opted in refuses; one that has renders and resizes `vim`
-  and `htop`; killing the link ends the shell after the grace; `pollen allow inspect` run through
+  and `htop`; killing the link ends the shell after the grace; a real `pollen allow inspect` on the device shows in the
+  next heartbeat; `pollen allow inspect` run through
   `session.exec`, and a direct write to the opt-in store by the colonized Warden's account, are
   both refused; a Warden `cell.request` for an operator lease and a `session.exec` on an open
   operator lease are refused; a PTY on a `SCRATCH` lease is refused. *Size:* medium to large, 3.5
@@ -3459,8 +3464,10 @@ lab devices, never on an enrolled device in daily use.
   non-operator leases on it, and every `CellSession` kind (`LocalProcessSession`,
   `InCellSession` and the Pollen session) refuses exec, process `START` and file operations on
   a non-operator lease, as the packet refuses every `session.*` request (absolute: no
-  Inspection feature uses `session.*`). On close each task
-  resumes from its Handoff on the same, still-open lease. Because the lease never closes, every
+  Inspection feature uses `session.*`). On close only the tasks this Inspection Smoked resume,
+  each from its Handoff on the same, still-open lease; none resumes on a Cell that is `ISOLATED`
+  or from a tainted Handoff, since isolation and its human-only lift take precedence
+  (codingrules.md:1849). Because the lease never closes, every
   path that ends a lease (the dead-man switch, Sting Cut, Absconding, Requeening's recovery, a
   task cancel or re-placement) restores it exactly as it does today. A Queen that starts by
   Requeening (13.1) system-closes every operator lease she finds and, from 15.5, tears down its
@@ -3498,7 +3505,9 @@ lab devices, never on an enrolled device in daily use.
   or Patrol ran meanwhile, and the same holds for an `--alongside` Inspection on the Nuc; a Cell
   routed to the Nuc's model server falls back during the Inspection and returns after it; killing the Queen mid-Inspection on a Pollen device
   ends the Inspection under the restarted Queen, with one `cell.inspection_closed`, and the Smoked
-  task resumes only after that close; a Supersedure started with an Inspection open is refused by
+  task resumes only after that close; a Cell isolated during an Inspection resumes nothing when
+  it closes, a task paused before the Inspection for another reason stays paused, and a tainted
+  Handoff is never resumed; a Supersedure started with an Inspection open is refused by
   its preflight, and an Inspection open attempted while a Supersedure is in progress is refused.
   *Size:* large, 5.5 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs ADR-0068's guest-loopback fix landed
@@ -3511,21 +3520,26 @@ lab devices, never on an enrolled device in daily use.
   autologin, and takes one client. The Hive Stand: a local PTY in a new sub-package
   `hivemind/cell/local/pty/`, since `cell/` is where subprocess is allowed and `cell/local/`
   already holds the ten modules codingrules 5.6 allows. Smoke is 15.4b's, unchanged; the in-Cell
-  Warden stays up under layer 1 only. What differs per backend is read from named capability
-  fields, never from the Cell's kind: `CellCapabilities` (`cell/models.py:105`) and its wire
-  form `CellCapabilitiesReport` (`waggle/messages/reports.py:102`) gain `hive_owned` (no device
-  opt-in needed, `--alongside` refused), `operator_account_isolation` (the operator's shell runs
-  as its own OS account that the bee account cannot read), `host_side_attach` (the terminal and
-  screen are attached from the Hive Stand, not through Pollen), `bee_account_privileged` (the
-  bee account has root or `sudo`) and `opt_in_source`, which tells the door where a Cell's
-  opt-in comes from without a branch on its kind: `PACKET` (the Pollen heartbeat's
-  `inspect_opt_in`, 15.2), `HIVE_STAND_MANIFEST` (`[inspection] hive_stand_shell = true`, a
-  key only the operator at the Hive Stand can set: it is read from the manifest on loopback and
-  is never writable by the Queen, a bee or any Entrance route) or `HIVE_OWNED` (none needed).
-  `--alongside` on the Hive Stand is permitted, under the general `--alongside` disclosure. Virtual Cell backends report them from the image at
-  provisioning with `opt_in_source = HIVE_OWNED`; Pollen and the Hive Stand report `hive_owned`,
-  `operator_account_isolation` and `host_side_attach` false, `bee_account_privileged` as the
-  packet's or the Hive's account is, and `opt_in_source` as `PACKET` or `HIVE_STAND_MANIFEST`. On QEMU,
+  Warden stays up under layer 1 only. What differs per backend is read from named fields, never
+  from the Cell's kind. Four live Hive-side, on the Queen's record of the Cell
+  (`CellCapabilities`, `cell/models.py:105`), derived from the backend or the opt-in source and
+  never reported by Pollen, so they never touch the wire report 13.4a watches: `hive_owned` (no
+  device opt-in needed, `--alongside` refused), `operator_account_isolation` (the operator's
+  shell runs as its own OS account that the bee account cannot read), `host_side_attach` (the
+  terminal and screen are attached from the Hive Stand, not through Pollen) and `opt_in_source`,
+  which tells the door where a Cell's opt-in comes from: `PACKET` (the Pollen heartbeat's
+  `inspect_opt_in`, 15.2), `HIVE_STAND_MANIFEST` (`[inspection] hive_stand_shell = true`, a key
+  only the operator at the Hive Stand can set: it is read from the manifest on loopback and is
+  never writable by the Queen, a bee or any Entrance route) or `HIVE_OWNED` (none needed). The
+  fifth, `bee_account_privileged` (the bee account has root or `sudo`), can change legitimately,
+  so for a `PACKET` Cell it rides the heartbeat beside `inspect_opt_in` (15.2) as Inspection
+  availability, never a 13.4a capability report; a flip to true applies at once, a flip to false
+  counts only from a fresh heartbeat, and the door re-checks it at every open. Virtual Cell
+  backends set it from the image, and the Hive Stand from its own account. `--alongside` on the
+  Hive Stand is permitted, under the general `--alongside` disclosure. Virtual Cells get
+  `hive_owned`, `host_side_attach` and `opt_in_source = HIVE_OWNED`; Pollen Cells and the Hive
+  Stand get `hive_owned`, `operator_account_isolation` and `host_side_attach` false and
+  `opt_in_source` `PACKET` or `HIVE_STAND_MANIFEST`. On QEMU,
   cloud-init creates the operator account, its home and the PTY's owner, and mounts `/proc` with
   `hidepid=2`, so `operator_account_isolation` is true. On Docker the runtime mounts `/proc` and
   `CAP_SYS_ADMIN` is dropped (`hive/backends/docker/backend.py:400`), so `hidepid` is not
@@ -3554,9 +3568,10 @@ lab devices, never on an enrolled device in daily use.
   longer shares the host. The door reads the derived fact, never the Cell's kind. ADR-0068's
   per-boot stand key limits what a local process can do on loopback-only rows, but a shell
   running as the Hive's own account can still read the serve record, so the rule is still
-  needed. For review: a WSL2 distribution on a Windows Hive Stand can read the Hive Stand's files
-  through `/mnt/c` while reporting its own machine id, so "can read the serve record" may be the
-  better criterion than "same machine id". *Exit:* through the same harness, the shell works on a Docker Cell, a QEMU Cell, a Night
+  needed. A WSL distribution on a Windows Hive Stand can read the Hive Stand's files through
+  `/mnt/c` while having its own machine id, so a packet under WSL also reports its Windows host's
+  `MachineGuid` (15.2), and the Queen uses that host id as the Cell's machine id for co-location;
+  if WSL is detected but the host id cannot be read, the Cell fails closed as sharing the host. *Exit:* through the same harness, the shell works on a Docker Cell, a QEMU Cell, a Night
   Veil Docker Cell and the Hive Stand; from an Inspection shell on a QEMU Cell and on a Docker
   Desktop Cell, a request to the Entrance's loopback port through `10.0.2.2` or
   `host.docker.internal`, with a forged `Host: localhost` and no stand key, to a loopback-only row
@@ -3577,7 +3592,9 @@ lab devices, never on an enrolled device in daily use.
   nothing from it is in Bee Bread and no Warden episode or Patrol ran meanwhile; the Queen derives
   `shares_hive_stand_host` true for a `PACKET` Cell with the Hive Stand's machine id or with none
   and for the `HIVE_STAND_MANIFEST` Hive Stand, false for a `host_side_attach` Cell, and recomputes it after a Supersedure, when it holds for
-  the new Hive Stand's packet and not for the old machine's (the remote refusals themselves are
+  the new Hive Stand's packet and not for the old machine's; a packet under WSL on the Windows
+  Hive Stand derives true from its host's `MachineGuid`, and one under WSL whose host id cannot
+  be read derives true by failing closed (the remote refusals themselves are
   15.6's exits, once the open route exists); a Warden or autopilot call to the Docker tty exec,
   the QEMU console or the Hive Stand PTY without a live warrant is refused, and so is an
   operator-kind lease asked of any `CellSession` kind without one; output from those paths
@@ -3612,12 +3629,15 @@ lab devices, never on an enrolled device in daily use.
   15.18's downloads and 15.19's screen recordings use the same area. It is read only through
   routes that need the matching `entrance:inspect` scope (`shell` for transcripts and terminal
   downloads, `screen_view` for screen recordings and screen downloads), a fresh
-  `ActionKind.INSPECT` step-up, and the stand key where the data is the Hive Stand's own; the
+  `ActionKind.INSPECT` step-up, and, for an Inspection opened under the Hive Stand rule (the
+  door records `shares_hive_stand_host` at open), the stand key and a `LOOPBACK` proof; the
   UI's default credentials never reach them, and each route gets its route-test row, added here
   for transcripts and in 15.18 and 15.19 for theirs. *Exit:* a recorded session replays; an
   unrecorded one leaves no bytes anywhere; no bee can read a recording, and none appears in the
   Basket, Nectar or Honey; the UI's default credentials get 403 on the read route, and a device
-  with the scope but no fresh step-up gets `step_up_required`. *Size:* small, 2 agent-days.
+  with the scope but no fresh step-up gets `step_up_required`; a transcript of a Hive Stand
+  Inspection is refused to a remote device, and to a loopback one without the stand key.
+  *Size:* small, 2 agent-days.
 
 Track A total: about 34 agent-days.
 
@@ -3819,7 +3839,13 @@ sense landed together (its Hive Stand containment may land first as a preparator
   `shares_hive_stand_host` from the device's machine id (a packet on the Hive
   Stand, or the new Hive Stand after a Supersedure), recomputed when the Hive Stand moves, since
   a same-account shell can read the serve record despite ADR-0068's per-boot stand key, failing
-  closed on a missing or unreadable machine id; loopback trusted only with the stand key, never by
+  closed on a missing or unreadable machine id, and a packet under WSL judged by its Windows
+  host's `MachineGuid`, failing closed if that cannot be read; reads of a Hive Stand
+  Inspection's transcripts, recordings and downloads needing the stand key and a `LOOPBACK`
+  proof; four capability fields held Hive-side and never reported, and
+  `bee_account_privileged` on the heartbeat as availability, not a 13.4a report; on close only
+  the tasks that Inspection Smoked resuming, and none on an isolated Cell or from a tainted
+  Handoff; loopback trusted only with the stand key, never by
   listener (a step-up is `LOOPBACK` only with it, and a Hive Stand or co-located shell open is a
   stand-key row), because the stand key guards only the loopback-only rows and a guest reaches
   every other row on the loopback listener; with that, remote shell Inspection of a Virtual Cell
@@ -3876,8 +3902,8 @@ sense landed together (its Hive Stand containment may land first as a preparator
   its exemption from the frame ceiling (section 7, `:263-266`); licensing of bundled servers).
 - `inspection-audit-and-recording.md` (trail events and counts; optional recordings kept only in
   the operator-only area, never the Basket, Nectar or Honey, and read only through routes that
-  need the matching `entrance:inspect` scope, a fresh `ActionKind.INSPECT` step-up and, for the
-  Hive Stand's own data, the stand key, never with the UI's default credentials; the Night
+  need the matching `entrance:inspect` scope, a fresh `ActionKind.INSPECT` step-up and, for an
+  Inspection opened under the Hive Stand rule, the stand key and a `LOOPBACK` proof, never with the UI's default credentials; the Night
   Veil host-side attach, and the two `cell.inspection_*` events this adds to the lifecycle
   skeleton in codingrules section 12).
 
@@ -3954,8 +3980,8 @@ sense landed together (its Hive Stand containment may land first as a preparator
    shell on the Hive Stand itself, or on a Cell sharing its host (derived from its machine id), is
    ever reachable remotely (its screen is out of scope; default no; yes would let a
    remote session reach the loopback listener, so a stolen phone plus the password and a step-up
-   could enrol a new device; Justin's call); whether the co-location test should be "same machine
-   id" or "can read the serve record" (WSL2 on a Windows Hive Stand); a Night Veil terminal
+   could enrol a new device; Justin's call; WSL on a Windows Hive Stand is settled, judged by its
+   host's `MachineGuid`); a Night Veil terminal
    (attached from the host side) or none at all; whether recordings are offered at all.
 19. Remote desktop transport (phase 15.10): RFB through bundled loopback VNC servers and noVNC,
    own capture in the packet, or WebRTC; which VNC server per OS and its licence (x11vnc,
