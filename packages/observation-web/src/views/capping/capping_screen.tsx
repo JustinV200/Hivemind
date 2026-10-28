@@ -22,7 +22,7 @@
  *   - src/views/capping/README.md, src/views/capping/use_capping.ts for how it stays live.
  */
 import type { ReactElement, ReactNode } from 'react';
-import { ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
 import './capping.css';
 import { AuditsTable } from './audits/audits_table';
 import { QueueFilters, useQueueFilter } from './queue/filters';
@@ -35,7 +35,7 @@ import { useCapping } from './use_capping';
 function Section(props: { title: string; children: ReactNode }): ReactElement {
   return (
     <section className="capping-section" aria-label={props.title}>
-      <h2>{props.title}</h2>
+      <h2 className="section-heading">{props.title}</h2>
       {props.children}
     </section>
   );
@@ -59,17 +59,17 @@ function Body(props: { state: CappingState }): ReactElement {
       <RatesStrip state={state} />
       <Section title="Queue">
         {shown.length === 0 ? (
-          <p className="capping-note">No proposals match these filters.</p>
+          <EmptyState>No proposals match these filters.</EmptyState>
         ) : (
           <QueueTable rows={shown} />
         )}
       </Section>
       <Section title="Sampled audits">
         {state.audits.length === 0 ? (
-          <p className="capping-note">
+          <EmptyState>
             No audits yet. An audit appears here when the judge takes a second look at a finished
             proposal of a tier the gate cannot check in real time.
-          </p>
+          </EmptyState>
         ) : (
           <AuditsTable audits={state.audits} />
         )}
@@ -97,10 +97,10 @@ function Nothing(props: { error: unknown }): ReactElement {
     <>
       <ViewTitle title="Capping" />
       {props.error ? <ErrorNotice error={props.error} /> : null}
-      <p className="capping-note">
+      <EmptyState>
         Nothing has been proposed yet. A proposal appears here when a bee asks the gate to let it do
         something with a side effect outside its scratch directory.
-      </p>
+      </EmptyState>
     </>
   );
 }

@@ -3,7 +3,7 @@
  *
  * It answers "who holds the Forage I see flowing": the Warden's state (as its newest Heartbeat said,
  * or offline once the Queen marked it so), how many sub-bees it listed, how many live grants it
- * holds in the ledger and when it last reported. Under 720 px each Warden is a stacked card.
+ * holds in the ledger and when it last reported. Under 1080 px each Warden is a stacked card.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/tables/`. Drawn by `forage_screen.tsx` from the

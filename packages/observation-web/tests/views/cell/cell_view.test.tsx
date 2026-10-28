@@ -65,10 +65,11 @@ const [CELLS, TELEMETRY, TRAIL] = [0, 1, 2];
 const header = () => document.querySelector('.cell-header') as HTMLElement;
 
 describe('the header', () => {
-  it('holds the id, kind and source, then both badges, access level and mode', async () => {
+  it('leads with the name over the id, kind and source, then badges, access and mode', async () => {
     await mount({
       body: pageView({
         cell: cellRecord({
+          name: 'laptop',
           comb_shield: 'PROPOLIS',
           mask_state: 'WARDEN',
           access_level: 'READ_ONLY',
@@ -77,7 +78,9 @@ describe('the header', () => {
     });
     await screen.findByText('PROPOLIS');
     const head = within(header());
-    expect(head.getByRole('heading', { name: 'Cell' })).toBeTruthy();
+    // The name leads, as the Fleet row does; the full id stays beside it as the subject.
+    expect(head.getByRole('heading', { name: 'laptop' })).toBeTruthy();
+    expect(head.queryByRole('heading', { name: 'Cell' })).toBeNull();
     expect(head.getByText('cell_1')).toBeTruthy();
     expect(head.getByText(/Real Cell, source hive_stand, active/)).toBeTruthy();
     expect(head.getByText('PROPOLIS')).toBeTruthy();
@@ -95,7 +98,8 @@ describe('the header', () => {
 
   it('shows the subject at once, before the page is read', async () => {
     const opened = await openHive();
-    // No answer yet: the read is still in flight when the first paint happens.
+    // No answer yet: the read is still in flight when the first paint happens, and the name is
+    // not known, so the title is the plain word until the page lands.
     render(
       <HiveProvider hive={opened.hive}>
         <CellPageView id="cell_1" />
@@ -258,9 +262,10 @@ describe('the panels', () => {
 
   it('show the last Patrol once the schema carries one', async () => {
     await mount({ body: pageView({ last_patrol_at: '2026-01-01T00:10:00Z' }) });
-    const mode = within(await screen.findByRole('region', { name: 'Access and mode' }));
-    expect(mode.queryByText('not tracked yet')).toBeNull();
-    expect(mode.getByText(/2026-01-01/)).toBeTruthy();
+    const region = await screen.findByRole('region', { name: 'Access and mode' });
+    expect(within(region).queryByText('not tracked yet')).toBeNull();
+    // The visible text is relative to the clock, so the ISO time in `<time>` is what is asserted.
+    expect(region.querySelector('time')?.getAttribute('datetime')).toBe('2026-01-01T00:10:00Z');
   });
 
   it('list Cell Wax with severity, proposer and expiry, and standing wax', async () => {
@@ -358,7 +363,7 @@ describe('refusals', () => {
     });
     expect(await screen.findByText('That Cell is not known to the Hive.')).toBeTruthy();
     expect(screen.getByText('hivemind.entrance.cell_not_found')).toBeTruthy();
-    expect(document.querySelector('svg')).toBeNull();
+    expect(document.querySelector('svg.dg')).toBeNull();
     expect(screen.queryByText('Reading the Cell')).toBeNull();
   });
 
@@ -368,7 +373,7 @@ describe('refusals', () => {
       body: { error: 'hivemind.entrance.capability_denied', detail: 'x' },
     });
     expect(await screen.findByText('This device is not allowed to see or do that.')).toBeTruthy();
-    expect(document.querySelector('svg')).toBeNull();
+    expect(document.querySelector('svg.dg')).toBeNull();
   });
 });
 

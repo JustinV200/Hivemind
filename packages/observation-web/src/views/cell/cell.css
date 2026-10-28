@@ -1,11 +1,14 @@
 /*
- * Cell page styles: the sticky header, the diagram and the panels beside it.
+ * Cell page styles: the sticky header, the diagram band and the panels under it.
  *
- * Mobile first (design.md section 2): the header's badges wrap rather than collapse, the diagram
- * is one full-width SVG that scales by its viewBox, and the panels stack in one column under it.
- * From 720px the panels flow into as many columns as fit; from 1400px the diagram sits beside them.
- * The SVG's text is real text in the page's fonts and its fills and strokes are tokens, so both
- * themes work with no literal colour here.
+ * Mobile first (design.md section 2): the header's badges wrap rather than collapse (and the
+ * header sticks only from the rail width, where it does not take a phone's screen), the diagram
+ * is one SVG as wide as its pane, and the panels stack in one column under it. From 720px the
+ * panels flow into as many columns as fit (three at 1440px), under a diagram band in which the
+ * drawing keeps its canvas's own width (one pixel per unit, centred), so its 12 unit text is
+ * 12px on every screen and never grows past the page's type. The SVG's text is real text in the
+ * page's fonts and its fills and strokes are tokens, so both themes work with no literal colour
+ * here.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/`. Imported by `cell.tsx`. Class names are those
@@ -19,11 +22,19 @@
  *   - docs/observation/design.md sections 3, 4.5, 4.6 and 5.2.
  */
 .cell-header {
-  position: sticky;
-  top: calc(var(--topbar-h) + var(--strip-h));
-  z-index: 10;
   padding-bottom: var(--sp-2);
   background: var(--bg);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+/* The header sticks under the head (its measured height, notices included) from the rail width;
+   on a phone it would take the screen */
+@media (min-width: 720px) {
+  .cell-header {
+    position: sticky;
+    top: var(--head-h);
+    z-index: 10;
+  }
 }
 
 .cell-header .view-title {
@@ -59,22 +70,20 @@
   margin-top: var(--sp-4);
 }
 
-@media (min-width: 1400px) {
-  .cell-page {
-    grid-template-columns: 744px minmax(0, 1fr);
-    align-items: start;
-  }
-}
-
-/* Diagram */
+/* Diagram: a band across the page, the drawing centred at its canvas's own width (its `width`
+   attribute); a comb cell like the panels (`.comb-cell` in components.css gives it the cut and
+   the stroke) */
 .cell-diagram {
   min-width: 0;
+  padding: var(--sp-3);
+  background: var(--surface);
 }
 
 .dg {
   display: block;
-  width: 100%;
+  max-width: 100%;
   height: auto;
+  margin: 0 auto;
 }
 
 .dg text {
@@ -89,7 +98,7 @@
 
 .dg .dg-role,
 .dg .dg-box-value {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .dg .dg-line,
@@ -104,11 +113,19 @@
   font-weight: 700;
 }
 
+.dg-node .dg-shape {
+  transition: fill var(--motion);
+}
+
+.dg-node:hover .dg-shape {
+  fill: var(--surface-2);
+}
+
 .dg-node:focus-visible {
   outline: none;
 }
 
-.dg-node:focus-visible rect:first-of-type {
+.dg-node:focus-visible .dg-shape {
   stroke: var(--accent);
   stroke-width: 3px;
 }
@@ -121,25 +138,30 @@
   align-items: start;
 }
 
+/* From 720px the panels flow down columns, not across a grid: a short panel sits right under the
+   one above it, so a tall Forage panel beside a short one leaves no hole and the last panel never
+   sits alone on a row of its own */
 @media (min-width: 720px) {
   .cell-panels {
-    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    display: block;
+    columns: 340px;
+    column-gap: var(--sp-4);
+  }
+
+  .cell-panel {
+    break-inside: avoid;
+    margin-bottom: var(--sp-4);
   }
 }
 
+/* A comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .cell-panel {
   display: grid;
   gap: var(--sp-2);
   align-content: start;
   padding: var(--sp-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
   background: var(--surface);
   overflow-wrap: anywhere;
-}
-
-.cell-panel h2 {
-  font-size: var(--fs-lg);
 }
 
 .cell-panel h3 {
@@ -172,31 +194,6 @@
   font-size: var(--fs-sm);
 }
 
-.cell-tag {
-  display: inline-block;
-  padding: 0 var(--sp-2);
-  border: 1px solid currentcolor;
-  border-radius: var(--radius-tag);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-}
-
-.cell-tag--ok {
-  color: var(--ok);
-}
-
-.cell-tag--warn {
-  color: var(--warn);
-}
-
-.cell-tag--alarm {
-  color: var(--alarm);
-}
-
-.cell-tag--idle {
-  color: var(--idle);
-}
-
 .cell-facts {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -208,12 +205,19 @@
   margin: 0;
 }
 
+/* A word beside each gauge, in a column; the word's line box is the bar's height, so it centres
+   on the bar it names rather than on the bar and its caption together, where it would sit beside
+   the numbers */
 .cell-gauges {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   gap: var(--sp-1) var(--sp-4);
   font-size: var(--fs-sm);
+}
+
+.cell-gauges > span {
+  line-height: var(--gauge-h);
 }
 
 .cell-links {

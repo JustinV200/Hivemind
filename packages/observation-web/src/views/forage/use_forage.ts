@@ -6,14 +6,18 @@
  * refusal (the device lacks `observe`) or any failure goes into the slice, and the view shows it
  * through `ErrorNotice`. The live part is the forage stream, folded frame by frame. The one later
  * read is a reaction to a frame: a `forage.capacity_reported` frame carries no capacity figures, so
- * the ledger is read again when the slice counts one. There is no timer and no polling.
+ * the ledger is read again when the slice counts one. There is no timer and no polling. The host
+ * cards are named from the Fleet slice, so when no view has seeded it yet the fleet is read once
+ * here too (`useFleetNames`), the one write outside the `forage` slice.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/`. Used by `forage_screen.tsx`; reads through the
- *   Landing Board client from the store's provider and writes only the `forage` slice.
+ *   Landing Board client from the store's provider and writes the `forage` slice, plus the
+ *   `fleet` slice's seed when the fleet has not been read.
  *
  * Key invariants:
- *   - Without a frame, the only requests are the three of the seed.
+ *   - Without a frame, the only requests are the three of the seed, plus one read of the fleet
+ *     when no view has seeded it yet (the host cards' names).
  *   - A reply that lands after the reader left is dropped.
  *   - Pass module-level functions to `useViewStream`, so the stream opens once per mount.
  *
@@ -33,6 +37,7 @@ export function useForage(): ForageState {
   const { client, store } = useHive();
   const state = useSlice('forage');
   useViewStream(FORAGE_STREAM, 'forage', toEvent);
+  useFleetNames();
 
   // The seed: the three reads go out together and are folded as one answer.
   useEffect(() => {
@@ -70,4 +75,27 @@ export function useForage(): ForageState {
   }, [client, store, ticks]);
 
   return state;
+}
+
+// The host cards take their names from the Fleet slice, which only the Fleet view seeds; until
+// the fleet has been read once, read it here so the cards are named on the first load.
+function useFleetNames(): void {
+  const { client, store } = useHive();
+  const fleet = useSlice('fleet');
+  useEffect(() => {
+    if (fleet.seeded) return;
+    let current = true;
+    client.http
+      .call('get', '/v1/fleet')
+      .then((answer) => {
+        if (current) store.dispatch({ slice: 'fleet', event: { type: 'seeded', answer } });
+      })
+      .catch(() => {
+        // Names are a nicety: a host card shows its id when the fleet cannot be read, and the
+        // Fleet view will report the failure itself when it is opened.
+      });
+    return () => {
+      current = false;
+    };
+  }, [client, store, fleet.seeded]);
 }

@@ -8,7 +8,7 @@
  * the two kinds apart.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/components/`. Used by the Fleet rows and the Cell page header
+ *   Layer 7 (observation-web), `src/components/badges/`. Used by the Fleet rows and the Cell page header
  *   in later steps; styled by `src/styles/components.css` from the badge tokens.
  *
  * Key invariants:
@@ -19,7 +19,7 @@
  *   - docs/observation/design.md sections 3.3 and 4.1.
  */
 import type { ReactElement } from 'react';
-import type { components } from '../landing_board/types';
+import type { components } from '../../landing_board/types';
 
 export type CombShieldLevel = components['schemas']['CombShieldLevel'];
 

@@ -1,8 +1,8 @@
 /**
  * Tests for the Cost view's formatting: dollars and counts.
  *
- * Spend is mostly fractions of a cent, so these pin the rule that a figure under a dollar shows
- * four decimals and one from a dollar up shows two with separators, and that counts get thousands
+ * These pin the rule that a figure shows two decimals with thousands separators, and four only
+ * below one cent so a fraction of a cent is not shown as nothing, and that counts get thousands
  * separators.
  *
  * Fits into the Hive:
@@ -18,17 +18,17 @@ import { describe, expect, it } from 'vitest';
 import { count, sharePercent, usd } from '../../../src/views/cost/format';
 
 describe('usd', () => {
-  it('shows four decimals under a dollar', () => {
-    expect(usd(0)).toBe('$0.0000');
-    expect(usd(0.0123)).toBe('$0.0123');
-    expect(usd(0.00004)).toBe('$0.0000');
-    expect(usd(0.5)).toBe('$0.5000');
-  });
-
-  it('shows two decimals from a dollar up, with thousands separators', () => {
-    expect(usd(1)).toBe('$1.00');
+  it('shows two decimals with thousands separators, zero included', () => {
+    expect(usd(0)).toBe('$0.00');
+    expect(usd(0.0123)).toBe('$0.01');
+    expect(usd(0.5)).toBe('$0.50');
     expect(usd(12.345)).toBe('$12.35');
     expect(usd(1234567.891)).toBe('$1,234,567.89');
+  });
+
+  it('shows four decimals only below one cent', () => {
+    expect(usd(0.005)).toBe('$0.0050');
+    expect(usd(0.00004)).toBe('$0.0000');
   });
 });
 

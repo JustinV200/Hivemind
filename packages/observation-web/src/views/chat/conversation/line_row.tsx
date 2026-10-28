@@ -35,6 +35,13 @@ const KIND_WORDS: Record<ChatLine['kind'], string> = {
   notice: 'Notice',
 };
 
+// A question and an Alarm wait on the human, so their kind is a status tag in its tone; the
+// other kinds take the quiet tag (the shared `.tag` of components.css).
+const TAG_CLASS: Partial<Record<ChatLine['kind'], string>> = {
+  question: 'tag tag--status tag--warn',
+  alarm: 'tag tag--status tag--alarm',
+};
+
 export function LineRow(props: {
   line: ChatLine;
   state: ChatState;
@@ -49,7 +56,7 @@ export function LineRow(props: {
       <article aria-label={`${human ? 'You' : 'Queen'}, ${KIND_WORDS[line.kind]}`}>
         <header className="chat-line-head">
           <strong>{human ? 'You' : 'Queen'}</strong>
-          <span className={`chat-tag chat-tag--${line.kind}`}>{KIND_WORDS[line.kind]}</span>
+          <span className={TAG_CLASS[line.kind] ?? 'tag'}>{KIND_WORDS[line.kind]}</span>
           <TimeStamp at={line.at} />
         </header>
         <p className="chat-text">{line.text}</p>

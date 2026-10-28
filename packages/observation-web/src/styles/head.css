@@ -1,0 +1,261 @@
+/*
+ * The shell's head: the top bar, the step-up banner, the summary strip and the notice bar.
+ *
+ * These are the parts of the sticky head (shell.css) that every screen after login shares. The
+ * bar is one 48px row of the hive's chrome with a comb across its empty middle from the rail
+ * width; the strip is four comb cells in one row (two by two on a phone, where each cell is two
+ * lines, the label with its hint and the number, so the band holds the 116px the tokens budget
+ * and the pinned head stays under a quarter of the screen; while a stream is down the cells give
+ * up 2px of padding each, which is what the stale note's line needs to fit the same band), set
+ * 4px apart so they read as one row of comb rather than four boxes; the notice bar under it says
+ * what the push stream reports as waiting. The head's height changes as the banner and the
+ * notice bar come and go, which is why the rail reads it as `--head-h` rather than assuming the
+ * bar plus the strip.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
+ *   rendered by `src/shell/head/` and `src/shell/theme/`.
+ *
+ * Key invariants:
+ *   - Tokens only: no colour or size literal except breakpoints and one-off pixel borders.
+ *   - The strip dims, never hides, when its data is stale.
+ *   - A value that just moved is marked with an underline, with or without motion.
+ *
+ * See Also:
+ *   - docs/observation/design.md section 2.
+ */
+
+/* Top bar: one 48px row of chrome */
+.topbar {
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--gutter);
+  background: var(--chrome);
+  color: var(--chrome-text);
+}
+
+.topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-right: auto;
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* The comb across the bar's empty middle: drawn from the rail width, where there is a middle */
+.topbar-comb {
+  display: none;
+}
+
+.topbar-connection {
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.topbar-device {
+  display: none;
+  gap: var(--sp-2);
+  align-items: baseline;
+  color: var(--chrome-muted);
+  font-size: var(--fs-sm);
+  min-width: 0;
+}
+
+.topbar-device > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-listener {
+  font-family: var(--font-mono);
+}
+
+/* Controls in the bar are outlined on the chrome, not on the surface */
+.topbar .button {
+  min-height: 36px;
+  background: transparent;
+  color: var(--chrome-text);
+  border-color: var(--chrome-muted);
+}
+
+.topbar .button:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--chrome-text);
+}
+
+/* The page's --accent ring is dark on the propolis chrome, so the bar's ring is the chrome accent */
+.topbar :focus-visible {
+  outline-color: var(--chrome-accent);
+}
+
+.topbar-theme {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-2);
+}
+
+.topbar-theme svg {
+  width: 18px;
+  height: 18px;
+}
+
+.topbar-theme-word {
+  display: none;
+}
+
+.banner {
+  padding: var(--sp-2) var(--gutter);
+  background: var(--surface-2);
+  border-top: 1px solid var(--warn);
+  border-bottom: 1px solid var(--warn);
+  font-size: var(--fs-sm);
+}
+
+/* Summary strip: four comb cells, two by two on a phone, 4px apart like cells in a comb; the
+   phone's padding is the comb's own 4px, so two rows of 49px cells fit the 116px budget */
+.strip {
+  min-height: var(--strip-h);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-1);
+  align-content: center;
+  padding: var(--sp-1) var(--gutter);
+  background: var(--surface-2);
+}
+
+.strip--stale .strip-group {
+  opacity: 0.55;
+}
+
+.strip-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--surface);
+  clip-path: var(--hex-cut);
+}
+
+/* The label's line is as tight as the number's, so a cell is 46px and two rows leave the band
+   room for the stale note */
+.strip-label {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-heading);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip-value {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: var(--lh-heading);
+}
+
+/* A value that just moved: a 2px accent underline for five seconds, with or without motion */
+.strip-value--changed {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* The stale note: a third row of the phone's band, its line as tall as its type; the cells above
+   it give up 2px of padding each, so two 42px cells, two 4px gaps, a 12px line and the band's
+   8px of padding make 113px, inside the 116px budget, and the head's height holds */
+.strip-stale {
+  grid-column: 1 / -1;
+  font-size: var(--fs-xs);
+  line-height: 1;
+  color: var(--warn);
+}
+
+.strip--stale .strip-group {
+  min-height: 0;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+/* Notice bar: what the push stream says is waiting, under the strip */
+.notice-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-2) var(--gutter);
+  background: var(--accent-soft);
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--fs-sm);
+}
+
+.notice-bar ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  flex: 1 1 auto;
+}
+
+.notice-bar-dismiss {
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+}
+
+@media (min-width: 720px) {
+  .topbar {
+    gap: var(--sp-4);
+  }
+
+  /* The comb takes the bar's free space instead of the brand's auto margin */
+  .topbar-brand {
+    margin-right: 0;
+  }
+
+  .topbar-comb {
+    display: block;
+    position: relative;
+    flex: 1 1 auto;
+    align-self: stretch;
+    min-width: 0;
+  }
+
+  .topbar-device {
+    display: flex;
+  }
+
+  .topbar-theme-word {
+    display: inline;
+  }
+
+  /* The four groups share the band, with the stale note in a fifth column at its right edge,
+     and the row stops where the content does (the rail plus the 1440px cap), so it neither
+     hugs the left of a wide window nor stretches across an ultra-wide one */
+  .strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+    column-gap: var(--sp-1);
+    padding: var(--sp-2) var(--gutter);
+    max-width: calc(var(--rail-w) + 1440px);
+  }
+
+  /* One row holds the note at its right edge, so the cells keep their padding while stale */
+  .strip-group,
+  .strip--stale .strip-group {
+    padding: var(--sp-1) var(--sp-4);
+  }
+
+  .strip-stale {
+    grid-column: auto;
+    justify-self: end;
+    align-self: center;
+    white-space: nowrap;
+  }
+}

@@ -24,7 +24,7 @@
  *   - src/views/thoughts/README.md.
  */
 import type { ReactElement } from 'react';
-import { ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
 import { useHive, useViewStream } from '../../store';
 import { DecisionRow } from './decision_row';
 import { EpisodeCard } from './episode_card';
@@ -73,7 +73,9 @@ export function ThoughtsView(props: { bee: string }): ReactElement {
       {state.error ? <ErrorNotice error={state.error} /> : null}
       {!state.seeded && !state.error ? <p aria-busy="true">Reading thoughts</p> : null}
       {state.seeded && items.length === 0 ? (
-        <p>No thoughts yet. An episode appears here when this bee wakes to decide something.</p>
+        <EmptyState>
+          No thoughts yet. An episode appears here when this bee wakes to decide something.
+        </EmptyState>
       ) : null}
       <div className="thought-list">
         {items.map((item) =>

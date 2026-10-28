@@ -35,7 +35,7 @@ function Figure(props: { label: string; value: string | number }): ReactElement 
 function TierCard(props: { rates: TierRates }): ReactElement {
   const r = props.rates;
   return (
-    <li className="capping-rate">
+    <li className="capping-rate comb-cell">
       <h3>{wordsOf(r.tier)}</h3>
       <dl className="capping-figures">
         <Figure label="Proposals" value={r.proposals} />
@@ -55,7 +55,7 @@ export function RatesStrip(props: { state: CappingState }): ReactElement {
   const tiers = tierRates(props.state);
   return (
     <section className="capping-section" aria-label="Rates per tier">
-      <h2>Rates per tier</h2>
+      <h2 className="section-heading">Rates per tier</h2>
       <ul className="capping-rates">
         {tiers.map((rates) => (
           <TierCard key={rates.tier} rates={rates} />

@@ -53,20 +53,15 @@
   min-width: 0;
 }
 
+/* A comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .att-panel {
   display: grid;
   gap: var(--sp-2);
   align-content: start;
   min-width: 0;
   padding: var(--sp-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
   background: var(--surface);
   overflow-wrap: anywhere;
-}
-
-.att-panel h2 {
-  font-size: var(--fs-lg);
 }
 
 .att-muted {
@@ -120,15 +115,6 @@
   font-weight: 700;
 }
 
-.att-tag {
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--alarm);
-  border-radius: var(--radius-tag);
-  color: var(--alarm);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-}
-
 .att-reasons {
   margin: 0;
   padding-left: var(--sp-4);
@@ -175,11 +161,19 @@
   font-weight: 700;
 }
 
+.ag-node .ag-shape {
+  transition: fill var(--motion);
+}
+
+.ag-node:hover .ag-shape {
+  fill: var(--surface-2);
+}
+
 .ag-node:focus-visible {
   outline: none;
 }
 
-.ag-node:focus-visible rect:first-of-type {
+.ag-node:focus-visible .ag-shape {
   stroke: var(--accent);
   stroke-width: 3px;
 }

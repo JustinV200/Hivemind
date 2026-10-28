@@ -1,7 +1,9 @@
 /**
  * The components' face: the shared pieces every view draws with.
  *
- * Importers take badges, the status dot, the gauge, the error notice and the title row from here.
+ * Importers take badges, the status dot, the gauge, the error notice, the view boundary, the
+ * title row, the sort control, the empty state, the brand mark, the comb pattern and the two
+ * width hooks (a breakpoint, a measured pane) from here.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/components/`. Imported by `src/shell/` and `src/views/`.
@@ -12,14 +14,18 @@
  * See Also:
  *   - docs/observation/design.md section 4 for each component.
  */
+export { MaskBadge, TierBadge } from './badges';
+export type { CombShieldLevel, MaskState } from './badges';
+export { EmptyState, HexPattern, HEXAGON, Mark } from './comb';
 export { ErrorNotice } from './error_notice';
 export { Gauge } from './gauge';
 export { IdToken } from './id_token';
-export { MaskBadge } from './mask_badge';
-export type { MaskState } from './mask_badge';
 export { StatusDot } from './status_dot';
 export type { StatusWord } from './status_dot';
-export { TimeStamp } from './time_stamp';
-export { TierBadge } from './tier_badge';
-export type { CombShieldLevel } from './tier_badge';
+export { TimeStamp } from './time';
+export { NARROW_TABLE_MIN, RAIL_MIN, useMinWidth, WIDE_TABLE_MIN } from './use_min_width';
+export { usePaneWidth } from './use_pane_width';
+export { SortSelect } from './sort_select';
+export type { SortChoice, SortDirection, SortOption } from './sort_select';
+export { ViewBoundary } from './view_boundary';
 export { ViewTitle } from './view_title';

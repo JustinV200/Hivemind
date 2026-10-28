@@ -45,6 +45,8 @@ export interface CapacityRow {
 export interface HostBlock {
   id: string;
   title: string;
+  // A host is one Cell (its id is a Cell id); the pool is the Queen's shared Forage.
+  kind: 'host' | 'pool';
   rows: readonly CapacityRow[];
 }
 
@@ -105,6 +107,7 @@ function hostBlock(host: CapacityView, grants: readonly GrantView[]): HostBlock 
   return {
     id: host.cell_id,
     title: host.cell_id,
+    kind: 'host',
     rows: [
       coreRow(host),
       memoryRow(host),
@@ -171,6 +174,6 @@ export function hostBlocks(input: CapacityInput): HostBlock[] {
     .sort((a, b) => (a.cell_id < b.cell_id ? -1 : a.cell_id > b.cell_id ? 1 : 0))
     .map((host) => hostBlock(host, input.grants));
   return pool.length > 0
-    ? [{ id: 'shared-pool', title: 'Shared pool', rows: pool }, ...hosts]
+    ? [{ id: 'shared-pool', title: 'Shared pool', kind: 'pool', rows: pool }, ...hosts]
     : hosts;
 }

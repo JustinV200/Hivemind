@@ -20,6 +20,7 @@
 import { describe, expect, it } from 'vitest';
 import base from '../../src/styles/base.css?raw';
 import components from '../../src/styles/components.css?raw';
+import head from '../../src/styles/head.css?raw';
 import shell from '../../src/styles/shell.css?raw';
 import tokens from '../../src/styles/tokens.css?raw';
 
@@ -105,6 +106,38 @@ describe.each(THEMES)('%s theme', (_, palette) => {
   it('keeps control borders at 3:1 on the surface', () => {
     expect(contrast(palette.border!, palette.surface!)).toBeGreaterThanOrEqual(3);
   });
+
+  // The bar and the nav are drawn on the chrome, with their own text and accent tokens.
+  it.each(['chrome-text', 'chrome-muted', 'chrome-accent'])('%s on the chrome is 4.5:1', (t) => {
+    expect(contrast(palette[t]!, palette.chrome!)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('keeps text readable on the soft accent fill behind a selected chip or a notice', () => {
+    expect(contrast(palette.text!, palette['accent-soft']!)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(palette.accent!, palette['accent-soft']!)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // The focus ring is a non-text indicator, so design 7 asks 3:1 against what it is drawn on:
+  // --accent on the page's surfaces, --chrome-accent on the chrome (where --accent is dark on
+  // dark in the light theme, which is why the bar and the nav redraw the ring in their own token).
+  it.each([
+    ['accent', 'bg'],
+    ['accent', 'surface'],
+    ['accent', 'surface-2'],
+    ['chrome-accent', 'chrome'],
+  ])('the focus ring in %s is at least 3:1 on %s', (ring, surface) => {
+    expect(contrast(palette[ring]!, palette[surface]!)).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('the focus ring on the chrome', () => {
+  // The pairing above holds only if the chrome stylesheets do redraw the ring in --chrome-accent,
+  // inside the nav's items so the rail's scroll box cannot clip it.
+  it('is drawn in --chrome-accent by the nav and the bar, inset on the nav items', () => {
+    expect(shell).toMatch(/\.nav :focus-visible \{\s*outline-color: var\(--chrome-accent\);/);
+    expect(shell).toMatch(/\.nav-more:focus-visible \{\s*outline-offset: -2px;/);
+    expect(head).toMatch(/\.topbar :focus-visible \{\s*outline-color: var\(--chrome-accent\);/);
+  });
 });
 
 describe('published numbers', () => {
@@ -133,7 +166,7 @@ describe('theme parity and hygiene', () => {
   });
 
   it('keeps colour literals out of every other stylesheet', () => {
-    for (const css of [base, shell, components]) {
+    for (const css of [base, shell, head, components]) {
       expect(css.replace(/\/\*[\s\S]*?\*\//g, '')).not.toMatch(
         /#[0-9A-Fa-f]{3,8}\b|rgba?\(|hsla?\(/,
       );

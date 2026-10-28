@@ -1,0 +1,86 @@
+/*
+ * Login screen styles: one comb cell on the comb, before any shell exists.
+ *
+ * The login page has no shell: it is the comb pattern filling the viewport with one card centred
+ * on it, which the join screen (`src/views/enrol/join/`) reuses for its own cards. The card is a
+ * comb cell like every panel of the working views (`.comb-cell` in components.css gives it the
+ * cut and the stroke); its fields and buttons are 44px for a phone.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/login/`. Imported by `login.tsx`. Class names are those
+ *   rendered by `login.tsx`, `login_form.tsx` and `src/views/enrol/join/join_screen.tsx`.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; the pattern is clipped by the page.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 3.4 and 5.10.
+ */
+.login {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--gutter);
+  overflow: hidden;
+}
+
+.login-stack {
+  position: relative;
+  width: 100%;
+  max-width: 400px;
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.login-card {
+  width: 100%;
+  display: grid;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  background: var(--surface);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 600;
+  font-size: var(--fs-lg);
+}
+
+.login-brand .mark {
+  width: 32px;
+  height: 32px;
+}
+
+.login-card h1 {
+  font-size: var(--fs-lg);
+}
+
+.login-hint {
+  color: var(--text-muted);
+  font-size: var(--fs-sm);
+}
+
+.login-card label {
+  display: grid;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.login-card input {
+  min-height: 44px;
+  padding: 0 var(--sp-3);
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.login-notice {
+  position: relative;
+  color: var(--text-muted);
+}

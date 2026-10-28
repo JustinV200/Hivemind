@@ -44,8 +44,10 @@ export function TaskList(props: {
 }): ReactElement {
   const heading = `att-${props.title.toLowerCase().replace(/\s+/g, '-')}-title`;
   return (
-    <section className="att-panel" aria-labelledby={heading}>
-      <h2 id={heading}>{props.title}</h2>
+    <section className="att-panel comb-cell" aria-labelledby={heading}>
+      <h2 id={heading} className="section-heading">
+        {props.title}
+      </h2>
       {props.ids.length === 0 ? (
         <p className="att-muted">{props.empty}</p>
       ) : (

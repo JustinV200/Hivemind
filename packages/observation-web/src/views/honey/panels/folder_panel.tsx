@@ -20,6 +20,7 @@
  *   - docs/observation/design.md section 5.7.
  */
 import type { ReactElement } from 'react';
+import { EmptyState } from '../../../components';
 import { ClearanceBadge } from '../parts/clearance_badge';
 import { ItemRow } from '../parts/item_row';
 import { folderHref } from '../parts/words';
@@ -30,8 +31,8 @@ export const NO_PROPOSALS = 'Proposing a note is not available from the Observat
 function SubFolders(props: { folders: HoneyFolder['folders'] }): ReactElement | null {
   if (props.folders.length === 0) return null;
   return (
-    <section aria-labelledby="honey-folders-title">
-      <h2 id="honey-folders-title" className="honey-section">
+    <section className="honey-group" aria-labelledby="honey-folders-title">
+      <h2 id="honey-folders-title" className="section-heading">
         Folders
       </h2>
       <ul className="honey-folders">
@@ -53,9 +54,8 @@ export function FolderPanel(props: {
   loadingMore: boolean;
   openId: string | null;
   onMore: () => void;
-  onOpen: (id: string) => void;
 }): ReactElement {
-  const { folder, truncated, loadingMore, openId, onMore, onOpen } = props;
+  const { folder, truncated, loadingMore, openId, onMore } = props;
   const empty = folder.folders.length === 0 && folder.items.length === 0;
   return (
     <>
@@ -65,18 +65,18 @@ export function FolderPanel(props: {
       {folder.note ? <p className="honey-note">{folder.note}</p> : null}
       <SubFolders folders={folder.folders} />
       {folder.items.length > 0 ? (
-        <section aria-labelledby="honey-items-title">
-          <h2 id="honey-items-title" className="honey-section">
+        <section className="honey-group" aria-labelledby="honey-items-title">
+          <h2 id="honey-items-title" className="section-heading">
             Items
           </h2>
           <ul className="honey-items">
             {folder.items.map((item) => (
-              <ItemRow key={item.id} item={item} open={item.id === openId} onOpen={onOpen} />
+              <ItemRow key={item.id} item={item} open={item.id === openId} path={folder.path} />
             ))}
           </ul>
         </section>
       ) : null}
-      {empty ? <p>Nothing in this folder that this device may see.</p> : null}
+      {empty ? <EmptyState>Nothing in this folder that this device may see.</EmptyState> : null}
       {folder.next_cursor !== null ? (
         <button type="button" className="button" disabled={loadingMore} onClick={onMore}>
           More

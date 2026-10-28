@@ -2,12 +2,12 @@
  * The Cell page: one Cell, live, at `#/cells/<id>`.
  *
  * The page is the header (id, kind, source, tier and mask badges, access level and mode), the live
- * diagram of the Cell (its Warden, sub-bees, session, Exoskeleton, lease or Virtual Cell status
- * and model hosting), and the panels beside it: tasks and goals, Forage, Honey, mode and Patrol,
- * Cell Wax, open Alarms and Capping. It is seeded by one read of the Cell's page and redrawn from
- * the Cells and telemetry streams as frames arrive; a trail event naming the Cell re-reads the page
- * once for the lists that have no stream. A refusal or an unknown Cell shows the error table's
- * sentence in place of the page.
+ * diagram of the Cell across the full width (its Warden, sub-bees, session, Exoskeleton, lease or
+ * Virtual Cell status and model hosting), and under it the panels in a grid of as many columns as
+ * fit: tasks and goals, Forage, mode and Patrol, Cell Wax, open Alarms, Capping and Honey. It is
+ * seeded by one read of the Cell's page and redrawn from the Cells and telemetry streams as frames
+ * arrive; a trail event naming the Cell re-reads the page once for the lists that have no stream.
+ * A refusal or an unknown Cell shows the error table's sentence in place of the page.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/`. Chosen by the outlet in `src/shell/` when the

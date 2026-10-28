@@ -1,8 +1,9 @@
 /**
  * `EpisodeCard`: one episode record as a card, with its context in sections that expand inline.
  *
- * An episode is one decision: what triggered it, what was decided and what was done, with the
- * provider's reasoning summary when it gave one. What a record carries beyond that is grouped into
+ * An episode is one decision: what triggered it (its kind as a tag in the header, its summary as
+ * the first line), what was decided and what was done, with the provider's reasoning summary when
+ * it gave one. What a record carries beyond that is grouped into
  * sections (the assembled prompt it refers to, the trigger's detail, the usage), each collapsed
  * until the reader opens it, one at a time, in place. A section appears only when the record
  * carries something for it; the card never shows a field the schema does not have. An autopilot
@@ -71,12 +72,14 @@ function Usage(props: { episode: EpisodeView }): ReactElement {
 }
 
 // A labelled record is marked where the clearance is, so nobody reads a tainted thought without
-// seeing it; a cleared one keeps its history visible too (codingrules 8.11). Null renders nothing.
+// seeing it; a cleared one keeps its history visible too (codingrules 8.11). Taint is a status,
+// so the tag takes the status tones: refused reads as an alarm, cleared as a caution whose
+// history is kept; the word carries the meaning. Null renders nothing.
 function TaintTag({ episode }: { episode: EpisodeView }): ReactElement | null {
   if (episode.taint === null) return null;
   const source = episode.taint_source !== null ? ` (${episode.taint_source})` : '';
   return (
-    <span className={`thought-tag thought-tag--${episode.taint}`}>
+    <span className={`tag tag--status tag--${episode.taint === 'tainted' ? 'alarm' : 'warn'}`}>
       {episode.taint === 'tainted' ? 'TAINTED' : 'CLEARED'}
       {source}
     </span>
@@ -87,17 +90,21 @@ export function EpisodeCard(props: { episode: EpisodeView }): ReactElement {
   const e = props.episode;
   const hasUsage = !e.is_autopilot;
   return (
-    <article className={e.is_autopilot ? 'thought thought--autopilot' : 'thought'}>
+    <article
+      className={e.is_autopilot ? 'thought comb-cell thought--autopilot' : 'thought comb-cell'}
+    >
       <header className="thought-head">
         <TimeStamp at={e.at} />
         <IdToken id={e.id} />
-        <span className="thought-tag">{e.is_autopilot ? 'Autopilot' : 'Awake'}</span>
-        <span className="thought-tag">{e.clearance}</span>
+        <span className="tag">{e.is_autopilot ? 'Autopilot' : 'Awake'}</span>
+        <span className="tag">{e.clearance}</span>
         <TaintTag episode={e} />
+        <span className="tag">
+          <span className="thought-label">trigger</span>
+          <span className="mono">{e.trigger_kind}</span>
+        </span>
       </header>
-      <p className="thought-trigger">
-        <code>{e.trigger_kind}</code> {e.trigger_summary}
-      </p>
+      <p className="thought-trigger">{e.trigger_summary}</p>
       {e.reasoning_summary ? (
         <p className="thought-reasoning">
           <span className="thought-label">Reasoning</span> {e.reasoning_summary}

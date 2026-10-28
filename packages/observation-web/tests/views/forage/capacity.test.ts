@@ -160,7 +160,8 @@ describe('determinism', () => {
     );
     expect(html).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     expect(html).toContain('role="img"');
-    expect(html).toContain('aria-labelledby="forage-capacity-title"');
+    expect(html).toContain('aria-label="Capacity per host:');
+    expect(html).toContain('<title>Cores: 4 in use of 8</title>');
     expect(html).toContain('viewBox="0 0 360 ');
     expect(html).toContain('var(--accent)');
   });

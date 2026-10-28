@@ -25,11 +25,16 @@ import { createRoot } from 'react-dom/client';
 import App from './app';
 import { chooseBrowser, realBrowser } from './landing_board/client';
 import { registerServiceWorker } from './pwa/register';
+import { applyStoredTheme } from './shell/theme';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/shell.css';
+import './styles/head.css';
 import './styles/components.css';
 import './styles/thoughts.css';
+
+// The viewer's theme goes on <html> before anything is drawn, so the first paint is already it.
+applyStoredTheme();
 
 // #root is declared in index.html; its absence means the HTML shell itself is broken.
 const rootElement = document.getElementById('root');

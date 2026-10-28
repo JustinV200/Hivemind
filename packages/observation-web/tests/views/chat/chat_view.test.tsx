@@ -17,10 +17,18 @@
  *   - tests/views/chat/slice.test.ts for the reducer rules.
  */
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { flush } from '../../support/fake_browser';
 import { deliver, mountChat } from './mount';
-import { alarmView, chatFrame, chatLine, chatPage, inboxView, questionView } from './support';
+import {
+  alarmView,
+  chatFrame,
+  chatLine,
+  chatLines,
+  chatPage,
+  inboxView,
+  questionView,
+} from './support';
 
 const QUESTION = questionView({
   id: 'msg_Q1',
@@ -100,6 +108,33 @@ describe('seed', () => {
     expect(await screen.findByText('This device is not allowed to see or do that.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
     expect(screen.queryByLabelText('Message to the Queen')).toBeNull();
+  });
+});
+
+describe('the newest line', () => {
+  it('is scrolled into view on the seed and on a new line, but not while reading upward', async () => {
+    const scrolled = vi.spyOn(window, 'scrollTo').mockImplementation(() => undefined);
+    const chat = await mountChat({ page: chatPage(chatLines(3)) });
+    await screen.findByText('line 3');
+    // Once for the lines, and once more if the inbox landed after them and grew the page.
+    const seeded = scrolled.mock.calls.length;
+    expect(seeded).toBeGreaterThanOrEqual(1);
+    await deliver(chat.socket, chatFrame({ id: 'chat_4', seq: 4, text: 'line 4' }));
+    expect(scrolled).toHaveBeenCalledTimes(seeded + 1);
+    // The reader scrolls up: the page is tall and the window is well above its end.
+    Object.defineProperty(document.documentElement, 'scrollHeight', {
+      configurable: true,
+      value: 5000,
+    });
+    try {
+      window.dispatchEvent(new Event('scroll'));
+      await deliver(chat.socket, chatFrame({ id: 'chat_5', seq: 5, text: 'line 5' }));
+      expect(screen.getByText('line 5')).toBeTruthy();
+      expect(scrolled).toHaveBeenCalledTimes(seeded + 1);
+    } finally {
+      delete (document.documentElement as { scrollHeight?: number }).scrollHeight;
+      scrolled.mockRestore();
+    }
   });
 });
 

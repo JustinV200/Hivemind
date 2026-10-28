@@ -4,7 +4,9 @@
  * Routes are hash-based (ADR-0049) because the Entrance serves static files with no fallback and
  * the Capacitor APK loads from `file://`; only the hash survives a reload or a pasted link. This
  * file is pure: it turns a hash string and the session's listener into a `Route`, and a route
- * back into a hash. The loopback-only screens resolve to `not_found` off the Hive Stand, which is
+ * back into a hash. A query after the path (`#/honey/hive?item=honey_1`) carries what a view
+ * opens inside itself (the Honey item in its reading pane), so that too survives a reload, can be
+ * shared, and closes with Back. The loopback-only screens resolve to `not_found` off the Hive Stand, which is
  * defence in depth only, as the remote listener answers those routes with a 404 itself.
  *
  * Fits into the Hive:
@@ -15,6 +17,7 @@
  *   - Parameters are percent-decoded once; a malformed escape makes the route `not_found`.
  *   - `#/thoughts`, `#/attendant` and `#/honey` without a parameter mean the Queen, the Queen and
  *     the root, so the nav can link to the bare names.
+ *   - Only the Honey route reads the query; every other route ignores one.
  *
  * See Also:
  *   - docs/observation/design.md section 5 for the route list.
@@ -29,7 +32,7 @@ export type Route =
   | { name: 'thoughts'; bee: string }
   | { name: 'attendant'; principal: string }
   | { name: 'chat' }
-  | { name: 'honey'; path: string }
+  | { name: 'honey'; path: string; item: string | null }
   | { name: 'cost' }
   | { name: 'capping' }
   | { name: 'devices' }
@@ -43,16 +46,26 @@ export const LOOPBACK_ONLY: ReadonlySet<RouteName> = new Set(['enrol']);
 
 export const NOT_FOUND: Route = { name: 'not_found' };
 
-function segmentsOf(hash: string): string[] | null {
-  const trimmed = hash.replace(/^#/, '').replace(/^\/+/, '').replace(/\/+$/, '');
+interface Parts {
+  segments: string[];
+  query: URLSearchParams;
+}
+
+// The hash's path as decoded segments and its query, split at the first `?`.
+function partsOf(hash: string): Parts | null {
+  const bare = hash.replace(/^#/, '');
+  const at = bare.indexOf('?');
+  const path = at === -1 ? bare : bare.slice(0, at);
+  const query = new URLSearchParams(at === -1 ? '' : bare.slice(at + 1));
+  const trimmed = path.replace(/^\/+/, '').replace(/\/+$/, '');
   try {
-    return trimmed === '' ? [] : trimmed.split('/').map(decodeURIComponent);
+    return { segments: trimmed === '' ? [] : trimmed.split('/').map(decodeURIComponent), query };
   } catch {
     return null;
   }
 }
 
-function parse(segments: string[]): Route {
+function parse({ segments, query }: Parts): Route {
   const [head, first, ...rest] = segments;
   // A route with no parameter takes no extra segments.
   const bare = (route: Route): Route => (first === undefined ? route : NOT_FOUND);
@@ -71,7 +84,7 @@ function parse(segments: string[]): Route {
     case 'chat':
       return bare({ name: 'chat' });
     case 'honey':
-      return { name: 'honey', path: segments.slice(1).join('/') };
+      return { name: 'honey', path: segments.slice(1).join('/'), item: query.get('item') || null };
     case 'cost':
       return bare({ name: 'cost' });
     case 'capping':
@@ -86,9 +99,9 @@ function parse(segments: string[]): Route {
 }
 
 export function resolveRoute(hash: string, listener: Listener | null): Route {
-  const segments = segmentsOf(hash);
-  if (segments === null) return NOT_FOUND;
-  const route = parse(segments);
+  const parts = partsOf(hash);
+  if (parts === null) return NOT_FOUND;
+  const route = parse(parts);
   if (LOOPBACK_ONLY.has(route.name) && listener !== 'loopback') return NOT_FOUND;
   return route;
 }
@@ -102,8 +115,12 @@ export function hrefFor(route: Route): string {
       return `#/thoughts/${encode(route.bee)}`;
     case 'attendant':
       return `#/attendant/${encode(route.principal)}`;
-    case 'honey':
-      return route.path ? `#/honey/${route.path.split('/').map(encode).join('/')}` : '#/honey';
+    case 'honey': {
+      const folder = route.path
+        ? `#/honey/${route.path.split('/').map(encode).join('/')}`
+        : '#/honey';
+      return route.item ? `${folder}?item=${encode(route.item)}` : folder;
+    }
     case 'not_found':
       return '#/';
     default:

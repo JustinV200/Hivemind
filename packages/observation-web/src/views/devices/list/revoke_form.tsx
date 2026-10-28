@@ -40,7 +40,7 @@ export function RevokeForm(props: {
 
   return (
     <form
-      className="devices-form"
+      className="devices-form comb-cell comb-cell--strong"
       aria-label={`Revoke device ${device.name}`}
       onSubmit={(event) => void submit(event)}
     >
@@ -66,7 +66,11 @@ export function RevokeForm(props: {
         Also cancel its open goals
       </label>
       <div className="devices-row">
-        <button type="submit" className="button" disabled={actions.busy || typed !== device.name}>
+        <button
+          type="submit"
+          className="button button--danger"
+          disabled={actions.busy || typed !== device.name}
+        >
           Revoke device
         </button>
         <button type="button" className="button" onClick={props.onClose}>

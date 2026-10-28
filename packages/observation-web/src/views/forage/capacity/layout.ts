@@ -49,6 +49,7 @@ export interface LaidRow {
 export interface LaidBlock {
   id: string;
   title: string;
+  kind: HostBlock['kind'];
   y: number;
   rows: LaidRow[];
 }
@@ -113,7 +114,7 @@ export function layoutCapacity(blocks: readonly HostBlock[]): CapacityLayout {
     const top = y;
     const rows = block.rows.map((row, i) => layoutRow(row, top + HEAD_HEIGHT + i * ROW_HEIGHT));
     y = top + HEAD_HEIGHT + block.rows.length * ROW_HEIGHT + BLOCK_GAP;
-    return { id: block.id, title: block.title, y: top, rows };
+    return { id: block.id, title: block.title, kind: block.kind, y: top, rows };
   });
   return { width: VIEW_WIDTH, height: Math.max(0, y - BLOCK_GAP), blocks: laid };
 }

@@ -32,13 +32,17 @@ function Reducer(props: { actions: DeviceActions }): ReactElement {
   const { actions } = props;
   if (!arming) {
     return (
-      <button type="button" className="button" onClick={() => setArming(true)}>
+      <button type="button" className="button button--danger" onClick={() => setArming(true)}>
         Reduce the Entrance
       </button>
     );
   }
   return (
-    <div className="devices-arming" role="group" aria-label="Reduce the Entrance">
+    <div
+      className="devices-arming comb-cell comb-cell--strong"
+      role="group"
+      aria-label="Reduce the Entrance"
+    >
       <p>
         This ends every remote session, including this one if it is remote, and the Entrance answers
         on the Hive Stand only until it is reopened there.
@@ -46,7 +50,7 @@ function Reducer(props: { actions: DeviceActions }): ReactElement {
       <div className="devices-row">
         <button
           type="button"
-          className="button"
+          className="button button--danger"
           disabled={actions.busy}
           onClick={() => void actions.reduce().then(() => setArming(false))}
         >
@@ -89,7 +93,7 @@ export function EntrancePanel(props: {
   const { mode } = state;
   return (
     <section className="devices-section" aria-label="Entrance">
-      <h2>The Entrance Reducer</h2>
+      <h2 className="section-heading">The Entrance Reducer</h2>
       {state.errors.mode ? <ErrorNotice error={state.errors.mode} /> : null}
       {mode ? <ModeLines mode={mode} /> : <p aria-busy="true">Reading the Entrance</p>}
       {mode?.mode === 'OPEN' ? <Reducer actions={actions} /> : null}

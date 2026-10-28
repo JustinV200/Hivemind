@@ -37,7 +37,7 @@ export function PendingRow(props: {
       <article aria-label={`You, ${STATUS_WORDS[entry.status]}`}>
         <header className="chat-line-head">
           <strong>You</strong>
-          <span className="chat-tag chat-tag--pending">{STATUS_WORDS[entry.status]}</span>
+          <span className="tag">{STATUS_WORDS[entry.status]}</span>
           <TimeStamp at={entry.at} />
         </header>
         <p className="chat-text">{entry.text}</p>

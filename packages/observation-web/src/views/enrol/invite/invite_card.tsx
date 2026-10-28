@@ -62,7 +62,7 @@ export function InviteCard(props: { invite: InviteRecord; actions: EnrolActions 
   const { invite, actions } = props;
   const lapsed = useLapsed(invite.expires_at);
   return (
-    <section className="enrol-invite" aria-label="Invite">
+    <section className="enrol-invite comb-cell comb-cell--strong" aria-label="Invite">
       <h3>Invite</h3>
       {lapsed ? (
         <p className="enrol-warn" role="status">

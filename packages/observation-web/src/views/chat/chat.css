@@ -45,7 +45,7 @@
   width: min(100%, 44rem);
   padding: var(--sp-3);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   background: var(--surface);
   display: grid;
   gap: var(--sp-2);
@@ -75,24 +75,6 @@
 
 .chat-line-head strong {
   color: var(--text);
-}
-
-.chat-tag {
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-tag);
-  font-size: var(--fs-xs);
-  color: var(--text);
-}
-
-.chat-tag--alarm {
-  border-color: var(--alarm);
-  color: var(--alarm);
-}
-
-.chat-tag--question {
-  border-color: var(--warn);
-  color: var(--warn);
 }
 
 .chat-text {
@@ -159,6 +141,7 @@
   border-top: 1px solid var(--border-soft);
 }
 
+/* Comb cells, outlined like their fields (`.comb-cell--strong` in components.css) */
 .chat-composer,
 .chat-stepup,
 .chat-spoken {
@@ -166,8 +149,6 @@
   gap: var(--sp-2);
   padding: var(--sp-3);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
 }
 
 .chat-stepup label,

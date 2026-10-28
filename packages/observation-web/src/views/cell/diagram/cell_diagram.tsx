@@ -3,11 +3,13 @@
  * about the Cell beside or under it.
  *
  * It is a pure function of the page: `model.ts` says what each node and box shows, `layout.ts`
- * says where, and this file draws it. The frame is the Cell; the Warden is drawn inside it when it
- * runs on the Cell and above it (on the Hive Stand) otherwise, with a dashed outline while where
- * it runs is not tracked. Lines join the Warden to every sub-bee and each fact box to what it
- * concerns. The SVG scales by its `viewBox` to the width it is given and switches layout (boxes
- * beside the frame or under it) on its container's width.
+ * says where, and this file draws it. The frame is the Cell, a rectangle with its corners cut like
+ * a comb cell; the Warden is drawn inside it when it runs on the Cell and above it (on the Hive
+ * Stand) otherwise, with a dashed outline while where it runs is not tracked. Lines join the
+ * Warden to every sub-bee and each fact box to what it concerns. The SVG is drawn at one pixel
+ * per unit (its `width` is the canvas's) and switches layout (boxes beside the frame or under it)
+ * on its pane's measured width, which the narrow layout also takes as its canvas width, so its
+ * 12 unit text is 12 px on a phone and on a wide screen alike.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/diagram/`. Rendered by `cell.tsx` from the slice's
@@ -20,41 +22,54 @@
  *   - All colours are tokens; text is real `<text>`.
  *
  * See Also:
- *   - docs/observation/design.md sections 4.5, 4.6 and 4.8.
+ *   - docs/observation/design.md sections 3.4, 4.5, 4.6 and 4.8.
  */
 import { useMemo } from 'react';
 import type { ReactElement } from 'react';
+import { usePaneWidth } from '../../../components';
+import { chamferedPath } from '../../../components/comb/shapes';
 import { BeeNodeView } from './bee_node';
 import { DiagramTable } from './diagram_table';
-import { layoutDiagram } from './layout';
+import { layoutDiagram, WIDE_FROM } from './layout';
 import type { Layout, Placed } from './layout';
 import { buildModel, cut } from './model';
 import type { DiagramModel, FactBox } from './model';
 import type { CellPage } from '../slice';
-import { useLayoutMode } from './use_layout_mode';
 
-// Characters a box's value and detail keep; its `<title>` has the rest.
-const BOX_CUT = 24;
+const BOX_TEXT_INSET = 8; // Where a box's text starts and how far from its right edge it stops.
+const CHAR_W = 6.5; // Units one character of 12 unit sans text takes, on average.
+const FRAME_CUT = 12; // The frame's corner cut; the boxes take a smaller one.
+const BOX_CORNER = 6;
 
 function safeId(text: string): string {
   return `cell-diagram-${text.replace(/[^A-Za-z0-9_-]/g, '_')}`;
 }
 
+// Characters a box's value and detail keep, from the box's width; its `<title>` has the rest.
+function boxCut(width: number): number {
+  return Math.floor((width - 2 * BOX_TEXT_INSET) / CHAR_W);
+}
+
 function FactBoxView(props: { placed: Placed<FactBox> }): ReactElement {
-  const { x, y, w, h, item } = props.placed;
+  const { x, y, item } = props.placed;
+  const keep = boxCut(props.placed.w);
   return (
     <g data-box={item.key}>
       <title>{item.title}</title>
-      <rect x={x} y={y} width={w} height={h} rx={6} fill="var(--surface)" stroke="var(--border)" />
+      <path
+        d={chamferedPath(props.placed, BOX_CORNER)}
+        fill="var(--surface)"
+        stroke="var(--border)"
+      />
       <text className="dg-box-label" x={x + 8} y={y + 16}>
         {item.label}
       </text>
       <text className="dg-box-value" x={x + 8} y={y + 34}>
-        {cut(item.value, BOX_CUT)}
+        {cut(item.value, keep)}
       </text>
       {item.detail ? (
         <text className="dg-line" x={x + 8} y={y + 50}>
-          {cut(item.detail, BOX_CUT)}
+          {cut(item.detail, keep)}
         </text>
       ) : null}
     </g>
@@ -73,21 +88,19 @@ function FrameView(props: { model: DiagramModel; frame: Layout['frame'] }): Reac
   const note = emptyNote(model);
   return (
     <>
-      <rect
-        x={frame.x}
-        y={frame.y}
-        width={frame.w}
-        height={frame.h}
-        rx={8}
+      <path
+        className="dg-frame"
+        d={chamferedPath(frame, FRAME_CUT)}
+        data-y={frame.y}
         fill="var(--surface-2)"
         stroke="var(--border)"
         strokeWidth={2}
       />
-      <text className="dg-frame-label" x={frame.x + 10} y={frame.y + 16}>
+      <text className="dg-frame-label" x={frame.x + FRAME_CUT} y={frame.y + 16}>
         {model.frameLabel}
       </text>
       {note ? (
-        <text className="dg-note" x={frame.x + 10} y={frame.y + frame.h - 12}>
+        <text className="dg-note" x={frame.x + FRAME_CUT} y={frame.y + frame.h - 12}>
           {note}
         </text>
       ) : null}
@@ -124,8 +137,9 @@ function Drawing(props: { model: DiagramModel; layout: Layout }): ReactElement {
   const heading = safeId(model.cellId);
   return (
     <svg
-      className="dg"
+      className={`dg dg--${layout.mode}`}
       viewBox={`0 0 ${layout.width} ${layout.height}`}
+      width={layout.width}
       role="img"
       aria-labelledby={heading}
       aria-label={model.summary}
@@ -144,11 +158,13 @@ function Drawing(props: { model: DiagramModel; layout: Layout }): ReactElement {
 }
 
 export function CellDiagram(props: { page: CellPage; awake: ReadonlySet<string> }): ReactElement {
-  const [ref, mode] = useLayoutMode();
+  const [ref, pane] = usePaneWidth();
+  // The pane is the comb cell's content box; its padding is already outside the measured width.
+  const mode = pane !== null && pane >= WIDE_FROM ? 'wide' : 'narrow';
   const model = useMemo(() => buildModel(props.page, props.awake), [props.page, props.awake]);
-  const layout = useMemo(() => layoutDiagram(model, mode), [model, mode]);
+  const layout = useMemo(() => layoutDiagram(model, mode, pane), [model, mode, pane]);
   return (
-    <div className="cell-diagram" ref={ref}>
+    <div className="cell-diagram comb-cell" ref={ref}>
       <Drawing model={model} layout={layout} />
       <DiagramTable model={model} />
     </div>

@@ -36,9 +36,9 @@ import {
 const socketOf = (fake: FakeBrowser) => fake.sockets[0]!;
 const reads = (fake: FakeBrowser): string[] => fake.requests.map((r) => `${r.method} ${r.target}`);
 
-// The shared pool's seat figures, read from the numbers table that follows the capacity diagram.
+// The shared pool's seat figures, read from the numbers table that follows the pool's cards.
 const seatsFigures = (): string =>
-  within(screen.getByRole('table', { name: /Capacity per host/ })).getByRole('row', {
+  within(screen.getByRole('table', { name: /Shared pool, in numbers/ })).getByRole('row', {
     name: /Shared model seats/,
   }).textContent ?? '';
 
@@ -50,25 +50,37 @@ async function send(fake: FakeBrowser, frame: unknown): Promise<void> {
 }
 
 describe('seed', () => {
-  it('sends the three reads together and opens only the forage stream', async () => {
-    const { fake } = await mountForage();
+  it('sends the three reads and the fleet read together, and opens only the forage stream', async () => {
+    const { fake } = await mountForage({
+      fleet: { as_of: 'x', legend: [], rows: [{ id: 'cell_1', name: 'hive-stand' }] },
+    });
     expect(await screen.findByRole('table', { name: /^Grants/ })).toBeTruthy();
-    expect(reads(fake).sort()).toEqual(['GET /v1/forage', 'GET /v1/llm', 'GET /v1/wardens']);
+    expect(reads(fake).sort()).toEqual([
+      'GET /v1/fleet',
+      'GET /v1/forage',
+      'GET /v1/llm',
+      'GET /v1/wardens',
+    ]);
     expect(fake.sockets.map((s) => s.url.replace('wss://hive.test', ''))).toEqual([
       '/v1/forage/stream',
     ]);
+    // The host card is named from the fleet on the first load, not only once the Fleet was opened.
+    const hosts = screen.getByRole('group', { name: /^Capacity per host:/ });
+    expect(await within(hosts).findByText('hive-stand')).toBeTruthy();
   });
 
-  it('draws both diagrams with accessible names and tokens only', async () => {
+  it('draws the pool, the hosts and the flow with accessible names and tokens only', async () => {
     await mountForage();
-    const capacityImg = await screen.findByRole('img', { name: /Capacity of/ });
+    const pool = await screen.findByRole('group', { name: /^Shared pool:/ });
+    const hosts = screen.getByRole('group', { name: /^Capacity per host:/ });
     const flowImg = screen.getByRole('img', { name: /Forage flow/ });
-    for (const svg of [capacityImg, flowImg]) {
-      expect(svg.getAttribute('viewBox')).toMatch(/^0 0 360 /);
-      expect(svg.outerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(flowImg.getAttribute('viewBox')).toMatch(/^0 0 480 /);
+    for (const figure of [pool, hosts, flowImg]) {
+      expect(figure.outerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     }
-    // The same numbers follow for a screen reader.
-    expect(screen.getByRole('table', { name: /Capacity per host/ })).toBeTruthy();
+    // Every host row is a bar with its figures in its name, and the same numbers follow in a table.
+    expect(within(hosts).getAllByRole('img', { name: /^Cores: / }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('table', { name: /Capacity per host, in numbers/ })).toBeTruthy();
   });
 
   it('says what would fill an empty ledger', async () => {
@@ -93,19 +105,19 @@ describe('seed', () => {
 });
 
 describe('no read without a frame', () => {
-  it('stays at the three seed reads while nothing arrives and while ordinary frames do', async () => {
+  it('stays at the four seed reads while nothing arrives and while ordinary frames do', async () => {
     const { fake } = await mountForage();
     await screen.findByRole('table', { name: /^Grants/ });
     await act(async () => {
       fake.advance(120_000);
       await flush();
     });
-    expect(fake.requests).toHaveLength(3);
+    expect(fake.requests).toHaveLength(4);
     await send(
       fake,
       forageFrame(eventView('forage.granted', 'grant_1'), { grant: grant({ seats: 3 }) }),
     );
-    expect(fake.requests).toHaveLength(3);
+    expect(fake.requests).toHaveLength(4);
   });
 
   it('reads the ledger again once per capacity report, as a reaction to its frame', async () => {
@@ -117,7 +129,7 @@ describe('no read without a frame', () => {
       forageView({ capacities: [capacity({ cell_id: 'cell_9' })] }),
     );
     await send(fake, forageFrame(eventView('forage.capacity_reported', 'cell_9')));
-    await waitFor(() => expect(fake.requests).toHaveLength(4));
+    await waitFor(() => expect(fake.requests).toHaveLength(5));
     expect(fake.requests.at(-1)?.target).toBe('/v1/forage');
     expect((await screen.findAllByText('cell_9')).length).toBeGreaterThan(0);
   });
@@ -180,11 +192,26 @@ describe('grants nearing expiry', () => {
     });
     const table = await screen.findByRole('table', { name: /^Grants/ });
     const rows = within(table).getAllByRole('row').slice(1);
+    const expires = (row: HTMLElement): string =>
+      row.querySelector('td[data-label="Expires"]')?.textContent?.trim() ?? '';
     expect(rows[0]?.textContent).toContain('g_soon');
     expect(rows[0]?.className).toContain('forage-near');
-    expect(rows[0]?.textContent).toContain('expiring soon');
+    // One relative time and the word, never the time twice.
+    expect(expires(rows[0]!)).toBe('in 4 min expiring soon');
     expect(rows[1]?.textContent).toContain('g_late');
     expect(rows[1]?.className).not.toContain('forage-near');
+    expect(expires(rows[1]!)).toBe('in 1 h 30 min');
+  });
+
+  it('say lapsed, not expiring soon, once the time has passed', async () => {
+    await mountForage({
+      forage: forageView({ grants: [grant({ id: 'g_gone', expires_at: inMinutes(-5) })] }),
+    });
+    const table = await screen.findByRole('table', { name: /^Grants/ });
+    const row = within(table).getAllByRole('row')[1]!;
+    expect(row.querySelector('td[data-label="Expires"]')?.textContent?.trim()).toBe(
+      '5 min ago lapsed',
+    );
   });
 });
 

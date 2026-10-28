@@ -1,23 +1,31 @@
 /*
- * Shell layout for the Observation Hive: top bar, summary strip, nav, main area and login.
+ * Shell layout for the Observation Hive: the grid, the sticky head, the nav and the main area.
  *
  * Mobile first, as design.md section 2 sets out. Under 720px the page is one column with a
- * bottom nav and a strip that wraps to two rows of two groups; from 720px the nav becomes a left
- * rail of stacked icon and label; from 1080px the rail widens and labels sit beside the icons and
- * content is capped at 1440px. The head (bar, banner, strip) is sticky, so the strip is never
- * scrolled away or hidden by navigation.
+ * bottom nav; from 720px the nav becomes a left rail of stacked icon and label; from 1080px the
+ * rail widens and labels sit beside the icons and content is capped at 1440px. The head (bar,
+ * banner, strip, notices; its parts are in head.css) is sticky, so the strip is never scrolled
+ * away or hidden by navigation, and the rail sits under its measured height (`--head-h`, written
+ * by src/shell/use_head_height.ts), so a notice is never hidden under the rail. The nav is the
+ * hive's chrome: the propolis tokens, dark wood around cream content in the light theme and the
+ * comb surface, one step lighter than the page, in the dark one, so the frame survives at night.
+ * A comb fills the rail below its items.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
- *   rendered by `src/shell/` and `src/views/login/`.
+ *   rendered by `src/shell/`; the head's parts are styled in head.css and the login screen in
+ *   `src/views/login/login.css`.
  *
  * Key invariants:
  *   - Tokens only: no colour or size literal except breakpoints and one-off pixel borders.
  *   - Nothing here makes the page wider than the viewport.
- *   - The strip dims, never hides, when its data is stale.
+ *   - The rail never overlaps the head: its top and height follow `--head-h`.
+ *   - The current nav item is never colour alone: bold, with a 3px rule beside it.
+ *   - The focus ring on the nav is --chrome-accent, drawn inside the item, so it reads on the
+ *     chrome in both themes and the rail's scroll box never clips it.
  *
  * See Also:
- *   - docs/observation/design.md sections 2, 6 and 7.
+ *   - docs/observation/design.md sections 2, 3, 6 and 7.
  */
 .shell {
   min-height: 100dvh;
@@ -31,112 +39,24 @@
   top: 0;
   z-index: 20;
   grid-column: 1 / -1;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-}
-
-/* Top bar */
-.topbar {
-  min-height: var(--topbar-h);
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-2) var(--sp-4);
-  padding: 0 var(--gutter);
-}
-
-.topbar-brand {
-  font-weight: 700;
-  font-size: var(--fs-lg);
-  margin-right: auto;
-}
-
-.topbar-device {
-  display: flex;
-  gap: var(--sp-2);
-  align-items: baseline;
-  color: var(--text-muted);
-  font-size: var(--fs-sm);
-}
-
-.topbar-listener {
-  font-family: var(--font-mono);
-}
-
-.banner {
-  padding: var(--sp-2) var(--gutter);
   background: var(--surface-2);
-  border-top: 1px solid var(--warn);
-  border-bottom: 1px solid var(--warn);
-  font-size: var(--fs-sm);
+  border-bottom: 1px solid var(--border-soft);
 }
 
-/* Summary strip */
-.strip {
-  min-height: var(--strip-h);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--sp-2) var(--sp-3);
-  align-content: center;
-  padding: var(--sp-2) var(--gutter);
-  background: var(--surface-2);
-  border-top: 1px solid var(--border-soft);
-}
-
-.strip--stale .strip-group {
-  opacity: 0.55;
-}
-
-.strip-group {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.strip-label {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-}
-
-.strip-value {
-  font-size: var(--fs-md);
-  font-weight: 700;
-}
-
-.strip-stale {
-  grid-column: 1 / -1;
-  font-size: var(--fs-xs);
-  color: var(--warn);
-}
-
-@media (min-width: 720px) {
-  .strip {
-    grid-template-columns: repeat(4, auto) 1fr;
-    justify-content: start;
-    column-gap: var(--sp-5);
-  }
-
-  .strip-group {
-    flex-direction: row;
-    align-items: baseline;
-    gap: var(--sp-2);
-  }
-
-  .strip-stale {
-    grid-column: auto;
-    justify-self: end;
-  }
-}
-
-/* Nav: bottom bar on a phone, rail from 720px */
+/* Nav: bottom bar on a phone, rail from 720px, chrome in both */
 .nav {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 30;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
+  background: var(--chrome);
+  color: var(--chrome-text);
+}
+
+/* The comb in the rail's empty lower half; a phone's bar has no empty half */
+.nav-comb {
+  display: none;
 }
 
 .nav ul {
@@ -163,19 +83,40 @@
   padding: var(--sp-1);
   background: none;
   border: 0;
-  color: var(--text-muted);
+  color: var(--chrome-muted);
   font-size: var(--fs-xs);
   text-decoration: none;
   cursor: pointer;
+  transition:
+    color var(--motion),
+    background-color var(--motion);
+}
+
+.nav a:hover,
+.nav-more:hover {
+  color: var(--chrome-text);
+}
+
+/* The page's --accent ring is dark on the propolis chrome (about 2:1 in the light theme), so the
+   nav's ring is the chrome accent; an item fills its rail or bar edge to edge, so the ring sits
+   inside it, where the rail's scroll box cannot clip its sides */
+.nav :focus-visible {
+  outline-color: var(--chrome-accent);
+}
+
+.nav a:focus-visible,
+.nav-more:focus-visible {
+  outline-offset: -2px;
 }
 
 .nav a[aria-current='page'] {
-  color: var(--accent);
-  font-weight: 700;
-  box-shadow: inset 0 3px 0 var(--accent);
+  color: var(--chrome-accent);
+  font-weight: 600;
+  box-shadow: inset 0 3px 0 var(--chrome-accent);
 }
 
-.nav svg {
+.nav a svg,
+.nav-more svg {
   width: 22px;
   height: 22px;
 }
@@ -197,6 +138,32 @@
   display: block;
 }
 
+/* The device line and log out, in the More panel above the items on a phone */
+.nav-extra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--gutter);
+  border-top: 1px solid var(--chrome-muted);
+}
+
+.nav-extra .topbar-device {
+  display: flex;
+}
+
+.nav-extra .button {
+  min-height: 36px;
+  background: transparent;
+  color: var(--chrome-text);
+  border-color: var(--chrome-muted);
+}
+
+.nav-extra .button:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--chrome-text);
+}
+
 @media (max-width: 719px) and (orientation: landscape) {
   .nav--hidden {
     transform: translateY(100%);
@@ -215,9 +182,21 @@
 .view-title {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: var(--sp-2) var(--sp-4);
   margin-bottom: var(--sp-4);
+}
+
+.view-title h1 {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.view-glyph {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
 }
 
 .view-subject {
@@ -230,14 +209,24 @@
     grid-template-columns: var(--rail-w) minmax(0, 1fr);
   }
 
+  /* The rail starts where the head ends and fills the rest of the viewport, whatever the head
+     holds: `--head-h` is the head's measured height, not the bar plus the strip */
   .nav {
     position: sticky;
-    top: calc(var(--topbar-h) + var(--strip-h));
+    top: var(--head-h);
     align-self: start;
+    display: flex;
+    flex-direction: column;
     border-top: 0;
-    border-right: 1px solid var(--border);
-    height: calc(100dvh - var(--topbar-h) - var(--strip-h));
+    height: calc(100dvh - var(--head-h));
     overflow-y: auto;
+  }
+
+  .nav-comb {
+    display: block;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 96px;
   }
 
   .nav ul {
@@ -246,6 +235,11 @@
 
   .nav a {
     min-height: 56px;
+  }
+
+  /* On a rail the rule stands at the item's left edge, where the eye scans down */
+  .nav a[aria-current='page'] {
+    box-shadow: inset 3px 0 0 var(--chrome-accent);
   }
 
   .nav-more-slot {
@@ -269,49 +263,4 @@
     padding: var(--sp-2) var(--sp-4);
     font-size: var(--fs-md);
   }
-}
-
-/* Login */
-.login {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: var(--gutter);
-}
-
-.login-stack {
-  width: 100%;
-  max-width: 400px;
-  display: grid;
-  gap: var(--sp-3);
-}
-
-.login-card {
-  width: 100%;
-  display: grid;
-  gap: var(--sp-4);
-  padding: var(--sp-5);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.login-card label {
-  display: grid;
-  gap: var(--sp-1);
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
-}
-
-.login-card input {
-  min-height: 44px;
-  padding: 0 var(--sp-3);
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-.login-notice {
-  color: var(--text-muted);
 }

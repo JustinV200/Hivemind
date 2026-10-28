@@ -35,10 +35,10 @@ function Controls(props: {
 }): ReactElement | null {
   const { device, actions } = props;
   const named = (verb: string): string => `${verb} ${device.name}`;
-  const button = (label: string, aria: string, run: () => void): ReactElement => (
+  const button = (label: string, aria: string, run: () => void, danger = false): ReactElement => (
     <button
       type="button"
-      className="button"
+      className={danger ? 'button button--danger' : 'button'}
       aria-label={aria}
       disabled={actions.busy}
       onClick={run}
@@ -46,24 +46,26 @@ function Controls(props: {
       {label}
     </button>
   );
-  const revoke = button('Revoke', named('Revoke'), () => props.onEdit('revoke'));
+  // Revoke ends the device for good, so it is outlined in the alarm token; its form confirms.
+  const revoke = button('Revoke', named('Revoke'), () => props.onEdit('revoke'), true);
+  // The buttons sit in a row that wraps, so a narrow Controls column never stacks them one deep.
   if (device.status === 'APPROVED') {
     return (
-      <>
+      <span className="devices-buttons">
         {button('Lock', named('Lock'), () => void actions.lock(device))}
         {button('Edit capabilities', `Edit capabilities of ${device.name}`, () =>
           props.onEdit('capabilities'),
         )}
         {revoke}
-      </>
+      </span>
     );
   }
   if (device.status === 'LOCKED') {
     return (
-      <>
+      <span className="devices-buttons">
         {button('Unlock', named('Unlock'), () => void actions.unlock(device))}
         {revoke}
-      </>
+      </span>
     );
   }
   return null;
@@ -81,8 +83,18 @@ export function DeviceRow(props: {
     <tr>
       <td data-label="Device">
         <strong>{device.name}</strong>
-        {props.isSelf ? <span className="devices-tag">this device</span> : null}
-        {device.loopback_bound ? <span className="devices-tag">Hive Stand</span> : null}
+        {props.isSelf ? (
+          <>
+            {' '}
+            <span className="tag">this device</span>
+          </>
+        ) : null}
+        {device.loopback_bound ? (
+          <>
+            {' '}
+            <span className="tag">Hive Stand</span>
+          </>
+        ) : null}
       </td>
       <td data-label="Standing">
         <span className={`devices-status devices-status--${device.status.toLowerCase()}`}>

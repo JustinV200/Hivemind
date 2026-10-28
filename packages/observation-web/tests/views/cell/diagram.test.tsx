@@ -197,6 +197,21 @@ describe('the layout', () => {
     expect(narrow.boxes.every((b) => b.y >= narrow.frame.y + narrow.frame.h)).toBe(true);
   });
 
+  // A phone's pane is the canvas, so 12 unit text is 12 px there: the frame fills it and the
+  // sub-bees and boxes wrap to what fits (one across at 304 px, two at the design's 360).
+  it.each([
+    [304, 1, 1],
+    [360, 2, 2],
+    [500, 2, 2],
+  ])('sizes the narrow canvas from a %s px pane', (pane, beeCols, boxCols) => {
+    const layout = layoutDiagram(many(4), 'narrow', pane);
+    expect(layout.width).toBe(pane);
+    expect(layout.frame.w).toBe(pane - 8);
+    expect(new Set(layout.bees.map((b) => b.x)).size).toBe(beeCols);
+    expect(new Set(layout.boxes.map((b) => b.x)).size).toBe(boxCols);
+    for (const r of [...layout.bees, ...layout.boxes]) expect(r.x + r.w).toBeLessThanOrEqual(pane);
+  });
+
   it('is deterministic, and joins every sub-bee and every box with a line', () => {
     const a = layoutDiagram(many(4), 'wide');
     expect(layoutDiagram(many(4), 'wide')).toEqual(a);
@@ -239,14 +254,15 @@ describe('the drawing', () => {
     const yOf = (container: HTMLElement, sel: string) =>
       Number(container.querySelector(sel)!.getAttribute('y'));
     const onCell = draw({ warden_runs: 'on_cell' }).container;
-    const frame = (c: HTMLElement) => c.querySelector('svg > rect')!;
-    const wardenRect = (c: HTMLElement) => c.querySelector('[data-bee="warden_1"] rect')!;
-    expect(Number(wardenRect(onCell).getAttribute('y'))).toBeGreaterThan(
-      Number(frame(onCell).getAttribute('y')),
+    // The shapes are paths, so each carries its top edge in `data-y` for the test to read.
+    const top = (c: HTMLElement, sel: string) =>
+      Number(c.querySelector(sel)!.getAttribute('data-y'));
+    expect(top(onCell, '[data-bee="warden_1"] .dg-shape')).toBeGreaterThan(
+      top(onCell, 'svg > .dg-frame'),
     );
     const onStand = draw({ warden_runs: 'hive_stand' }).container;
-    expect(Number(wardenRect(onStand).getAttribute('y')) + 88).toBeLessThanOrEqual(
-      Number(frame(onStand).getAttribute('y')),
+    expect(top(onStand, '[data-bee="warden_1"] .dg-shape') + 88).toBeLessThanOrEqual(
+      top(onStand, 'svg > .dg-frame'),
     );
     expect(yOf(onStand, '[data-bee="warden_1"] .dg-line')).toBeGreaterThan(0);
   });
@@ -255,7 +271,7 @@ describe('the drawing', () => {
     const { container } = draw({ warden_runs: null });
     const warden = container.querySelector('[data-bee="warden_1"]')!;
     expect(warden.textContent).toContain('not tracked');
-    expect(warden.querySelector('rect')!.getAttribute('stroke-dasharray')).toBeTruthy();
+    expect(warden.querySelector('.dg-shape')!.getAttribute('stroke-dasharray')).toBeTruthy();
   });
 
   it('gives each bee a context meter with its numbers, and none when unreported', () => {
@@ -293,7 +309,7 @@ describe('the drawing', () => {
       new Set(['w_2']),
     );
     const outline = (id: string) =>
-      container.querySelector(`[data-bee="${id}"] rect`)!.getAttribute('stroke');
+      container.querySelector(`[data-bee="${id}"] .dg-shape`)!.getAttribute('stroke');
     expect(outline('w_1')).toBe('var(--alarm)');
     expect(container.querySelector('[data-bee="w_1"]')!.textContent).toContain('Alarm');
     expect(outline('w_2')).toBe('var(--accent)');
@@ -330,7 +346,7 @@ describe('the drawing', () => {
 
   it('repeats its numbers in a hidden table', () => {
     const { container } = draw();
-    const table = container.querySelector('table.sr-only')!;
+    const table = container.querySelector('.sr-only table')!;
     expect(table.textContent).toContain('worker_1');
     expect(table.textContent).toContain('Exoskeleton');
   });

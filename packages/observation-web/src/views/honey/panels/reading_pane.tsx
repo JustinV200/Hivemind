@@ -15,7 +15,7 @@
  *   - Draws only what `HoneyItemView` carries; a summary, reason or source list that is null or
  *     empty is left out, not shown blank.
  *   - The clearance tag is always shown with the title.
- *   - Nothing here writes; Close only clears the pane.
+ *   - Nothing here writes; Close is a link back to the folder's own address, which clears the pane.
  *
  * See Also:
  *   - src/landing_board/client/errors.ts for the sentences, and design.md section 5.7.
@@ -82,15 +82,15 @@ function Body(props: { item: ItemView }): ReactElement {
   );
 }
 
-export function ReadingPane(props: { reading: ReadingState; onClose: () => void }): ReactElement {
-  const { reading, onClose } = props;
+export function ReadingPane(props: { reading: ReadingState; closeHref: string }): ReactElement {
+  const { reading, closeHref } = props;
   const { item, error } = reading;
   const gone = error instanceof LandingBoardError && error.status === 404;
   return (
-    <aside className="honey-pane" aria-label="Item">
-      <button type="button" className="button" onClick={onClose}>
+    <aside className="honey-pane comb-cell" aria-label="Item">
+      <a className="button" href={closeHref}>
         Close
-      </button>
+      </a>
       {gone ? <p role="alert">{GONE}</p> : null}
       {error && !gone ? <ErrorNotice error={error} /> : null}
       {!item && !error ? <p aria-busy="true">Reading the item</p> : null}

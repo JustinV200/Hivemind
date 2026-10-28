@@ -1,22 +1,95 @@
 /*
- * Component styles for the Observation Hive: badges, status dot, gauge and notices.
+ * Component styles for the Observation Hive: badges, the tag, status dot, gauge, notices, sort
+ * control, mark, comb pattern, the comb cell and the section heading.
  *
  * Tier and mask badges are told apart by shape as well as colour (design.md section 3.3): a tier
  * is a fully rounded pill, bold; a mask is a square tag with a small square glyph, regular weight.
  * Each is drawn with a 2px border in its own text colour, which separates a pale badge from a
- * pale surface. The gauge fill and status dot take their colour from the status tokens.
+ * pale surface. The tag is the one short label beside a name in every view: quiet (the comb
+ * surface with a soft outline) for a kind, a clearance or a place, so it never reads as a button,
+ * and outlined in its tone's colour for a status word. The gauge fill and status dot take their colour from the status tokens; the
+ * gauge's end is cut like a comb cell. The hex cut (`--hex-cut`) is the one clip every
+ * hex-cornered card shares, and `.comb-cell` the panel that carries it with a stroke: a CSS
+ * border is clipped away along a chamfer, so the stroke is a 1px ring (`--hex-ring`) drawn under
+ * the clip by a pseudo-element, and every panel, card and form of the working views is one comb
+ * cell with the same geometry as the strip's groups and the Honey folders.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx. Class names are those
- *   rendered by `src/components/`.
+ *   rendered by `src/components/`, plus `comb-cell`, which the views put on their panels.
  *
  * Key invariants:
  *   - Tokens only: a hex value here is a bug.
  *   - Every badge has a text label in the markup; colour is never the only signal.
+ *   - The pulse runs only on the two "still trying" words and stops under reduced motion.
+ *   - A comb cell's stroke is never a `border`: it would end at the chamfers.
  *
  * See Also:
- *   - docs/observation/design.md sections 3.3, 4.1, 4.2 and 4.4.
+ *   - docs/observation/design.md sections 3.3, 3.4, 4.1, 4.2 and 4.4.
  */
+:root {
+  /* A rectangle with its four corners cut by 10px: the comb cell every panel, card and strip
+     group shares, so the chamfer is the same everywhere it appears. */
+  --hex-cut: polygon(
+    10px 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    10px 100%,
+    0 calc(100% - 10px),
+    0 10px
+  );
+
+  /* The 1px ring just inside that cut, as one even-odd polygon: the outer shape, then the inner
+     one inset by 1px (along a 45 degree chamfer a 1px inset is 1.4px on each axis). */
+  --hex-ring: polygon(
+    evenodd,
+    10px 0,
+    calc(100% - 10px) 0,
+    100% 10px,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    10px 100%,
+    0 calc(100% - 10px),
+    0 10px,
+    1px 10.4px,
+    1px calc(100% - 10.4px),
+    10.4px calc(100% - 1px),
+    calc(100% - 10.4px) calc(100% - 1px),
+    calc(100% - 1px) calc(100% - 10.4px),
+    calc(100% - 1px) 10.4px,
+    calc(100% - 10.4px) 1px,
+    10.4px 1px
+  );
+}
+
+/* The comb cell: a panel, card or form with its four corners cut and a 1px stroke that follows
+   the cut. `:where` keeps the position at zero specificity, so a panel that sticks (the Honey
+   reading pane) keeps its own; the ring is a pseudo-element, so no panel needs extra markup. */
+:where(.comb-cell) {
+  position: relative;
+}
+
+.comb-cell {
+  --comb-stroke: var(--border-soft);
+  clip-path: var(--hex-cut);
+}
+
+.comb-cell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--comb-stroke);
+  clip-path: var(--hex-ring);
+  pointer-events: none;
+}
+
+/* A form is outlined in the control border, as its fields are */
+.comb-cell--strong {
+  --comb-stroke: var(--border);
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -83,6 +156,52 @@
   gap: var(--sp-2);
 }
 
+/* The tag (design.md 4.1): a short word beside a name, in the Fleet's quiet look (the comb
+   surface, a soft outline), so a static label is never taken for a button, which is outlined in
+   --border on --surface. A status word (a state, a verdict, a severity, a taint) is
+   `.tag--status`: bold, outlined in its tone, with the word carrying the meaning. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-2);
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-tag);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+/* An id or a code word inside a tag keeps the tag's size */
+.tag .mono,
+.tag code {
+  font-size: inherit;
+}
+
+.tag--status {
+  background: transparent;
+  border-color: currentcolor;
+  font-weight: 700;
+}
+
+.tag--ok {
+  color: var(--ok);
+}
+
+.tag--warn {
+  color: var(--warn);
+}
+
+.tag--alarm {
+  color: var(--alarm);
+}
+
+.tag--idle {
+  color: var(--idle);
+}
+
 .badge-until {
   color: var(--text-muted);
   font-size: var(--fs-xs);
@@ -114,6 +233,16 @@
   background: var(--alarm);
 }
 
+.status-dot--pulse {
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes status-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
 /* Gauge */
 .gauge {
   display: grid;
@@ -121,14 +250,16 @@
 }
 
 .gauge-track {
-  height: 8px;
+  height: var(--gauge-h);
   background: var(--border-soft);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-tag);
   overflow: hidden;
 }
 
 .gauge-fill {
   height: 100%;
+  clip-path: polygon(0 0, calc(100% - 2px) 0, 100% 50%, calc(100% - 2px) 100%, 0 100%);
+  transition: width var(--motion);
 }
 
 .gauge-fill--ok {
@@ -141,6 +272,10 @@
 
 .gauge-fill--alarm {
   background: var(--alarm);
+}
+
+.gauge-fill--neutral {
+  background: var(--idle);
 }
 
 .gauge-text {
@@ -162,4 +297,52 @@
 
 .notice--alarm {
   border-left-color: var(--alarm);
+}
+
+/* The mark and the comb */
+.mark {
+  flex: 0 0 auto;
+}
+
+/* The comb pattern is structure behind the login card, an empty state, the rail's empty half and
+   the bar's empty middle: strong enough to read at 1x, never behind an item or a word */
+.hex-pattern {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+/* The one "Sort by" control a sortable table draws while its rows are cards */
+.sort-select {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.sort-select select {
+  min-height: 36px;
+  margin-left: var(--sp-1);
+  padding: 0 var(--sp-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.sort-select .button {
+  min-height: 36px;
+}
+
+/* The one heading rhythm (design.md section 6): a panel's heading and every top-level section
+   heading carry this hairline, in every view; a section that is a grid spaces it with its gap */
+.section-heading {
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--fs-lg);
+  line-height: var(--lh-heading);
 }

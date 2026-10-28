@@ -2,13 +2,16 @@
  * `Gauge`: a horizontal bar for used against a budget, with the numbers beside it in text.
  *
  * The same bar draws a bee's context window, a grant used against issued and a cost against its
- * cap. The fill is `--ok` up to 70 percent, `--warn` to 90 percent and `--alarm` above, but the
- * numbers (`41,200 / 128,000 (32%)`) carry the meaning too, so colour is never the only signal.
- * The bar is a `role="meter"` so a screen reader gets the value, minimum and maximum.
+ * cap. By default the fill is `--ok` up to 70 percent, `--warn` to 90 percent and `--alarm`
+ * above, but the numbers (`41,200 / 128,000 (32%)`) carry the meaning too, so colour is never
+ * the only signal. A share that is not a fault at 100 percent (hosted calls out of all calls)
+ * asks for the `neutral` tone, which fills in the idle grey at every level. The fill's right end
+ * is cut like a comb cell. The bar is a `role="meter"` so a screen reader gets the value, minimum
+ * and maximum.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/components/`. Used by the supervision tree, the Forage view
- *   and the Cost view in later steps; styled by `src/styles/components.css`.
+ *   and the Cost view; styled by `src/styles/components.css`.
  *
  * Key invariants:
  *   - A budget of zero or less draws an empty bar and 0 percent, never NaN.
@@ -30,9 +33,16 @@ function tone(percent: number): 'ok' | 'warn' | 'alarm' {
 
 const number = (n: number): string => n.toLocaleString('en-US');
 
-export function Gauge(props: { used: number; budget: number; label: string }): ReactElement {
+export function Gauge(props: {
+  used: number;
+  budget: number;
+  label: string;
+  // `neutral` for a share that is not a limit: the fill never turns to a status colour.
+  tone?: 'status' | 'neutral';
+}): ReactElement {
   const { used, budget, label } = props;
   const percent = budget > 0 ? Math.round((used / budget) * 100) : 0;
+  const fill = props.tone === 'neutral' ? 'neutral' : tone(percent);
   return (
     <div className="gauge">
       <div
@@ -44,7 +54,7 @@ export function Gauge(props: { used: number; budget: number; label: string }): R
         aria-valuemax={budget}
       >
         <div
-          className={`gauge-fill gauge-fill--${tone(percent)}`}
+          className={`gauge-fill gauge-fill--${fill}`}
           style={{ width: `${Math.min(100, percent)}%` }}
         />
       </div>

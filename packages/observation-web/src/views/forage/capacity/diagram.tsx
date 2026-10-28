@@ -1,48 +1,55 @@
 /**
- * `CapacityDiagram`: per-host stacked bars of what is in use, granted, held in reserve and free.
+ * `CapacityDiagram`: one compact card per host (or pool), a bar per dimension with its figures.
  *
- * It draws the layout of `layout.ts` as SVG. Each host is a heading and a bar per dimension (cores,
- * memory, GPUs, model seats, sub-bee slots); the shared pool comes first with the Royal Reserve
- * drawn hatched. Colour never works alone: every bar has its figures in words under it, a legend
- * names the four kinds, and a table with the same numbers follows for screen readers. An
- * over-committed bar shows a mark where its total ends and the words "over by".
+ * Each block of `model.ts` becomes a hex-cornered card: its name (the Cell's name when the fleet
+ * knows it, else its id; the pool's card carries none, since it stands alone under the section
+ * heading that names it), then one row per dimension (cores, memory, GPUs, model seats, sub-bee
+ * slots) with a thin stacked bar of what is in use, granted, held in reserve and free, and the
+ * figures in words at the right. The bars are tiny SVGs placed by `layout.ts`, so the widths are
+ * the same pure numbers the tests check. Colour never works alone: every bar has its figures, a
+ * legend names the four kinds (the reserve is hatched as well as grey; the screen draws it once,
+ * under the first figure on the page), and a hidden table with the same numbers follows for
+ * screen readers. An over-committed bar shows a mark where its total ends and the words "over
+ * by".
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/views/forage/capacity/`. Drawn by `forage_screen.tsx` from the
- *   hosts' blocks; makes no request and holds no state.
+ *   Layer 7 (observation-web), `src/views/forage/capacity/`. Drawn by `forage_screen.tsx` for the
+ *   shared pool and again for the hosts; makes no request and holds no state.
  *
  * Key invariants:
  *   - A pure function of its props: no timers, no random numbers; two renders are identical.
- *   - Every bar has a `<title>` with its full text and the `<svg>` has `role="img"` and an
- *     `aria-labelledby`; fills and strokes are `var(--...)` tokens only.
- *   - Text is real `<text>` and is cut when it would overflow; the full text stays in `<title>`.
+ *   - Every bar has a `<title>` with its full text; fills and strokes are `var(--...)` tokens only.
+ *   - Text is real text in the page's font, never cut: a card wraps its figures instead.
  *
  * See Also:
- *   - docs/observation/design.md sections 4.7 and 4.8.
+ *   - docs/observation/design.md sections 3.4, 4.7 and 4.8.
  */
+import { useId } from 'react';
 import type { ReactElement } from 'react';
-import { cut } from '../format';
+import { IdToken } from '../../../components';
 import { BAR_HEIGHT, BAR_WIDTH, BAR_X, KIND_WORD, layoutCapacity } from './layout';
 import type { LaidBlock, LaidRow } from './layout';
 import type { HostBlock, SegmentKind } from './model';
 
-const MAX_CHARS = 54; // About 340 units of 12 px text; longer figures are cut.
-
-// Fill per segment kind. The reserve uses the hatch pattern so it differs from the others by shape.
-const FILL: Readonly<Record<SegmentKind, string>> = {
+// Fill per segment kind; the reserve's hatch is drawn per card so each card's pattern id is its own.
+const FILL: Readonly<Record<Exclude<SegmentKind, 'reserve'>, string>> = {
   in_use: 'var(--accent)',
   granted: 'var(--ok)',
-  reserve: 'url(#forage-hatch)',
   free: 'var(--border-soft)',
 };
 
-export function Legend(): ReactElement {
+function Legend(props: { hatch: string }): ReactElement {
   return (
     <ul className="forage-legend" aria-label="Capacity legend">
       {(['in_use', 'granted', 'reserve', 'free'] as const).map((kind) => (
         <li key={kind}>
           <svg width="14" height="14" aria-hidden="true">
-            <rect width="14" height="14" fill={FILL[kind]} stroke="var(--border)" />
+            <rect
+              width="14"
+              height="14"
+              fill={kind === 'reserve' ? `url(#${props.hatch})` : FILL[kind]}
+              stroke="var(--border)"
+            />
           </svg>
           {KIND_WORD[kind]}
         </li>
@@ -51,77 +58,96 @@ export function Legend(): ReactElement {
   );
 }
 
-function Row(props: { laid: LaidRow }): ReactElement {
-  const { laid } = props;
+// One dimension: its label, the bar, its figures.
+function Row(props: { laid: LaidRow; hatch: string }): ReactElement {
+  const { laid, hatch } = props;
   const text = `${laid.row.label}: ${laid.figures}`;
-  const barY = laid.y + 22;
   return (
-    <g>
-      <title>{text}</title>
-      <text className="forage-svg-label" x={BAR_X} y={laid.y + 14}>
-        {laid.row.label}
-      </text>
-      <rect
-        x={BAR_X}
-        y={barY}
-        width={BAR_WIDTH}
-        height={BAR_HEIGHT}
-        fill="var(--surface-2)"
-        stroke="var(--border)"
-      />
-      {laid.segments.map((s) => (
-        <rect key={s.kind} x={s.x} y={barY} width={s.width} height={BAR_HEIGHT} fill={FILL[s.kind]}>
-          <title>{`${laid.row.label}, ${KIND_WORD[s.kind]}: ${s.amount}`}</title>
-        </rect>
-      ))}
-      {laid.limitX !== null ? (
-        <line
-          x1={laid.limitX}
-          x2={laid.limitX}
-          y1={barY - 3}
-          y2={barY + BAR_HEIGHT + 3}
-          stroke="var(--alarm)"
-          strokeWidth="2"
-        />
-      ) : null}
-      <text className="forage-svg-figures" x={BAR_X} y={barY + BAR_HEIGHT + 14}>
-        {cut(laid.figures, MAX_CHARS)}
-      </text>
-    </g>
-  );
-}
-
-function Block(props: { block: LaidBlock }): ReactElement {
-  const { block } = props;
-  return (
-    <g>
-      <text className="forage-svg-host" x={BAR_X} y={block.y + 14}>
-        {cut(block.title, MAX_CHARS)}
-        <title>{block.title}</title>
-      </text>
-      {block.rows.map((laid) => (
-        <Row key={laid.row.key} laid={laid} />
-      ))}
-    </g>
-  );
-}
-
-export function CapacityDiagram(props: { blocks: readonly HostBlock[] }): ReactElement {
-  const layout = layoutCapacity(props.blocks);
-  return (
-    <figure className="forage-figure">
+    <li className="forage-host-row">
+      <span className="forage-host-label">{laid.row.label}</span>
       <svg
-        className="forage-svg"
-        viewBox={`0 0 ${layout.width} ${Math.max(layout.height, 1)}`}
+        className="forage-bar"
+        viewBox={`0 0 ${BAR_X * 2 + BAR_WIDTH} ${BAR_HEIGHT}`}
         role="img"
-        aria-labelledby="forage-capacity-title"
+        aria-label={text}
       >
-        <title id="forage-capacity-title">
-          {`Capacity of ${layout.blocks.length} hosts and pools: in use, granted, reserve and free`}
-        </title>
+        <title>{text}</title>
+        <rect
+          x={BAR_X}
+          y={0}
+          width={BAR_WIDTH}
+          height={BAR_HEIGHT}
+          fill="var(--surface-2)"
+          stroke="var(--border-soft)"
+        />
+        {laid.segments.map((s) => (
+          <rect
+            key={s.kind}
+            x={s.x}
+            y={0}
+            width={s.width}
+            height={BAR_HEIGHT}
+            fill={s.kind === 'reserve' ? `url(#${hatch})` : FILL[s.kind]}
+          />
+        ))}
+        {laid.limitX !== null ? (
+          <line
+            x1={laid.limitX}
+            x2={laid.limitX}
+            y1={0}
+            y2={BAR_HEIGHT}
+            stroke="var(--alarm)"
+            strokeWidth="2"
+          />
+        ) : null}
+      </svg>
+      <span className="forage-host-figures">{laid.figures}</span>
+    </li>
+  );
+}
+
+// A host card's title: the fleet's name for the Cell when it has one, else the word "Cell"; the
+// Cell id follows as a token either way, so an unnamed host reads as a card and never as a 30
+// character line of id (design.md 4.3). The pool's card has no title of its own: its section
+// heading names it, and a second "Shared pool" under it would only repeat the words.
+function HostCard(props: { block: LaidBlock; name: string | null; hatch: string }): ReactElement {
+  const { block, name, hatch } = props;
+  return (
+    <li className="forage-host comb-cell">
+      {block.kind === 'pool' ? null : (
+        <h3 className="forage-host-title">
+          {name ?? <span className="forage-host-kind">Cell</span>}
+          <IdToken id={block.id} />
+        </h3>
+      )}
+      <ul className="forage-host-rows">
+        {block.rows.map((laid) => (
+          <Row key={laid.row.key} laid={laid} hatch={hatch} />
+        ))}
+      </ul>
+    </li>
+  );
+}
+
+export function CapacityDiagram(props: {
+  blocks: readonly HostBlock[];
+  // What the diagram is, for its name and the hidden table's caption.
+  caption?: string;
+  // Cell names from the fleet, by Cell id; a host the fleet has not named shows its id.
+  names?: ReadonlyMap<string, string>;
+  // Whether to draw the legend under the cards; the page draws it once, under its first figure.
+  legend?: boolean;
+}): ReactElement {
+  const hatch = useId();
+  const layout = layoutCapacity(props.blocks);
+  const caption = props.caption ?? 'Capacity per host';
+  const label = `${caption}: in use, granted, reserve and free, for ${layout.blocks.length} hosts and pools`;
+  return (
+    <figure className="forage-figure forage-capacity" role="group" aria-label={label}>
+      <svg width="0" height="0" aria-hidden="true" focusable="false">
         <defs>
           <pattern
-            id="forage-hatch"
+            id={hatch}
             width="6"
             height="6"
             patternUnits="userSpaceOnUse"
@@ -131,24 +157,33 @@ export function CapacityDiagram(props: { blocks: readonly HostBlock[] }): ReactE
             <line x1="0" y1="0" x2="0" y2="6" stroke="var(--idle)" strokeWidth="3" />
           </pattern>
         </defs>
-        {layout.blocks.map((block) => (
-          <Block key={block.id} block={block} />
-        ))}
       </svg>
-      <Legend />
-      <table className="sr-only">
-        <caption>Capacity per host, in numbers</caption>
-        <tbody>
-          {layout.blocks.flatMap((block) =>
-            block.rows.map((laid) => (
-              <tr key={`${block.id}:${laid.row.key}`}>
-                <th scope="row">{`${block.title}, ${laid.row.label}`}</th>
-                <td>{laid.figures}</td>
-              </tr>
-            )),
-          )}
-        </tbody>
-      </table>
+      <ul className="forage-hosts">
+        {layout.blocks.map((block) => (
+          <HostCard
+            key={block.id}
+            block={block}
+            name={props.names?.get(block.id) ?? null}
+            hatch={hatch}
+          />
+        ))}
+      </ul>
+      {props.legend === false ? null : <Legend hatch={hatch} />}
+      <div className="sr-only">
+        <table>
+          <caption>{`${caption}, in numbers`}</caption>
+          <tbody>
+            {layout.blocks.flatMap((block) =>
+              block.rows.map((laid) => (
+                <tr key={`${block.id}:${laid.row.key}`}>
+                  <th scope="row">{`${block.title}, ${laid.row.label}`}</th>
+                  <td>{laid.figures}</td>
+                </tr>
+              )),
+            )}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 }

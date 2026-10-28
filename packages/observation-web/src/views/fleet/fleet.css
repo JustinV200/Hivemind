@@ -1,76 +1,56 @@
 /*
- * Fleet view styles: the filter, the fixed legend, the table and its card form.
+ * Fleet view styles: the fixed legend, the table and its card form.
  *
- * Mobile first (design.md section 2): under 1080 px the table becomes stacked cards, one per Cell,
- * with the tier badge and the mask badge first; the headers become a wrapped row of sort buttons
- * above the cards. From 1080 px it is a table, inside a box that scrolls on its own if the columns
- * are wider than the pane, so the page itself never scrolls sideways. Nothing is hidden by width:
- * the tier and mask cells have no rule that hides them at any size.
+ * Mobile first (design.md section 2): under 1280 px the table becomes stacked cards, one per Cell
+ * (two across from 720 px), with the tier badge and the mask badge first; the header row is hidden
+ * (a screen reader still has it) and the shared "Sort by" control stands in for it. From 1280 px,
+ * where its columns fit the pane, it is a 13 px table in a box with its header stuck to the top,
+ * each row two short lines (the origin under the Cell's name, the mode under the status, the
+ * role under the task, the wax under the Alarm count, the thoughts under the Attendant link) so
+ * the row is 40 px, or 44 where its second line holds the sub-bees' comb cells; the box is a comb
+ * cell that scrolls down past a screenful of rows and only sideways if a pane is narrower than
+ * the design allows, so the page itself never scrolls sideways. Words break only inside a card: in the table an
+ * enum, an id or a badge never splits mid-word. Nothing is hidden by width: the tier and mask
+ * cells have no rule that hides them at any size. The Real / Virtual / All control is styled in
+ * `filter/filter.css`.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/fleet/`. Imported by `fleet.tsx`. Class names are those
- *   rendered by `src/views/fleet/`; the badges and the status dot come from `components.css`.
+ *   rendered by `src/views/fleet/`; the badges, the status dot and the "Sort by" control come from
+ *   `components.css`.
  *
  * Key invariants:
  *   - Tokens only: a hex value here is a bug.
- *   - Nothing here makes the page wider than the viewport; long text wraps.
+ *   - Nothing here makes the page wider than the viewport; long text wraps in a card and the table
+ *     scrolls in its box.
  *
  * See Also:
  *   - docs/observation/design.md sections 3, 4.3 and 5.1.
  */
 
-/* Real / Virtual / All */
-.fleet-filter {
-  display: inline-flex;
-}
-
-.fleet-filter-button {
-  min-height: 36px;
-  padding: 0 var(--sp-4);
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  cursor: pointer;
-}
-
-.fleet-filter-button + .fleet-filter-button {
-  margin-left: -1px;
-}
-
-.fleet-filter-button:first-child {
-  border-radius: var(--radius) 0 0 var(--radius);
-}
-
-.fleet-filter-button:last-child {
-  border-radius: 0 var(--radius) var(--radius) 0;
-}
-
-.fleet-filter-button[aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 700;
-}
-
-/* Legend: fixed above the table, never collapsed */
+/* Legend: in the title row, never collapsed; its three lines wrap as the row narrows */
 .fleet-legend {
-  display: grid;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
-  padding: var(--sp-3);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  flex-basis: 100%;
+  padding: var(--sp-2) var(--sp-3);
   background: var(--surface-2);
-  border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 
 .fleet-legend h2 {
   margin: 0;
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
+  font-weight: 600;
   color: var(--text-muted);
 }
 
 .fleet-legend ul {
-  display: grid;
-  gap: var(--sp-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -80,21 +60,29 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-2) var(--sp-3);
-  font-size: var(--fs-sm);
+  gap: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }
 
-/* The two place badges: a dashed outline marks them as neither a tier nor a mask */
+/* The two place badges: a quiet square tag, neither a tier pill nor a mask tag */
 .badge-place {
-  background: var(--surface);
+  background: var(--surface-2);
   color: var(--text);
-  border-style: dashed;
-  border-radius: var(--radius);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-tag);
+  font-weight: 400;
 }
 
 .badge-place--none {
-  background: var(--surface-2);
   color: var(--text-muted);
+}
+
+.fleet-fresh {
+  margin-bottom: var(--sp-3);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
 }
 
 /* Table, as cards first */
@@ -111,28 +99,24 @@
   font-variant-numeric: tabular-nums;
 }
 
-.fleet-table thead tr {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  margin-bottom: var(--sp-3);
+/* The header row is for assistive technology only while the rows are cards */
+.fleet-table thead {
+  position: absolute;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
 .fleet-sort {
-  min-height: 36px;
-  padding: 0 var(--sp-3);
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  border: 0;
+  padding: 0;
   font: inherit;
+  font-weight: 600;
   cursor: pointer;
-}
-
-.fleet-table th[aria-sort='ascending'] .fleet-sort,
-.fleet-table th[aria-sort='descending'] .fleet-sort {
-  border-color: var(--accent);
-  font-weight: 700;
 }
 
 .fleet-table tbody {
@@ -148,7 +132,7 @@
   padding: var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   overflow-wrap: anywhere;
 }
 
@@ -182,18 +166,23 @@
 }
 
 .fleet-name {
-  margin-left: var(--sp-2);
-  color: var(--text-muted);
-}
-
-.fleet-role,
-.fleet-status {
   margin-left: var(--sp-1);
 }
 
-.fleet-status {
-  margin-left: 0;
+/* The Cell's kind, source and lease age: one muted line under its name, at every width */
+.fleet-origin {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.fleet-status > span:first-child {
   margin-right: var(--sp-2);
+  white-space: nowrap;
+}
+
+.fleet-role {
+  margin-left: var(--sp-1);
 }
 
 .fleet-none {
@@ -231,26 +220,69 @@
   gap: var(--sp-2);
 }
 
+/* A sub-bee's thoughts: a numbered comb cell, with the bee's id beside it on a card */
+.fleet-bee {
+  gap: var(--sp-1);
+}
+
+/* The cell is 20px at every width, so its digit (14.4 of 24 units) draws at the 12px floor */
+.fleet-bee svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+/* The wax severity after the Alarm count, labelled on a card and under the count in the table */
+.fleet-wax {
+  margin-left: var(--sp-2);
+}
+
+.fleet-label,
+.fleet-pair {
+  color: var(--text-muted);
+}
+
+.fleet-pair {
+  font-weight: 400;
+}
+
 /* Tablet: two cards across */
 @media (min-width: 720px) {
   .fleet-table tbody {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .fleet-legend {
+    flex-basis: auto;
+    margin-left: auto;
+  }
 }
 
-/* Desktop: a real table */
-@media (min-width: 1080px) {
+/* Desktop: a real table in its own scroll box, with a sticky header, inside a comb cell like
+   every panel (`.fleet-box`, which `fleet_table.tsx` marks `.comb-cell` only while the rows are
+   a table; the ring is on the box, not the scroller, or it would scroll away with the rows).
+   Its columns need 1280px, so between 1080 and 1279px the Fleet keeps its two-across cards
+   (design.md section 2) */
+@media (min-width: 1280px) {
   .fleet-scroll {
-    overflow-x: auto;
+    overflow: auto;
+    max-height: calc(100dvh - var(--head-h) - 7rem);
+    background: var(--surface);
   }
 
   .fleet-table {
     display: table;
     width: 100%;
-    border-collapse: collapse;
+    border-collapse: separate;
+    border-spacing: 0;
   }
 
   .fleet-table thead {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
     display: table-header-group;
   }
 
@@ -267,24 +299,42 @@
     border: 0;
     border-radius: 0;
     margin: 0;
+    overflow-wrap: normal;
   }
 
+  /* A 4px pad and the heading's tight line height: two 13px lines fit a 40px row, and the ten
+     columns keep slack in a 1280px window even beside a scrollbar */
   .fleet-table th,
   .fleet-table td {
     display: table-cell;
-    padding: var(--sp-1) var(--sp-2);
+    padding: var(--sp-1);
     vertical-align: middle;
     text-align: left;
+    line-height: var(--lh-heading);
     border-bottom: 1px solid var(--border-soft);
+    white-space: nowrap;
+  }
+
+  /* The tier pill keeps its shape on a tighter pad, so the column stays narrow */
+  .fleet-table .badge-tier {
+    padding: 0 var(--sp-2);
   }
 
   .fleet-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
   }
 
   .fleet-table tbody tr {
     background: transparent;
-    min-height: 32px;
+    transition: background-color var(--motion);
+  }
+
+  .fleet-table tbody tr:hover {
+    background: var(--surface-2);
   }
 
   .fleet-table td::before,
@@ -302,20 +352,39 @@
     font-weight: 400;
   }
 
-  .fleet-sort {
-    min-height: 32px;
-    padding: 0;
-    background: transparent;
-    border: 0;
-    font-weight: 700;
+  /* Two short lines, never one long one: the mode under the status, the role under the task and
+     the thoughts under the Attendant link, so a row is about 40px and the table fits its pane */
+  .fleet-table .fleet-status > span,
+  .fleet-table .fleet-status .status {
+    display: flex;
+    margin: 0;
+  }
+
+  .fleet-table .fleet-role {
+    display: block;
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-muted);
+  }
+
+  .fleet-table .fleet-wax {
+    display: flex;
+    margin: 0;
+    font-size: var(--fs-xs);
   }
 
   .fleet-table .fleet-links {
     display: table-cell;
   }
 
-  /* Spacing on the right, so a link that wraps to a new line still starts at the cell's edge. */
+  .fleet-table .fleet-thoughts {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: var(--sp-1);
+  }
+
+  /* A 40px row: the 36px touch target is for the cards; in the table a link is a word or a cell */
   .fleet-links a {
-    margin-right: var(--sp-2);
+    min-height: 0;
   }
 }

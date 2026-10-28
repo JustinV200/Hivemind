@@ -7,8 +7,8 @@
  * sorts last, in either direction, so the gaps never crowd the top.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/views/fleet/table/`. Used by `fleet_table.tsx` (the headers)
- *   and `fleet.tsx` (the order).
+ *   Layer 7 (observation-web), `src/views/fleet/table/`. Used by `fleet_table.tsx` (the headers
+ *   and the "Sort by" control) and `fleet.tsx` (the order).
  *
  * Key invariants:
  *   - Pure: the input list is never mutated; no clock and no I/O.
@@ -40,21 +40,32 @@ export interface SortState {
   direction: 'ascending' | 'descending';
 }
 
-// The header words, in column order; the row's cells use the same words as their card labels.
-export const COLUMNS: readonly { key: SortKey; label: string }[] = [
+export interface Column {
+  key: SortKey;
+  label: string;
+  // A folded column has no header of its own: its value sits on a second line of another cell
+  // (the origin under the Cell's name, the wax under the Alarm count), so it sorts through the
+  // "Sort by" control, not a header click.
+  folded?: true;
+  // The folded column named after this one's header, as "Alarms / Wax".
+  pair?: string;
+}
+
+// The sortable columns in order; a header's words are also its cells' card labels.
+export const COLUMNS: readonly Column[] = [
   { key: 'id', label: 'Cell' },
-  { key: 'kind', label: 'Kind' },
-  { key: 'source', label: 'Source' },
-  { key: 'status', label: 'Status and mode' },
-  { key: 'tier', label: 'Comb Shield' },
-  { key: 'mask', label: 'Pheromone Mask' },
+  { key: 'kind', label: 'Kind', folded: true },
+  { key: 'source', label: 'Source', folded: true },
+  { key: 'status', label: 'Status' },
+  { key: 'tier', label: 'Shield' },
+  { key: 'mask', label: 'Mask' },
   { key: 'access', label: 'Access' },
-  { key: 'warden', label: 'Warden runs' },
-  { key: 'models', label: 'Models from' },
+  { key: 'warden', label: 'Warden' },
+  { key: 'models', label: 'Models' },
   { key: 'task', label: 'Task and role' },
-  { key: 'alarms', label: 'Open Alarms' },
-  { key: 'wax', label: 'Cell Wax' },
-  { key: 'lease', label: 'Lease age' },
+  { key: 'alarms', label: 'Alarms', pair: 'Wax' },
+  { key: 'wax', label: 'Cell Wax', folded: true },
+  { key: 'lease', label: 'Lease age', folded: true },
 ];
 
 // A missing value ranks at `none`: the lowest (mask `OFF` is also no mask) unless told otherwise.

@@ -1,12 +1,14 @@
 /**
  * The diagram's geometry: where each node, box, frame and line goes, as plain numbers.
  *
- * `layoutDiagram` takes the model and one of two modes and returns rectangles and line paths in
- * viewBox units. Wide puts the fact boxes in a column to the right of the Cell frame; narrow
- * stacks them below it in two columns, so the viewBox is 360 units across and its 12 unit text is
- * 12 pixels on a phone. The Warden sits inside the frame when it runs on the Cell and above it
- * (outside, on the Hive Stand) otherwise, which is how the frame says where the Warden runs.
- * Sub-bees fill rows of as many nodes as the frame is wide enough for (1 to 6), centred per row.
+ * `layoutDiagram` takes the model, one of two modes and the pane's measured width, and returns
+ * rectangles and line paths in viewBox units. Wide (a pane of `WIDE_FROM` px or more) puts the
+ * fact boxes in a column to the right of the Cell frame on a 744 unit canvas; narrow stacks them
+ * below it, one or two across, on a canvas exactly as wide as the pane, so one unit is one pixel
+ * and the 12 unit text is 12 px on any phone (design.md 4.8). The Warden sits inside the frame
+ * when it runs on the Cell and above it (outside, on the Hive Stand) otherwise, which is how the
+ * frame says where the Warden runs. Sub-bees fill rows of as many nodes as the frame is wide
+ * enough for (1 to 6), centred per row, at their fixed size.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/diagram/`. Called by `cell_diagram.tsx`; the
@@ -62,11 +64,19 @@ const LINK_GAP = 28; // between the Warden and the first row
 const BOX_H = 60;
 const SIDE_GAP = 20; // between the frame and the box column
 const WIDE_W = 744;
-const NARROW_W = 360;
-const FRAME_W: Readonly<Record<LayoutMode, number>> = { wide: 520, narrow: 352 };
+const WIDE_FRAME_W = 520;
+export const WIDE_FROM = 720; // The narrowest pane that gets the wide layout.
+const NARROW_W = 360; // The narrow canvas before the pane is measured: the design's first phone.
+const NARROW_MIN = 240; // Below this the drawing scrolls in its pane rather than shrink its text.
+const BOX_MIN_W = 150; // A fact box narrower than this cuts its value too short to read.
 const EMPTY_H = 32; // the frame's body when the Cell has no sub-bees to show
 
 const clamp = (n: number, low: number, high: number): number => Math.min(high, Math.max(low, n));
+
+// The canvas width: the wide one is fixed; the narrow one is the pane itself, with a floor.
+function canvasWidth(mode: LayoutMode, paneWidth: number | null): number {
+  return mode === 'wide' ? WIDE_W : Math.max(NARROW_MIN, paneWidth ?? NARROW_W);
+}
 
 // How many nodes fit across the frame's inside, from 1 to 6.
 export function columnsFor(frameWidth: number): number {
@@ -102,8 +112,9 @@ interface Body {
 }
 
 // The Cell frame with the Warden and the sub-bees placed, top to bottom.
-function placeBody(model: DiagramModel, mode: LayoutMode): Body {
-  const frameW = FRAME_W[mode];
+function placeBody(model: DiagramModel, mode: LayoutMode, width: number): Body {
+  // Wide keeps room beside the frame for the boxes; narrow gives the frame the whole canvas.
+  const frameW = mode === 'wide' ? WIDE_FRAME_W : width - 2 * MARGIN;
   const outside = model.warden !== null && model.wardenRuns !== 'on_cell';
   const inside = model.warden !== null && !outside;
   const frame: Rect = { x: MARGIN, y: MARGIN, w: frameW, h: 0 };
@@ -129,8 +140,14 @@ function placeBody(model: DiagramModel, mode: LayoutMode): Body {
   return { frame, warden, bees, wardenOutside: outside };
 }
 
-// Where each fact box goes: a column right of the frame (wide) or two columns below it (narrow).
-function placeBoxes(boxes: FactBox[], body: Body, mode: LayoutMode): Placed<FactBox>[] {
+// Where each fact box goes: a column right of the frame (wide) or below it (narrow), two across
+// where two boxes of a readable width fit the canvas and one across on a narrower phone.
+function placeBoxes(
+  boxes: FactBox[],
+  body: Body,
+  mode: LayoutMode,
+  width: number,
+): Placed<FactBox>[] {
   const { frame } = body;
   if (mode === 'wide') {
     const x = frame.x + frame.w + SIDE_GAP;
@@ -142,12 +159,14 @@ function placeBoxes(boxes: FactBox[], body: Body, mode: LayoutMode): Placed<Fact
       h: BOX_H,
     }));
   }
-  const w = Math.floor((NARROW_W - 2 * MARGIN - GAP) / 2);
+  const inner = width - 2 * MARGIN;
+  const cols = clamp(Math.floor((inner + GAP) / (BOX_MIN_W + GAP)), 1, 2);
+  const w = Math.floor((inner - (cols - 1) * GAP) / cols);
   const top = frame.y + frame.h + LINK_GAP;
   return boxes.map((item, i) => ({
     item,
-    x: MARGIN + (i % 2) * (w + GAP),
-    y: top + Math.floor(i / 2) * (BOX_H + GAP),
+    x: MARGIN + (i % cols) * (w + GAP),
+    y: top + Math.floor(i / cols) * (BOX_H + GAP),
     w,
     h: BOX_H,
   }));
@@ -172,9 +191,15 @@ function boxLinks(boxes: Placed<FactBox>[], body: Body, mode: LayoutMode): Link[
   });
 }
 
-export function layoutDiagram(model: DiagramModel, mode: LayoutMode): Layout {
-  const body = placeBody(model, mode);
-  const boxes = placeBoxes(model.boxes, body, mode);
+export function layoutDiagram(
+  model: DiagramModel,
+  mode: LayoutMode,
+  // The pane's measured width in px; null before it is measured (the 360 unit canvas then).
+  paneWidth: number | null = null,
+): Layout {
+  const width = canvasWidth(mode, paneWidth);
+  const body = placeBody(model, mode, width);
+  const boxes = placeBoxes(model.boxes, body, mode, width);
   const links: Link[] = [];
   // Tree lines first, so nodes drawn later hide the stretches that pass behind them.
   const { warden } = body;
@@ -183,7 +208,7 @@ export function layoutDiagram(model: DiagramModel, mode: LayoutMode): Layout {
   const lowest = [body.frame, ...boxes].reduce((low, r) => Math.max(low, r.y + r.h), 0);
   return {
     mode,
-    width: mode === 'wide' ? WIDE_W : NARROW_W,
+    width,
     height: lowest + MARGIN,
     frame: body.frame,
     wardenOutside: body.wardenOutside,

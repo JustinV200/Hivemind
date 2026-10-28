@@ -27,8 +27,10 @@ an alias for the outlet. `chat_screen.tsx` is the route component.
 - `writes/`: `use_actions.ts` is every chat, inbox and voice write; `use_goal.ts` is the typed goal
   request; `use_step_up.ts` and
   `step_up_prompt.tsx` are the step-up flow.
-- `conversation/`: the list, a line, a pending message, a requested goal (`goal_row.tsx`), the question and Alarm forms, the links and
-  the "Waiting for you" block for inbox items whose line has not arrived.
+- `conversation/`: the list, a line, a pending message, a requested goal (`goal_row.tsx`), the question and Alarm forms, the links,
+  the "Waiting for you" block for inbox items whose line has not arrived, and `use_follow_tail.ts`,
+  which opens the page on the newest line and follows a new one there unless the reader has
+  scrolled up to read.
 - `composer/`: the text box and Send. `voice/`: push-to-talk, its state machine, the transcript card
   and the goal controls.
 

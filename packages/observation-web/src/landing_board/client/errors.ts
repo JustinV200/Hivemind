@@ -36,6 +36,7 @@ export const CLIENT_CODES = {
   writeRefused: 'hivemind.client.write_refused',
   network: 'hivemind.client.network',
   microphone: 'hivemind.client.microphone',
+  viewFailed: 'hivemind.client.view_failed',
 } as const;
 
 const ENTRANCE = 'hivemind.entrance.';
@@ -185,6 +186,10 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
   [CLIENT_CODES.microphone]: {
     sentence: 'The microphone could not be used.',
     action: 'Allow the microphone for this page, or type instead.',
+  },
+  [CLIENT_CODES.viewFailed]: {
+    sentence: 'This view could not be drawn from what the Hive sent.',
+    action: 'Open another view, or reload the page. The rest of the Hive is still live.',
   },
 };
 

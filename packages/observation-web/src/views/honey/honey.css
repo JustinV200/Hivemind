@@ -41,9 +41,10 @@
     display: block;
   }
 
+  /* Under the head's measured height, so an open notice bar never covers the pane's top */
   .honey-pane {
     position: sticky;
-    top: calc(var(--topbar-h) + var(--strip-h) + var(--sp-3));
+    top: calc(var(--head-h) + var(--sp-3));
   }
 }
 
@@ -64,9 +65,12 @@
   font-size: var(--fs-sm);
 }
 
+/* The crumbs share a baseline, so a link padded to its phone touch area (base.css) reads level
+   with the current folder's name */
 .honey-crumbs ol {
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   gap: var(--sp-1);
   margin: 0;
   padding: 0;
@@ -79,7 +83,15 @@
   color: var(--text-muted);
 }
 
-/* Lists */
+/* Lists: a group is a grid, so its gap spaces the shared `.section-heading` from its list; one
+   track, never wider than the pane */
+.honey-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
+}
+
+/* The reading pane's sub-headings (provenance, sources), under the item's own title */
 .honey-section {
   margin-bottom: var(--sp-2);
   font-size: var(--fs-lg);
@@ -95,12 +107,30 @@
   list-style: none;
 }
 
+/* Folders are comb cells: hex-cornered tiles in a grid, each a link first */
+.honey-folders {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
 .honey-folders li {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--sp-1) var(--sp-3);
-  min-height: 32px;
+  min-height: 56px;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--surface-2);
+  clip-path: var(--hex-cut);
+  transition: background-color var(--motion);
+}
+
+.honey-folders li:hover {
+  background: var(--accent-soft);
+}
+
+.honey-folders li a {
+  font-weight: 600;
+  flex-basis: 100%;
 }
 
 .honey-item {
@@ -109,7 +139,7 @@
   padding: var(--sp-3);
   background: var(--surface);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
 }
 
 .honey-item[aria-current='true'] {
@@ -126,15 +156,12 @@
 }
 
 .honey-open {
+  display: inline-flex;
+  align-items: center;
   min-height: 44px;
-  padding: 0;
-  background: none;
-  border: 0;
   color: var(--accent);
   font-weight: 700;
   text-align: left;
-  text-decoration: underline;
-  cursor: pointer;
   overflow-wrap: anywhere;
 }
 
@@ -199,23 +226,6 @@
   border-left-color: var(--alarm);
 }
 
-/* Cell Wax severity: a word in a tag, the border carries the weight */
-.honey-severity {
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-tag);
-  font-weight: 700;
-}
-
-.honey-severity--caution {
-  border-color: var(--warn);
-}
-
-.honey-severity--block {
-  border-color: var(--alarm);
-  border-width: 2px;
-}
-
 /* Search */
 .honey-search form {
   display: flex;
@@ -245,12 +255,10 @@
   }
 }
 
-/* The reading pane */
+/* The reading pane, a comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .honey-pane {
   padding: var(--sp-3);
   background: var(--surface);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
 }
 
 .honey-pane .button {

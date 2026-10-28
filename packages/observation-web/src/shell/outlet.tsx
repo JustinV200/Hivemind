@@ -1,9 +1,12 @@
 /**
- * The outlet: draws the view for the current route.
+ * The outlet: draws the view for the current route, each inside its own boundary.
  *
  * One view at a time fills the main area. This is the only place that maps a route name to a
  * component, so adding a view means adding one case here and one directory under `src/views/`.
- * An unknown route, or a loopback-only screen on a remote listener, draws "not found".
+ * An unknown route, or a loopback-only screen on a remote listener, draws "not found". Every
+ * view is wrapped in a `ViewBoundary` keyed by the route, so a view that throws on a malformed
+ * answer shows the error notice in its place while the shell stays, and moving to another route
+ * draws afresh.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/shell/`. Rendered by `shell.tsx` inside `<main>`.
@@ -17,8 +20,9 @@
  *   - docs/observation/design.md section 5.
  */
 import type { ReactElement } from 'react';
-import { ViewTitle } from '../components';
-import { useRoute } from '../router';
+import { ViewBoundary } from '../components';
+import { hrefFor, useRoute } from '../router';
+import type { Route } from '../router';
 import { AttendantScreen } from '../views/attendant';
 import { CappingScreen } from '../views/capping';
 import { CellPageView } from '../views/cell';
@@ -30,9 +34,9 @@ import { FleetView } from '../views/fleet/fleet';
 import { ForageScreen } from '../views/forage';
 import { HoneyScreen } from '../views/honey';
 import { ThoughtsView } from '../views/thoughts/thoughts_view';
+import { NotFound } from './not_found';
 
-export function Outlet(): ReactElement {
-  const route = useRoute();
+function viewFor(route: Route): ReactElement {
   switch (route.name) {
     case 'fleet':
       return <FleetView />;
@@ -47,7 +51,7 @@ export function Outlet(): ReactElement {
     case 'chat':
       return <ChatScreen />;
     case 'honey':
-      return <HoneyScreen path={route.path} />;
+      return <HoneyScreen path={route.path} item={route.item} />;
     case 'cost':
       return <CostScreen />;
     case 'capping':
@@ -57,6 +61,12 @@ export function Outlet(): ReactElement {
     case 'enrol':
       return <EnrolScreen />;
     case 'not_found':
-      return <ViewTitle title="Not found" />;
+      return <NotFound />;
   }
+}
+
+export function Outlet(): ReactElement {
+  const route = useRoute();
+  // Keyed by the route's address, so a boundary that caught a failure is replaced on navigation.
+  return <ViewBoundary key={hrefFor(route)}>{viewFor(route)}</ViewBoundary>;
 }

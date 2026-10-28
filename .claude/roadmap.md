@@ -2510,8 +2510,56 @@ in this phase adds a new write path.
   routes with the loopback-only screens hidden off loopback; the shell, strip, tokens, badges and
   a placeholder per view; a shell-only service worker that never caches `/v1/`. The supervision
   tree, Cell and Forage diagrams land with their views (12.4, 12.5). Not yet: a push handler in
-  the service worker (12.12), a theme toggle, and the Entrance serving `.webmanifest` with its
-  media type (checked in the phase's exit run).
+  the service worker (12.12), and the Entrance serving `.webmanifest` with its media type
+  (checked in the phase's exit run). **Design round 2026-10-27:** the hive palette with the
+  propolis chrome, the comb motif in its five places, the theme toggle in the top bar, the notice
+  bar under the strip for `PushNotice`, a `ViewBoundary` around every view, relative time stamps,
+  and tables that never split a word (design.md sections 2, 3.4, 4.2, 4.3, 6 and 7). **Round 2
+  (2026-10-27):** one relative time per cell, phone captions on one line, two-decimal money, the
+  shared "Sort by" control on every sortable table's cards, the Cell page's panels in columns,
+  the chat opening on its newest line, the comb in the rail and the top bar with hex-cut top
+  corners on panels, a dark chrome one step above the page, and the PWA icon redrawn as the
+  Mark (design.md sections 2, 3.1, 3.4, 4.3, 5.6 and 5.8). **Round 3 (2026-10-27):** ids cut
+  to their kind and ULID tail (`cell_…2C3D4`) so real ids tell apart; the rail, the Cell header
+  and the Honey pane sized from the head's measured height (`--head-h`), so a waiting question
+  is never under the rail; every panel, card and form a comb cell (`.comb-cell`) with the four
+  corner 10 px cut and a stroked ring (`--hex-ring`) in place of a border cut off at the
+  chamfers; the comb at 12 percent in the chrome and behind the login card, the strip's groups
+  one comb row; 20 px numbered comb cells for the sub-bees' thoughts; the Devices list a table
+  from 1280 px with its controls a wrapping row; the Forage's Wardens, requests and map tables
+  back from 720 px with only the Grants table waiting for 1080, and the host cards named from a
+  fleet read the view makes itself; `shell.css` split into `head.css` and the login view's own
+  stylesheet (design.md sections 2, 3.4, 4.3, 5.3 and 5.10). **Round 4 (2026-10-27):** the
+  focus ring on the chrome in `--chrome-accent` (the page's `--accent` was about 2:1 on the
+  propolis), inset on the nav items so the rail never clips it, with both ring pairings in the
+  contrast test; the Cell page leading with the Cell's name; the strip's four groups sharing the
+  band up to the content's cap with the stale note at its right edge; one heading rhythm
+  (`.section-heading`, the panel hairline) on every top-level section heading; the Fleet's
+  table box and `EmptyState` comb cells, `EmptyState` wherever a view or section has nothing to
+  list; the Devices list's platform on one line with its door controls the column that wraps
+  (design.md sections 2, 3.4, 4.3, 5.2, 5.6, 6, 7 and 8). **Round 5 (2026-10-27), the phone
+  round:** every diagram sized from its measured pane (`usePaneWidth`), so the Cell diagram's
+  and the Attendant graph's narrow canvases are the pane's width and their 12 unit text is 12 px
+  on any phone, and the Forage flow narrows (every label left of its box, cut to what the width
+  leaves) instead of scrolling sideways; the Attendant graph's lines routed through the grid's
+  gaps so one never runs through a node; the strip's phone form two lines per cell within its
+  116 px budget; the seven per-view tags folded into one `.tag` and `.tag--status`; the Honey
+  item in the hash (`#/honey/<path>?item=<id>`) with the opener and Close real links; a word
+  beside every grant gauge on the Cell page; the Forage's legend drawn once and its pool card
+  untitled under its heading; the Capping filters a select per group on a phone; the system
+  font stack the stated design (design.md sections 2, 4.1, 4.7, 4.8, 5.1, 5.7, 5.9 and 6).
+  **Round 6 (2026-10-27), the phone diagrams:** the Forage flow's pool amounts on a line under
+  their words on a phone and "soon" under a near-expiry grant's name on either canvas (a box
+  never shorter than its label's lines; Warden and grant labels by kind and ULID tail, or the
+  tail alone); every line into one Attendant task with a bus, an entry point and, in the gaps, a
+  lane of its own, the gap a lane wider per line a task can receive, with a test that two lines
+  into one task share no segment; the wide diagrams drawn at exactly 1x and centred (the `<svg>`
+  carries its canvas's width), so their type stays 12 px at 1280 and up; a 44 px touch area for
+  the links in rows, cards, link lines and the Honey crumbs on a phone, with the flex rows that
+  mix one with plain text aligned by baseline; the stale note inside the strip's 116 px phone
+  budget (the cells' label line as tight as their number's, 2 px of padding given up while
+  stale); the Cell page's gauge words level with their bars (`--gauge-h`); the Capping select
+  collapsing a chip set to its first member (design.md sections 2, 4.2, 4.7, 4.8, 5.9 and 6).
 - [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
@@ -2589,11 +2637,17 @@ in this phase adds a new write path.
   `/v1/cells/stream` folded into its row at once and one throttled re-read (a second after the
   first frame of a burst, never without a frame) for the aggregate-only columns; the Real /
   Virtual / All chips remembered per viewer; stable sorting by meaning with `aria-sort`; the tier
-  pill and mask tag first in every row and in the stacked cards below 1080 px; the legend fixed
+  pill and mask tag first in every row and in the stacked cards below 1280 px; the legend fixed
   above the table. The task's bee link comes from the row's `thought_principals`, since
   `FleetRow` does not name the bee working the task, and a Queen-forced mask's expiry is not
-  published, so the tag is drawn without it. The design's tablet expander and "N new rows"
-  button are not built; the header is not sticky inside the scrolling pane.
+  published, so the tag is drawn without it. The design's tablet expander is not built. The
+  header is sticky inside the table's own scroll box and new rows wait behind a "N new rows,
+  re-sort" button while the pointer or focus is in the table (2026-10-27); on a phone one "Sort
+  by" select stands in for the header row. Round 2 (2026-10-27): the kind, source and lease age
+  fold under the Cell's name, the mode under the status, the role under the task, the wax under
+  the Alarm count and the thoughts (each sub-bee a numbered comb cell) under the Attendant link,
+  so a row is two short lines (40 px) and every column fits the pane from 1280 px; between 720
+  and 1279 px the rows stay cards, two across, and the page never scrolls sideways.
 - [x] **12.7 Attendant views.** For the Queen: the task graph she is currently concerned with,
   what recently finished, what is coming next, and the ordered inbox behind it, with each task's
   placement and Alarms. The same view for **every Warden** over its sub-bees' tasks and its own
@@ -2628,7 +2682,7 @@ in this phase adds a new write path.
   write set is the chat, the audio route, the two inbox routes and the goal confirm and decline.
   No break-glass control exists. Gaps: `ChatLine` and `QuestionView` carry only `task_id` (no
   episode or goal id, so links go to the Queen's Attendant and thoughts), `max_clip_seconds` is
-  not published, the shell does not surface `PushNotice`, the stream cannot start from the seed's
+  not published, the stream cannot start from the seed's
   `newest_seq` (a line in the gap before the first frame shows only through the inbox), and
   history beyond the newest 100 lines is not paged.
 - [x] **12.8a Enrolment and step-up screens.** On loopback only: the invite screen (code and QR),

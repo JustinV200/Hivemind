@@ -1,4 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Observation Hive">
-  <rect width="512" height="512" fill="#F5B83D"/>
-  <path d="M256 82l150 87v174l-150 87-150-87V169z" fill="#1A1400"/>
+  <!-- The Mark (src/components/comb/mark.tsx) at sixteen times its size on the propolis chrome:
+       the outer cell in the chrome's text colour, the honey inside it in the accent. -->
+  <rect width="512" height="512" fill="#3A2A14"/>
+  <path d="M256 96 394.6 176v160L256 416 117.4 336V176z" fill="none" stroke="#F3EEE2" stroke-width="28" stroke-linejoin="round"/>
+  <path d="M256 184 318.4 220v72L256 328l-62.4-36v-72z" fill="#F2B544"/>
 </svg>

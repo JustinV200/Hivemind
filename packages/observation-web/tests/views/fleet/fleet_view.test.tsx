@@ -19,6 +19,7 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KIND_KEY } from '../../../src/views/fleet/filter';
+import { sortRows } from '../../../src/views/fleet/table';
 import { flush } from '../../support/fake_browser';
 import { cellFrame } from '../../support/frames';
 import { drawnIds, fleetAnswer, fleetCss, fleetRow, openFleet } from './support';
@@ -28,6 +29,8 @@ beforeEach(() => window.localStorage.clear());
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  // A width set by `setWidth` must not leak into the next test, which expects jsdom's none.
+  delete (window as { matchMedia?: unknown }).matchMedia;
 });
 
 const rows = () => screen.getAllByRole('row').slice(1);
@@ -84,19 +87,13 @@ describe('rows', () => {
   it('shows the kind, source, status and mode, access, task and role, Alarms, Wax and lease', async () => {
     await openFleet({ rows: [real] });
     const row = (await screen.findAllByRole('row'))[1]!;
-    for (const text of [
-      'Real',
-      'hive_stand',
-      'ACTIVE',
-      'active',
-      'full',
-      'guard bee',
-      'caution',
-      '1h 1m',
-    ]) {
+    for (const text of ['ACTIVE', 'active', 'full', 'guard bee', 'caution']) {
       expect(within(row).getAllByText(text).length).toBeGreaterThan(0);
     }
+    // The kind, the source and the lease age share one muted line under the name.
+    expect(within(row).getByText('Real · hive_stand · lease 1h 1m')).toBeTruthy();
     expect(within(row).getByText('3').className).toContain('fleet-alarms');
+    expect(within(row).getByText('caution').closest('.fleet-wax')).not.toBeNull();
     expect(within(row).getByLabelText('task_1')).toBeTruthy();
   });
 
@@ -240,48 +237,46 @@ describe('sort', () => {
     await openFleet({ rows: [c, a, b] });
     await screen.findAllByRole('row');
     expect(drawnIds()).toEqual(['cell_c', 'cell_a', 'cell_b']);
-    expect(header('Comb Shield').getAttribute('aria-sort')).toBe('none');
+    expect(header('Shield').getAttribute('aria-sort')).toBe('none');
   });
 
   it('sorts by a header click, flips on the next, and says so with aria-sort', async () => {
     await openFleet({ rows: [c, a, b] });
     await screen.findAllByRole('row');
-    fireEvent.click(within(header('Comb Shield')).getByRole('button'));
+    fireEvent.click(within(header('Shield')).getByRole('button'));
     // By meaning, open to closed, not by spelling.
     expect(drawnIds()).toEqual(['cell_b', 'cell_c', 'cell_a']);
-    expect(header('Comb Shield').getAttribute('aria-sort')).toBe('ascending');
-    fireEvent.click(within(header('Comb Shield')).getByRole('button'));
+    expect(header('Shield').getAttribute('aria-sort')).toBe('ascending');
+    fireEvent.click(within(header('Shield')).getByRole('button'));
     expect(drawnIds()).toEqual(['cell_a', 'cell_c', 'cell_b']);
-    expect(header('Comb Shield').getAttribute('aria-sort')).toBe('descending');
+    expect(header('Shield').getAttribute('aria-sort')).toBe('descending');
     fireEvent.click(within(header('Cell')).getByRole('button'));
-    expect(header('Comb Shield').getAttribute('aria-sort')).toBe('none');
+    expect(header('Shield').getAttribute('aria-sort')).toBe('none');
     expect(drawnIds()).toEqual(['cell_a', 'cell_b', 'cell_c']);
   });
 
   it('breaks ties on the Cell id in either direction, so the order is stable', async () => {
     await openFleet({ rows: [c, b, a] });
     await screen.findAllByRole('row');
-    const button = within(header('Open Alarms')).getByRole('button');
+    const button = within(header('Alarms / Wax')).getByRole('button');
     fireEvent.click(button);
     expect(drawnIds()).toEqual(['cell_a', 'cell_b', 'cell_c']);
     fireEvent.click(button);
     expect(drawnIds()).toEqual(['cell_c', 'cell_a', 'cell_b']);
   });
 
-  it('puts a Cell with no lease last whichever way the column runs', async () => {
-    await openFleet({ rows: [a, b, c] });
-    await screen.findAllByRole('row');
-    const button = within(header('Lease age')).getByRole('button');
-    fireEvent.click(button);
-    expect(drawnIds()).toEqual(['cell_a', 'cell_c', 'cell_b']);
-    fireEvent.click(button);
-    expect(drawnIds()).toEqual(['cell_c', 'cell_a', 'cell_b']);
+  it('puts a Cell with no lease last whichever way the column runs', () => {
+    // Lease age has no header (it sits under the Cell's name); the "Sort by" control drives it.
+    const ids = (direction: 'ascending' | 'descending') =>
+      sortRows([a, b, c], { key: 'lease', direction }).map((row) => row.id);
+    expect(ids('ascending')).toEqual(['cell_a', 'cell_c', 'cell_b']);
+    expect(ids('descending')).toEqual(['cell_c', 'cell_a', 'cell_b']);
   });
 
   it('is reached by the keyboard: the header is a real button', async () => {
     await openFleet({ rows: [a] });
     await screen.findAllByRole('row');
-    expect(within(header('Cell Wax')).getByRole('button').tagName).toBe('BUTTON');
+    expect(within(header('Shield')).getByRole('button').tagName).toBe('BUTTON');
   });
 });
 
@@ -291,15 +286,18 @@ describe('links', () => {
     const row = (await screen.findAllByRole('row'))[1]!;
     const hrefs = within(row)
       .getAllByRole('link')
-      .map((link) => [link.textContent, link.getAttribute('href')]);
+      .map((link) => [
+        link.getAttribute('aria-label') ?? link.textContent,
+        link.getAttribute('href'),
+      ]);
     expect(hrefs).toEqual([
-      ['cell_r', '#/cells/cell_r'],
-      ['Page', '#/cells/cell_r'],
+      ['cell_r hive-stand', '#/cells/cell_r'],
       ['Attendant', '#/attendant/warden_1'],
-      ['warden_1', '#/thoughts/warden_1'],
-      ['worker_7', '#/thoughts/worker_7'],
+      ['Thoughts of warden_1', '#/thoughts/warden_1'],
+      ['Thoughts of worker_7', '#/thoughts/worker_7'],
     ]);
-    expect(within(row).getByRole('link', { name: 'Thoughts of worker_7' })).toBeTruthy();
+    // The sub-bee's link is a numbered comb cell, named in full for assistive technology.
+    expect(within(row).getByRole('link', { name: 'Thoughts of worker_7' }).textContent).toBe('1');
   });
 
   it('offer no Attendant or thoughts link for a Cell without a Warden', async () => {
@@ -373,6 +371,26 @@ describe('live', () => {
       opened.socket.receive(cellFrame({ id: 'cell_new', kind: 'VIRTUAL' }));
     });
     expect(drawnIds()).toEqual(['cell_r', 'cell_v', 'cell_new']);
+  });
+
+  it('holds new rows behind a button while the pointer is in the table, updating the rest', () => {
+    const box = screen.getByRole('table').parentElement!;
+    fireEvent.pointerEnter(box);
+    act(() => {
+      opened.socket.receive(cellFrame({ id: 'cell_new', kind: 'VIRTUAL' }));
+      opened.socket.receive(cellFrame({ id: 'cell_v', comb_shield: 'NIGHT_VEIL' }));
+    });
+    // The new Cell waits; the Cell already shown still changed in place.
+    expect(drawnIds()).toEqual(['cell_r', 'cell_v']);
+    expect(within(rows()[1]!).getByText('NIGHT VEIL')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '1 new row, re-sort' }));
+    expect(drawnIds()).toEqual(['cell_r', 'cell_v', 'cell_new']);
+    // Leaving the table lets later rows through at once.
+    fireEvent.pointerLeave(box);
+    act(() => {
+      opened.socket.receive(cellFrame({ id: 'cell_late', kind: 'VIRTUAL' }));
+    });
+    expect(drawnIds()).toContain('cell_late');
   });
 
   it('reads again once, one second after a burst of frames, and takes the aggregate fields', async () => {

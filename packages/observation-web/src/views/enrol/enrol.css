@@ -52,6 +52,7 @@
   gap: var(--sp-2);
 }
 
+/* Comb cells, outlined like their fields (`.comb-cell--strong` in components.css) */
 .enrol-form,
 .enrol-invite,
 .enrol-pending,
@@ -60,8 +61,11 @@
   gap: var(--sp-2);
   padding: var(--sp-3);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+}
+
+/* A form's submit sits at its own width, so it never reads as a bar across the card */
+.enrol-form > .button {
+  justify-self: start;
 }
 
 .enrol-form label {
@@ -127,17 +131,17 @@
   list-style: none;
 }
 
+/* Facts as two columns, each value next to its label */
 .enrol-facts {
   display: grid;
-  gap: var(--sp-1);
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--sp-1) var(--sp-4);
   margin: 0;
   font-size: var(--fs-sm);
 }
 
 .enrol-facts div {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--sp-3);
+  display: contents;
 }
 
 .enrol-facts dt {
@@ -146,7 +150,6 @@
 
 .enrol-facts dd {
   margin: 0;
-  text-align: right;
   overflow-wrap: anywhere;
 }
 

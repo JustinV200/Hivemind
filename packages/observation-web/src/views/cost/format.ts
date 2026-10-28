@@ -1,9 +1,10 @@
 /**
  * Money and token formatting shared by the Cost view's strip and tables.
  *
- * Spend is mostly fractions of a cent, so a dollar figure under one dollar shows four decimals and
- * from one dollar up it shows two (with thousands separators), as design.md section 5.8 asks. One
- * place formats each figure so the totals strip, the tables and the tests all name the same text.
+ * Money is two decimals with thousands separators, and four only below one cent, so a column of
+ * figures lines up (`$3.10` beside `$0.92`) while a call that cost a fraction of a cent still shows
+ * as more than nothing (design.md section 5.8). One place formats each figure so the totals strip,
+ * the tables and the tests all name the same text.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cost/`. Used by every table and the totals strip.
@@ -16,9 +17,9 @@
  *   - src/views/forage/format.ts for the Forage view's coarser dollar figure.
  */
 
-// Dollars: four decimals under a dollar so a cheap call is visible, two from a dollar up.
+// Dollars: two decimals, and four below one cent so a cheap call is not shown as nothing.
 export function usd(n: number): string {
-  if (n < 1) return `$${n.toFixed(4)}`;
+  if (n > 0 && n < 0.01) return `$${n.toFixed(4)}`;
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 

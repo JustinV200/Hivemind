@@ -37,7 +37,7 @@ import {
 } from './support';
 
 const rowOf = (title: string): HTMLElement =>
-  screen.getByRole('button', { name: title }).closest('li') as HTMLElement;
+  screen.getByRole('link', { name: title }).closest('li') as HTMLElement;
 
 const SUB = { detail: '3 rows', name: 'sub', path: '/hive/sub', title: 'Sub topics' };
 
@@ -165,11 +165,16 @@ describe('a folder', () => {
 });
 
 describe('reading an item', () => {
+  // The item is in the address (`#/honey/hive?item=honey_1`), so the screen mounts with it open.
   const mountRow = (answer: FakeAnswer) =>
-    mount('hive', ({ fake }) => {
-      scriptTree(fake, { '/hive': folderView() });
-      fake.respond('GET /v1/honey/items/honey_1', answer.status, answer.body);
-    });
+    mount(
+      'hive',
+      ({ fake }) => {
+        scriptTree(fake, { '/hive': folderView() });
+        fake.respond('GET /v1/honey/items/honey_1', answer.status, answer.body);
+      },
+      'honey_1',
+    );
 
   it('opens the whole item: label, provenance, summary, content, reason and other sources', async () => {
     const opened = await mountRow({
@@ -180,10 +185,13 @@ describe('reading an item', () => {
         sources: [provenance({ bee: 'worker_2', task_id: 'task_2' })],
       }),
     });
-    fireEvent.click(await screen.findByRole('button', { name: 'How the site logs in' }));
     const pane = await screen.findByLabelText('Item');
     const body = within(pane);
     expect(await body.findByRole('heading', { name: 'How the site logs in' })).toBeTruthy();
+    // The row's link is the pane's address, so the open item can be shared and reloaded.
+    expect(
+      (await screen.findByRole('link', { name: 'How the site logs in' })).getAttribute('href'),
+    ).toBe('#/honey/hive?item=honey_1');
     expect(body.getByText('C1 Apiary')).toBeTruthy();
     expect(body.getByText('Passkey login')).toBeTruthy();
     expect(body.getByText('Seen twice on the site')).toBeTruthy();
@@ -195,17 +203,18 @@ describe('reading an item', () => {
     expect(requestsTo(opened.fake, '/v1/honey/items/honey_1')).toHaveLength(1);
   });
 
-  it('closes the pane on request', async () => {
-    await mountRow({ status: 200, body: itemView() });
-    fireEvent.click(await screen.findByRole('button', { name: 'How the site logs in' }));
-    await screen.findByLabelText('Item');
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  it('closes the pane when the address drops the item, which Close links to', async () => {
+    const opened = await mountRow({ status: 200, body: itemView() });
+    const pane = await screen.findByLabelText('Item');
+    expect(within(pane).getByRole('link', { name: 'Close' }).getAttribute('href')).toBe(
+      '#/honey/hive',
+    );
+    opened.openItem(null);
     expect(screen.queryByLabelText('Item')).toBeNull();
   });
 
   it('shows the refusal sentence without naming the scope or the label', async () => {
     await mountRow(FORBIDDEN);
-    fireEvent.click(await screen.findByRole('button', { name: 'How the site logs in' }));
     const pane = await screen.findByLabelText('Item');
     expect(
       await within(pane).findByText('This device is not allowed to see or do that.'),
@@ -215,7 +224,6 @@ describe('reading an item', () => {
 
   it('says a 404 item is gone', async () => {
     await mountRow(GONE);
-    fireEvent.click(await screen.findByRole('button', { name: 'How the site logs in' }));
     expect(await screen.findByText(/That item is gone/)).toBeTruthy();
   });
 });
@@ -251,7 +259,8 @@ describe('search', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
-    const hit = await screen.findByRole('button', { name: 'Where the passkey lives' });
+    const hit = await screen.findByRole('link', { name: 'Where the passkey lives' });
+    expect(hit.getAttribute('href')).toBe('#/honey/hive?item=honey_2');
     const row = within(hit.closest('li') as HTMLElement);
     expect(row.getByText('C1 Apiary')).toBeTruthy();
     expect(row.getByText('Score 0.83')).toBeTruthy();
@@ -266,7 +275,8 @@ describe('search', () => {
     expect(screen.getByText('No more hits for those words.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'More results' })).toBeNull();
 
-    fireEvent.click(hit);
+    // The hit's link opens the item through the address, as the folder's rows do.
+    opened.openItem('honey_2');
     expect(
       await within(await screen.findByLabelText('Item')).findByText(/Log in with the saved/),
     ).toBeTruthy();
@@ -322,7 +332,7 @@ describe('refusals and the whole screen', () => {
       fake.respond('GET /v1/honey/items/honey_1', 200, itemView());
     });
     fireEvent.click(await screen.findByRole('button', { name: 'More' }));
-    fireEvent.click(await screen.findByRole('button', { name: 'How the site logs in' }));
+    opened.openItem('honey_1');
     await screen.findByLabelText('Item');
     fireEvent.change(screen.getByLabelText('Search this folder'), { target: { value: 'passkey' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));

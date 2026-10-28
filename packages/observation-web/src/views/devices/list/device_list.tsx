@@ -17,6 +17,7 @@
  *   - docs/observation/design.md sections 4.3 and 5.10.
  */
 import type { ReactElement } from 'react';
+import { EmptyState } from '../../../components';
 import type { DeviceActions } from '../actions/use_device_actions';
 import type { DeviceRecord } from '../slice';
 import { DeviceRow } from './device_row';
@@ -42,10 +43,10 @@ export function DeviceList(props: {
 }): ReactElement {
   if (props.devices.length === 0) {
     return (
-      <p className="devices-note">
+      <EmptyState>
         No devices yet. A device appears here when the operator mints an invite for it at the Hive
         Stand.
-      </p>
+      </EmptyState>
     );
   }
   return (
@@ -58,7 +59,11 @@ export function DeviceList(props: {
               {label}
             </th>
           ))}
-          {props.loopback ? <th scope="col">Controls</th> : null}
+          {props.loopback ? (
+            <th scope="col" className="devices-controls">
+              Controls
+            </th>
+          ) : null}
         </tr>
       </thead>
       <tbody>

@@ -38,11 +38,14 @@ export function InvitePanel(props: {
 
   return (
     <section className="enrol-section" aria-label="Invite a device">
-      <h2>Invite a device</h2>
+      <h2 className="section-heading">Invite a device</h2>
       {invite ? (
         <InviteCard invite={invite} actions={actions} />
       ) : (
-        <form className="enrol-form" onSubmit={(event) => void mint(event)}>
+        <form
+          className="enrol-form comb-cell comb-cell--strong"
+          onSubmit={(event) => void mint(event)}
+        >
           <label>
             What do you call the device
             <input

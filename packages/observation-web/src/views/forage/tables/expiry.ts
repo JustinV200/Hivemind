@@ -28,6 +28,12 @@ export function isNearExpiry(expiresAt: string, nowMs: number): boolean {
   return Number.isNaN(at) || at - nowMs <= NEAR_EXPIRY_MS;
 }
 
+// True once the expiry has passed; an unreadable time counts as passed, as in `isNearExpiry`.
+export function hasLapsed(expiresAt: string, nowMs: number): boolean {
+  const at = Date.parse(expiresAt);
+  return Number.isNaN(at) || at <= nowMs;
+}
+
 // Near-expiry grants first (soonest first, ties by id), then the others as given.
 export function orderGrants(grants: readonly GrantView[], nowMs: number): GrantView[] {
   const near = grants

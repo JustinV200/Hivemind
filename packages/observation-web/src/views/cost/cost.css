@@ -16,14 +16,13 @@
  * See Also:
  *   - docs/observation/design.md sections 3, 4.2, 4.3 and 5.8.
  */
+/* A section is a grid, so its gap spaces the shared `.section-heading` from what follows; its
+   one track never grows past the pane */
 .cost-section {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
   margin: var(--sp-5) 0;
-}
-
-.cost-section h2 {
-  font-size: var(--fs-lg);
-  line-height: var(--lh-heading);
-  margin: 0 0 var(--sp-3);
 }
 
 .cost-note {
@@ -37,10 +36,9 @@
   margin: var(--sp-4) 0;
 }
 
+/* A comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .cost-figure {
   padding: var(--sp-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
   background: var(--surface);
 }
 
@@ -119,11 +117,16 @@
     display: block;
   }
 
+  /* A caption left as `table-caption` in a block table shrinks to one word per line */
+  .cost-table caption {
+    display: block;
+  }
+
   .cost-table tr {
     margin-bottom: var(--sp-3);
     padding: var(--sp-2);
     border: 1px solid var(--border-soft);
-    border-radius: var(--radius);
+    border-radius: var(--radius-card);
     background: var(--surface);
   }
 

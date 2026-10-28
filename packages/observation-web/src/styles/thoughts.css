@@ -34,11 +34,6 @@
   gap: var(--sp-2);
 }
 
-.follow-state {
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
-}
-
 .follow-new {
   border-color: var(--accent);
   color: var(--accent);
@@ -50,14 +45,22 @@
   margin: var(--sp-4) 0;
 }
 
+/* A comb cell (`.comb-cell` in components.css gives it the cut and the stroke) */
 .thought {
   display: grid;
   gap: var(--sp-2);
   padding: var(--sp-3);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
   background: var(--surface);
   overflow-wrap: anywhere;
+  animation: thought-in var(--motion);
+}
+
+/* A new card slides in 8px; reduced motion turns every animation off in base.css */
+@keyframes thought-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
 }
 
 .thought--autopilot {
@@ -69,26 +72,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
-}
-
-.thought-tag {
-  padding: 0 var(--sp-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-tag);
-  font-size: var(--fs-xs);
-}
-
-/* Taint is a status, so it borrows the status colours: refused reads as an alarm, cleared as
-   a caution whose history is kept. The word carries the meaning; the colour only underlines it. */
-.thought-tag--tainted {
-  border-color: var(--alarm);
-  color: var(--alarm);
-  font-weight: 700;
-}
-
-.thought-tag--cleared {
-  border-color: var(--warn);
-  color: var(--warn);
 }
 
 .thought-trigger,
@@ -163,12 +146,13 @@
   font-size: var(--fs-sm);
 }
 
+/* A grid, so its gap spaces the shared `.section-heading` from the list; one track, never
+   wider than the pane */
 .inbox-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-3);
   margin-bottom: var(--sp-4);
-}
-
-.inbox-panel h2 {
-  font-size: var(--fs-lg);
 }
 
 .inbox-list {
@@ -186,7 +170,7 @@
   gap: var(--sp-1) var(--sp-3);
   padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius);
+  border-radius: var(--radius-card);
   background: var(--surface);
   font-size: var(--fs-sm);
 }

@@ -21,6 +21,7 @@
  */
 import type { Slice } from './slice';
 import type { ConnectionEvent, ConnectionSlice } from './slices/connection';
+import type { NoticesEvent, NoticesSlice } from './slices/notices';
 import type { SessionEvent, SessionSlice } from './slices/session';
 import type { SummaryEvent, SummarySlice } from './slices/summary';
 
@@ -28,6 +29,7 @@ export interface SliceRegistry {
   session: Slice<SessionSlice, SessionEvent>;
   connection: Slice<ConnectionSlice, ConnectionEvent>;
   summary: Slice<SummarySlice, SummaryEvent>;
+  notices: Slice<NoticesSlice, NoticesEvent>;
 }
 
 // The registry as a table type (a mapped type, so it satisfies `SliceTable`'s index signature).

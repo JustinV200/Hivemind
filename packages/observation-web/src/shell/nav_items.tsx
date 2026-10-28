@@ -117,6 +117,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
 ];
 
 export const MORE_ICON = 'M5 12h.01M12 12h.01M19 12h.01';
+export const CLOSE_ICON = 'M6 6l12 12M18 6 6 18';
 
 export function visibleItems(listener: Listener | null): NavItem[] {
   return NAV_ITEMS.filter((item) => !item.loopbackOnly || listener === 'loopback');

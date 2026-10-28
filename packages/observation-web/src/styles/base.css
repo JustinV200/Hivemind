@@ -1,16 +1,24 @@
 /*
- * Base styles for the Observation Hive: reset, typography, focus ring and the skip link.
+ * Base styles for the Observation Hive: reset, typography, focus ring, buttons and the skip link.
  *
  * These are the element-level defaults every screen inherits. They use tokens only (see
  * tokens.css), set tabular figures for numbers, make the keyboard focus ring visible everywhere,
- * and honour the reduced-motion preference by removing transitions and animation.
+ * give every form control the page's font, give a button and, on a phone, a link in a row or a
+ * card the 44px touch area, and honour the reduced-motion preference by removing transitions
+ * and animation. The one motion rule is a 150 ms ease on hover, so a control answers the
+ * pointer without ever moving.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/styles/`. Imported by src/main.tsx after tokens.css.
  *
  * Key invariants:
- *   - The page never scrolls sideways: the root width is capped to the viewport.
- *   - The focus ring is 2px in --accent, offset by 2px, on every focusable element.
+ *   - The page never scrolls sideways: the root width is capped to the viewport, and a
+ *     screen-reader-only block is clipped so its content cannot widen the page.
+ *   - The focus ring is 2px in --accent, offset by 2px, on every focusable element; on the chrome
+ *     (the bar in head.css, the nav in shell.css) it is --chrome-accent, since --accent is dark
+ *     on dark there.
+ *   - A destructive control is `.button--danger`: outlined in --alarm, never filled, and always
+ *     followed by a confirm step in the view that draws it.
  *
  * See Also:
  *   - docs/observation/design.md sections 6 and 7.
@@ -41,6 +49,8 @@ h2,
 h3 {
   margin: 0;
   line-height: var(--lh-heading);
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 h1 {
@@ -61,8 +71,14 @@ code,
   font-size: var(--fs-sm);
 }
 
+/* An id is cut to its kind and tail already; breaking it mid-token would only hide the cut. */
+.id-token {
+  white-space: nowrap;
+}
+
 a {
   color: var(--accent);
+  transition: color var(--motion);
 }
 
 :focus-visible {
@@ -70,8 +86,11 @@ a {
   outline-offset: 2px;
 }
 
+/* Every control takes the page's font; a browser's default monospace textarea is a bug here. */
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -84,11 +103,52 @@ input {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   cursor: pointer;
+  transition:
+    background-color var(--motion),
+    border-color var(--motion),
+    color var(--motion);
+}
+
+/* A link drawn as a button (the Honey pane's Close, back to the folder's address) keeps the
+   button's box and loses the underline */
+a.button {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--text);
 }
 
 .button:disabled {
   cursor: progress;
   color: var(--text-muted);
+}
+
+/* A control that ends something (a session, a device, an invite) is outlined in the alarm token. */
+.button--danger {
+  color: var(--alarm);
+  border-color: var(--alarm);
+}
+
+.button--danger:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--alarm);
+}
+
+/* On a phone a link in a row, a card, a line of links or a breadcrumb (the Cell page's task rows
+   and links, the Fleet, Capping and Honey cards, the chat's and the Attendant's links, the Honey
+   crumbs) has the buttons' 44px touch area (design.md 6): padding above and below its own line,
+   so a link that holds an id and a word keeps the space between them, which a flex box would
+   drop; a flex row that sets a padded link beside plain text aligns them by baseline. The
+   shell's nav sizes its own items and a diagram's node links are the nodes. */
+@media (max-width: 719px) {
+  main :is(p, li, td, th, nav) a:not(.button) {
+    display: inline-block;
+    padding-block: calc((44px - 1lh) / 2);
+  }
 }
 
 @media (min-width: 720px) {
@@ -97,8 +157,10 @@ input {
   }
 }
 
+/* Visually hidden, still read: wrapped in a block so a table inside cannot widen the page. */
 .sr-only {
   position: absolute;
+  left: 0;
   width: 1px;
   height: 1px;
   overflow: hidden;
@@ -120,6 +182,27 @@ input {
 
 .skip-link:focus {
   transform: none;
+}
+
+/* A card: the one surface every panel, row card and form shares. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-card);
+}
+
+/* An empty state: the words that say what would fill the view, on a faint comb, in a comb cell
+   like every other panel-sized container (`.comb-cell` in components.css gives it the cut and
+   the stroke) */
+.empty {
+  padding: var(--sp-5) var(--sp-4);
+  background: var(--surface);
+  color: var(--text-muted);
+  overflow: hidden;
+}
+
+.empty p {
+  position: relative;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -19,7 +19,15 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ForageFlow } from '../../../src/views/forage/flow/diagram';
-import { layoutFlow, MIN_BOX } from '../../../src/views/forage/flow/layout';
+import {
+  FLOW_WIDTH,
+  HEAD_H,
+  layoutFlow,
+  LINE_H,
+  MIN_BOX,
+  NODE_W,
+  PAD,
+} from '../../../src/views/forage/flow/layout';
 import { flowModel } from '../../../src/views/forage/flow/model';
 import type { FlowInput } from '../../../src/views/forage/flow/model';
 import { grant, headroom, reserve, warden } from './support';
@@ -92,7 +100,7 @@ describe('the layout', () => {
     expect(layout.scale).toBeCloseTo(200 / 22, 6);
     expect(box('pool-reserve').h).toBeCloseTo(2 * (200 / 22), 1);
     expect(box('pool-granted').h).toBeCloseTo(12 * (200 / 22), 1);
-    expect(box('pool-granted').y).toBeCloseTo(6 + box('pool-reserve').h + 6, 1);
+    expect(box('pool-granted').y).toBeCloseTo(PAD + HEAD_H + box('pool-reserve').h + 6, 1);
     expect(box('w_1').h).toBeCloseTo(6 * (200 / 22), 1);
     expect(box('g_c').column).toBe(2);
     expect(layout.height).toBeGreaterThan(200);
@@ -107,8 +115,10 @@ describe('the layout', () => {
       'w_1>g_b',
       'w_2>g_c',
     ]);
-    // Every ribbon leaves the right edge of a 14 wide box.
-    expect(layout.ribbons.every((r) => /^M(14|137|260) /.test(r.path))).toBe(true);
+    // Every ribbon leaves the right edge of a box in the pool or the Warden column.
+    const edges = [layout.columns[0] + NODE_W, layout.columns[1] + NODE_W];
+    const startOf = (path: string): number => Number(path.split(' ')[0]!.slice(1));
+    expect(layout.ribbons.every((r) => edges.includes(startOf(r.path)))).toBe(true);
   });
 
   it('fills a box from the bottom by what was used', () => {
@@ -121,12 +131,19 @@ describe('the layout', () => {
     expect(box.usedH).toBeCloseTo(box.h * 0.25, 1);
   });
 
-  it('marks a near-expiry grant in its label and its ribbon', () => {
-    const layout = layoutFlow(
-      flowModel(input({ grants: [grant({ id: 'g_a', expires_at: at(4) })] })),
-    );
-    expect(layout.boxes.find((b) => b.id === 'g_a')).toMatchObject({ near: true });
-    expect(layout.boxes.find((b) => b.id === 'g_a')?.label).toContain('soon');
+  // The word "soon" goes under the task's name, which keeps its tail (the part that tells ids
+  // apart) on the wide canvas and is the tail alone where a phone's eight characters hold no more.
+  it.each([
+    [null, ['task_…9K4L1', 'soon']],
+    [304, ['…9K4L1', 'soon']],
+  ])('marks a near-expiry grant in its label and its ribbon (%s px pane)', (pane, lines) => {
+    const near = grant({
+      id: 'g_a',
+      task_id: 'task_01HZK5B2A7C4DF8G1H3JE9K4L1',
+      expires_at: at(4),
+    });
+    const layout = layoutFlow(flowModel(input({ grants: [near] })), pane);
+    expect(layout.boxes.find((b) => b.id === 'g_a')).toMatchObject({ near: true, lines });
     expect(layout.ribbons.some((r) => r.near)).toBe(true);
   });
 
@@ -149,6 +166,27 @@ describe('the layout', () => {
     const layout = layoutFlow(flowModel(input({ grants: [], headroom: null, reserve: null })));
     expect(layout.boxes).toEqual([]);
     expect(Number.isFinite(layout.height)).toBe(true);
+  });
+
+  // The canvas is the pane's width on a phone, so 12 unit text is 12 px; labels move left of
+  // their boxes, stack the pool's amount under its word (the box growing to two lines) rather
+  // than cut it, keep fewer characters per line, and nothing is drawn past the canvas.
+  it.each([
+    [null, FLOW_WIDTH, [90, 232, 374], false, ['Free 8']],
+    [700, FLOW_WIDTH, [90, 232, 374], false, ['Free 8']],
+    [304, 304, [57, 166, 275], true, ['Free', '8']],
+    [200, 240, [37, 126, 215], true, ['Free', '8']],
+  ])('draws on a canvas sized from a %s px pane', (pane, width, columns, left, free) => {
+    const layout = layoutFlow(flowModel(input()), pane);
+    expect(layout.width).toBe(width);
+    expect(layout.columns).toEqual(columns);
+    expect(layout.labelLeft).toEqual([true, left, left]);
+    expect(layout.boxes.every((b) => b.x + b.w <= width)).toBe(true);
+    const longest = Math.max(...layout.boxes.flatMap((b) => b.lines.map((l) => l.length)));
+    expect(longest).toBeLessThanOrEqual(pane === 200 ? 5 : pane === 304 ? 8 : 13);
+    const pool = layout.boxes.find((b) => b.id === 'pool-free')!;
+    expect(pool.lines).toEqual(free);
+    expect(pool.h).toBeGreaterThanOrEqual(LINE_H * free.length);
   });
 });
 

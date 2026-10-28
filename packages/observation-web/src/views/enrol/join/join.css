@@ -13,7 +13,7 @@
  *   - The fingerprint wraps instead of widening the page.
  *
  * See Also:
- *   - src/styles/shell.css for the login card.
+ *   - src/views/login/login.css for the login card.
  */
 .join-fingerprint {
   font-family: var(--font-mono);

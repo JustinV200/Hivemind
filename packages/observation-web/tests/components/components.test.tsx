@@ -4,7 +4,8 @@
  * The badges' meaning must be in their words and their shape class, never in colour alone: the
  * tests check every label, that tier and mask carry different shape classes, that a Queen-forced
  * mask shows its expiry and the others do not, that the gauge exposes a meter with the right
- * numbers and tone, and that an error shows its code, its table sentence and its next step.
+ * numbers and tone, that an error shows its code, its table sentence and its next step, that a
+ * time stamp's relative words follow the clock, and that a view that throws is caught in place.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web tests). Exercises src/components/.
@@ -16,8 +17,17 @@
  *   - docs/observation/design.md section 4.
  */
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
-import { ErrorNotice, Gauge, MaskBadge, StatusDot, TierBadge } from '../../src/components';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  ErrorNotice,
+  Gauge,
+  IdToken,
+  MaskBadge,
+  StatusDot,
+  TierBadge,
+  ViewBoundary,
+} from '../../src/components';
+import { relativeText } from '../../src/components/time';
 import { clientError } from '../../src/landing_board/client/errors';
 import { LandingBoardError } from '../../src/landing_board/client';
 
@@ -110,6 +120,21 @@ describe('Gauge', () => {
   });
 });
 
+describe('IdToken', () => {
+  // A real id is `<kind>_<26-char ULID>` whose head is the timestamp every id of the day shares.
+  it.each([
+    ['cell_01HZK4R0P3L1NT8U4WR1B2C3D4', 'cell_…2C3D4'],
+    ['task_01HZK4R0P3L1NT8U4WR1B2C3D4', 'task_…2C3D4'],
+    ['01HZK4R0P3L1NT8U4WR1B2C3D4', '…2C3D4'],
+    ['worker_12', 'worker_12'],
+  ])('shows %s as %s with the whole id in its name', (id, shown) => {
+    render(<IdToken id={id} />);
+    const token = screen.getByText(shown);
+    expect(token.getAttribute('title')).toBe(id);
+    expect(token.getAttribute('aria-label')).toBe(id);
+  });
+});
+
 describe('ErrorNotice', () => {
   it('shows the code, the table sentence and what to do', () => {
     const error = new LandingBoardError(403, {
@@ -131,5 +156,41 @@ describe('ErrorNotice', () => {
   it('says the Hive could not be reached for a non-Landing-Board failure', () => {
     render(<ErrorNotice error={new Error('boom')} />);
     expect(screen.getByText('The Hive could not be reached.')).toBeTruthy();
+  });
+});
+
+describe('TimeStamp words', () => {
+  const now = Date.parse('2026-01-08T12:00:00Z');
+  it.each([
+    ['2026-01-08T11:59:40Z', 'just now'],
+    ['2026-01-08T11:55:00Z', '5 min ago'],
+    ['2026-01-08T12:04:00Z', 'in 4 min'],
+    ['2026-01-08T09:30:00Z', '2 h 30 min ago'],
+    // A gap that rounds up to a whole hour or day carries, never "60 min" or "23 h 60 min".
+    ['2026-01-08T11:00:20Z', '1 h ago'],
+    ['2026-01-07T12:00:20Z', '1 d ago'],
+    ['2026-01-06T12:00:00Z', '2 d ago'],
+    ['2025-12-01T00:00:00Z', /^2025-1[12]-\d\d$/],
+    ['not a date', 'not a date'],
+  ])('reads %s as %s', (iso, words) => {
+    expect(relativeText(iso, now)).toMatch(words);
+  });
+});
+
+describe('ViewBoundary', () => {
+  it('shows the view-failed notice in place of a view that throws, and nothing else', () => {
+    const Broken = (): never => {
+      throw new Error('malformed answer');
+    };
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <ViewBoundary>
+        <Broken />
+      </ViewBoundary>,
+    );
+    expect(screen.getByRole('alert').textContent).toContain('hivemind.client.view_failed');
+    expect(screen.getByText(/could not be drawn/)).toBeTruthy();
+    expect(screen.queryByText('malformed answer')).toBeNull();
+    quiet.mockRestore();
   });
 });

@@ -23,28 +23,30 @@ export function DiagramTable(props: { model: DiagramModel }): ReactElement {
   const { model } = props;
   const bees = model.warden ? [model.warden, ...model.bees] : model.bees;
   return (
-    <table className="sr-only">
-      <caption>{`Bees and facts of Cell ${model.cellId}`}</caption>
-      <thead>
-        <tr>
-          <th scope="col">Bee</th>
-          <th scope="col">Detail</th>
-        </tr>
-      </thead>
-      <tbody>
-        {bees.map((bee) => (
-          <tr key={`bee:${bee.id}`}>
-            <th scope="row">{bee.id}</th>
-            <td>{bee.title}</td>
+    <div className="sr-only">
+      <table>
+        <caption>{`Bees and facts of Cell ${model.cellId}`}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Bee</th>
+            <th scope="col">Detail</th>
           </tr>
-        ))}
-        {model.boxes.map((box) => (
-          <tr key={`box:${box.key}`}>
-            <th scope="row">{box.label}</th>
-            <td>{box.title}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {bees.map((bee) => (
+            <tr key={`bee:${bee.id}`}>
+              <th scope="row">{bee.id}</th>
+              <td>{bee.title}</td>
+            </tr>
+          ))}
+          {model.boxes.map((box) => (
+            <tr key={`box:${box.key}`}>
+              <th scope="row">{box.label}</th>
+              <td>{box.title}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

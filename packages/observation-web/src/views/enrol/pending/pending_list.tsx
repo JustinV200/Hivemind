@@ -4,8 +4,8 @@
  * A card shows what the device said about itself (name, platform, user agent: display text, escaped
  * on draw) and the fingerprint of its key, which is the one fact the operator can check against the
  * device's own screen before letting it in. Approve opens the approval form under the card; Deny
- * refuses it at once, with an optional reason that is recorded as a category on the trail. A
- * device that is not asking (an invite not yet redeemed) is not listed here.
+ * asks once more, then refuses it, with an optional reason that is recorded as a category on the
+ * trail. A device that is not asking (an invite not yet redeemed) is not listed here.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/enrol/pending/`. Drawn by `enrol_screen.tsx` on the Hive
@@ -14,14 +14,15 @@
  * Key invariants:
  *   - Nothing a device sent is drawn as markup; the fingerprint is shown in full.
  *   - One approval form is open at a time.
- *   - Deny never needs a reason; the Entrance supplies its own when none is given.
+ *   - Deny takes two deliberate taps: it is outlined in the alarm token and nothing is sent on the
+ *     first. It never needs a reason; the Entrance supplies its own when none is given.
  *
  * See Also:
  *   - docs/entrance/landing-board.md section 4, step 5.
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { TimeStamp } from '../../../components';
+import { EmptyState, TimeStamp } from '../../../components';
 import type { PendingDevice } from '../slice';
 import type { EnrolActions } from '../use_enrol_actions';
 import { ApproveForm } from './approve_form';
@@ -34,8 +35,13 @@ function Card(props: {
 }): ReactElement {
   const { device, actions } = props;
   const said = device.description;
+  // The first tap on Deny arms it; the second sends. Opening Approve disarms it.
+  const [denying, setDenying] = useState(false);
   return (
-    <li className="enrol-pending" aria-label={`Waiting: ${device.name}`}>
+    <li
+      className="enrol-pending comb-cell comb-cell--strong"
+      aria-label={`Waiting: ${device.name}`}
+    >
       <p>
         <strong>{said?.name || device.name}</strong> asks to join
       </p>
@@ -69,20 +75,40 @@ function Card(props: {
           className="button"
           aria-expanded={props.open}
           aria-label={`Approve ${device.name}`}
-          onClick={props.onToggle}
+          onClick={() => {
+            setDenying(false);
+            props.onToggle();
+          }}
         >
           Approve
         </button>
         <button
           type="button"
-          className="button"
+          className="button button--danger"
           aria-label={`Deny ${device.name}`}
+          aria-expanded={denying}
           disabled={actions.busy}
-          onClick={() => void actions.deny(device.id, '')}
+          onClick={() => setDenying(!denying)}
         >
           Deny
         </button>
       </div>
+      {denying ? (
+        <div className="enrol-row" role="group" aria-label={`Deny ${device.name}: confirm`}>
+          <span className="enrol-note">Refuse this device? It would need a new invite.</span>
+          <button
+            type="button"
+            className="button button--danger"
+            disabled={actions.busy}
+            onClick={() => void actions.deny(device.id, '')}
+          >
+            Deny now
+          </button>
+          <button type="button" className="button" onClick={() => setDenying(false)}>
+            Keep waiting
+          </button>
+        </div>
+      ) : null}
       {props.open ? (
         <ApproveForm device={device} actions={actions} onClose={props.onToggle} />
       ) : null}
@@ -97,9 +123,9 @@ export function PendingList(props: {
   const [open, setOpen] = useState<string | null>(null);
   if (props.pending.length === 0) {
     return (
-      <p className="enrol-note">
+      <EmptyState>
         Nobody is waiting. A device appears here once it has used an invite and made its passkey.
-      </p>
+      </EmptyState>
     );
   }
   return (

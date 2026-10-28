@@ -4,7 +4,8 @@
  * It draws the slice's lines, then the messages the human sent that have not come back, then the
  * goals they asked for, then the waiting items no line points at. Before the first read it says it is reading; an empty
  * conversation says what would fill it (design.md section 8). The list scrolls with the page while
- * the composer stays docked below it.
+ * the composer stays docked below it; the page opens at its end, on the newest line, and follows a
+ * new line there unless the reader has scrolled up (`use_follow_tail.ts`).
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/chat/conversation/`. Drawn by `chat_screen.tsx`.
@@ -18,11 +19,13 @@
  *   - docs/observation/design.md section 5.6.
  */
 import type { ReactElement } from 'react';
+import { EmptyState } from '../../../components';
 import type { ChatState } from '../slice';
 import type { ChatActions } from '../writes/use_actions';
 import { GoalRow } from './goal_row';
 import { LineRow } from './line_row';
 import { PendingRow } from './pending_row';
+import { useFollowTail } from './use_follow_tail';
 import { Waiting } from './waiting';
 
 export function Conversation(props: {
@@ -32,14 +35,23 @@ export function Conversation(props: {
 }): ReactElement {
   const { state, actions } = props;
   const empty = state.lines.length === 0 && state.pending.length === 0 && state.asked.length === 0;
+  // The last item of each list, and the inbox's size: a change in any of them is something new
+  // at the end of the page (the inbox lands after the lines and adds the forms under them).
+  const tail = [
+    state.lines.at(-1)?.id,
+    state.pending.at(-1)?.key,
+    state.asked.at(-1)?.id,
+    state.inbox ? `${state.inbox.questions.length}:${state.inbox.alarms.length}` : null,
+  ].join('|');
+  useFollowTail(tail, state.seeded);
   return (
     <div className="chat-conversation">
       {!state.seeded ? <p aria-busy="true">Reading the chat</p> : null}
       {state.seeded && empty && !state.error ? (
-        <p>
+        <EmptyState>
           No messages yet. Ask the Queen for something below, and her replies, questions and Alarms
           appear here.
-        </p>
+        </EmptyState>
       ) : null}
       <ol className="chat-list" aria-label="Conversation">
         {state.lines.map((line) => (

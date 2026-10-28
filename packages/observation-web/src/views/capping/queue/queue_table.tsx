@@ -4,8 +4,9 @@
  * Each row shows the proposal, its risk tier, its state, the bee that proposed it (a link to that
  * bee's thoughts), its task, its Cell (a link to the Cell page when the schema names one), the
  * gate's verdict and the reason for it, the rollback mark and, for an Exoskeleton action, the
- * recording column's note. The default order is the newest change first. Under 1080 px the table
- * becomes stacked cards (one proposal, one card) by stylesheet alone, each cell keeping its label.
+ * recording column's note. The default order is the newest change first. Under 1280 px the table
+ * becomes stacked cards (one proposal, one card), each cell keeping its label, and the shared
+ * "Sort by" control stands in for the hidden header row.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/capping/queue/`. Drawn by `capping_screen.tsx` from the
@@ -21,7 +22,7 @@
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { IdToken, TimeStamp } from '../../../components';
+import { IdToken, SortSelect, TimeStamp, useMinWidth, WIDE_TABLE_MIN } from '../../../components';
 import { wordsOf } from '../slice';
 import type { ProposalState } from '../slice';
 import { BeeLink, CellLink, RecordingNote } from './links';
@@ -63,7 +64,7 @@ const STATE_TONE: Readonly<Record<ProposalState, Tone>> = {
 };
 
 function Tag(props: { tone: Tone; children: string }): ReactElement {
-  return <span className={`capping-tag capping-tag--${props.tone}`}>{props.children}</span>;
+  return <span className={`tag tag--status tag--${props.tone}`}>{props.children}</span>;
 }
 
 function Row(props: { row: QueueRow }): ReactElement {
@@ -99,6 +100,21 @@ function Row(props: { row: QueueRow }): ReactElement {
   );
 }
 
+// The shared "Sort by" control over the sortable headers, drawn while the rows are cards.
+function QueueSort(props: { sort: Sort; onChange: (sort: Sort) => void }): ReactElement {
+  const { sort } = props;
+  return (
+    <SortSelect
+      options={HEADERS.flatMap((h) => (h.column ? [{ key: h.column, label: h.label }] : []))}
+      sort={{ key: sort.column, direction: sort.descending ? 'descending' : 'ascending' }}
+      onChange={(next) => {
+        if (next) props.onChange({ column: next.key, descending: next.direction === 'descending' });
+      }}
+      startWith={(key) => (key === 'updated' ? 'descending' : 'ascending')}
+    />
+  );
+}
+
 export function QueueTable(props: { rows: readonly QueueRow[] }): ReactElement {
   const [sort, setSort] = useState<Sort>({ column: 'updated', descending: true });
   const rows = sortRows(props.rows, sort.column, sort.descending);
@@ -109,34 +125,38 @@ export function QueueTable(props: { rows: readonly QueueRow[] }): ReactElement {
       column,
       descending: now.column === column ? !now.descending : column === 'updated',
     }));
+  const wide = useMinWidth(WIDE_TABLE_MIN);
   return (
-    <table className="capping-table">
-      <caption>Capping queue: every proposal and where the gate has it</caption>
-      <thead>
-        <tr>
-          {HEADERS.map(({ label, column }) =>
-            column === null ? (
-              <th key={label} scope="col" className="capping-plain">
-                {label}
-              </th>
-            ) : (
-              <SortHeader
-                key={label}
-                label={label}
-                sorted={
-                  sort.column === column ? (sort.descending ? 'descending' : 'ascending') : null
-                }
-                onSort={() => choose(column)}
-              />
-            ),
-          )}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <Row key={row.proposal.id} row={row} />
-        ))}
-      </tbody>
-    </table>
+    <>
+      {wide ? null : <QueueSort sort={sort} onChange={setSort} />}
+      <table className="capping-table">
+        <caption>Capping queue: every proposal and where the gate has it</caption>
+        <thead>
+          <tr>
+            {HEADERS.map(({ label, column }) =>
+              column === null ? (
+                <th key={label} scope="col">
+                  {label}
+                </th>
+              ) : (
+                <SortHeader
+                  key={label}
+                  label={label}
+                  sorted={
+                    sort.column === column ? (sort.descending ? 'descending' : 'ascending') : null
+                  }
+                  onSort={() => choose(column)}
+                />
+              ),
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <Row key={row.proposal.id} row={row} />
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }

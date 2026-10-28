@@ -5,8 +5,9 @@
  * sorts when its header is clicked or activated by Enter or Space; the sorted column shows an arrow
  * and `aria-sort`, and choosing it again flips the direction. The sort is stable and ties break on
  * the row's key, so the order is deterministic. A row the caller marks `last` always stays at the
- * bottom whatever the sort (the unattributed goal). Under 720 px the table becomes stacked cards by
- * stylesheet alone, each cell keeping its label from `data-label`.
+ * bottom whatever the sort (the unattributed goal). Under 720 px the table becomes stacked cards,
+ * each cell keeping its label from `data-label`, and the shared "Sort by" control stands in for
+ * the hidden header row.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cost/tables/`. Used by `goals.tsx`, `slots.tsx` and
@@ -21,6 +22,7 @@
  */
 import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
+import { NARROW_TABLE_MIN, SortSelect, useMinWidth } from '../../../components';
 import { SortHeader } from './sort_header';
 
 export interface Column<R> {
@@ -58,32 +60,46 @@ export function CostTable<R>(props: {
   // Choosing the sorted column again reverses it; choosing another starts ascending.
   const choose = (column: string): void =>
     setSort((now) => ({ column, descending: now.column === column && !now.descending }));
+  const wide = useMinWidth(NARROW_TABLE_MIN);
   return (
-    <table className="cost-table">
-      <caption>{caption}</caption>
-      <thead>
-        <tr>
-          {columns.map((c) => (
-            <SortHeader
-              key={c.id}
-              label={c.label}
-              sorted={sort.column === c.id ? (sort.descending ? 'descending' : 'ascending') : null}
-              onSort={c.sortBy ? () => choose(c.id) : null}
-            />
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {[...body, ...pinned].map((row) => (
-          <tr key={keyOf(row)}>
+    <>
+      {wide ? null : (
+        <SortSelect
+          options={columns.filter((c) => c.sortBy).map((c) => ({ key: c.id, label: c.label }))}
+          sort={{ key: sort.column, direction: sort.descending ? 'descending' : 'ascending' }}
+          onChange={(next) => {
+            if (next) setSort({ column: next.key, descending: next.direction === 'descending' });
+          }}
+        />
+      )}
+      <table className="cost-table">
+        <caption>{caption}</caption>
+        <thead>
+          <tr>
             {columns.map((c) => (
-              <td key={c.id} data-label={c.label}>
-                {c.cell(row)}
-              </td>
+              <SortHeader
+                key={c.id}
+                label={c.label}
+                sorted={
+                  sort.column === c.id ? (sort.descending ? 'descending' : 'ascending') : null
+                }
+                onSort={c.sortBy ? () => choose(c.id) : null}
+              />
             ))}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {[...body, ...pinned].map((row) => (
+            <tr key={keyOf(row)}>
+              {columns.map((c) => (
+                <td key={c.id} data-label={c.label}>
+                  {c.cell(row)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
