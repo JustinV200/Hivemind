@@ -88,3 +88,12 @@ def test_each_unmet_need_fails_its_own_check(
     outcomes = _outcomes(node, probe)
 
     assert outcomes[failed] == CheckOutcome.FAILED.value
+
+
+def test_a_different_identity_key_is_named_as_the_cause() -> None:
+    probe = ProbeReport(_NEEDS.secret_names, "cd" * 32, 0.0)
+    report = check_candidate(facts_for("n", make_swarm_node(None, None, **_GOOD), probe), _NEEDS)
+
+    [secrets] = [check for check in report.checks if check.name == "secrets"]
+    assert secrets.outcome is CheckOutcome.FAILED
+    assert "same identity key" not in secrets.detail and "hive.ed25519" in secrets.detail

@@ -189,17 +189,21 @@ def _registry_checks(node: SwarmNode, needs: HiveNeeds) -> list[PreflightCheck]:
     ]
 
 
+def _secrets_detail(missing: list[str] | None, same_key: bool) -> str:
+    """Say what the `secrets` check found: unanswered, what is missing, or whose key it holds."""
+    if missing is None:
+        return "unanswered"
+    if missing:
+        return f"missing {', '.join(missing)}"
+    return "every secret, same identity key" if same_key else "a different hive.ed25519 key"
+
+
 def _probe_checks(probe: ProbeReport, needs: HiveNeeds) -> list[PreflightCheck]:
     """What only the candidate itself can say: its secrets, its key, its clock, its reach."""
     names = probe.secret_names
     missing = sorted(set(needs.secret_names) - set(names)) if names is not None else None
-    secrets = _check(
-        "secrets",
-        missing == [] and probe.identity_key == needs.identity_key,
-        "unanswered"
-        if missing is None
-        else (f"missing {', '.join(missing)}" if missing else "every secret, same identity key"),
-    )
+    same_key = probe.identity_key == needs.identity_key
+    secrets = _check("secrets", missing == [] and same_key, _secrets_detail(missing, same_key))
     skew = probe.clock_skew_s
     clock = _check(
         "clock_skew",
