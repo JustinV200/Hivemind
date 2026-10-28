@@ -66,12 +66,12 @@ from pollen.platform import (
     select_shim,
 )
 from pollen.state import DataLayout, InstallSettings, PacketState, load_state, save_state
+from pollen.teardown import end_packet
 from waggle.clock import SystemClock
 from waggle.envelope import PROTOCOL_VERSION
 from waggle.messages.swarm import RuntimeLevel
 
 SHUTDOWN_WAIT_S = 20.0  # How long a stop waits for the packet to finish before cancelling it.
-PACKET_END_WAIT_S = 10.0  # How long uninstall waits for a packet the service left running to end.
 LOG_FILE_BYTES = 1_000_000  # A log file is rolled over at this size; one old file is kept.
 LOG_FILE_NAME = "packet.log"  # In the data directory, for ``pollen run --log-to-file``.
 STATUS_FRESH_S = 120.0  # A status document older than this was left by a packet no longer running.
@@ -357,28 +357,12 @@ def _uninstall(args: argparse.Namespace) -> int:
     layout, shim = _context(args)
     result = shim.uninstall_service()
     print(result.detail)
-    _end_packet(layout)
+    stuck = end_packet(layout)
+    if stuck is not None:
+        print(f"pollen: the packet (pid {stuck}) could not be ended.", file=sys.stderr)
     status = asyncio.run(_withdraw_warden(layout, shim))
     print("The data directory was left in place; delete it yourself to forget the enrolment.")
-    return status
-
-
-def _end_packet(layout: DataLayout) -> None:
-    """End the packet still running for this data directory, so uninstalling leaves none.
-
-    Ending the Windows task ends the windowless console host it started, not the packet below
-    it; elsewhere the service manager has already stopped it and there is nothing to find.
-    """
-    status = read_status(layout.status)
-    if status is None:
-        return
-    with contextlib.suppress(psutil.Error):  # Gone already, or not ours to end.
-        packet = psutil.Process(status.pid)
-        argv = packet.cmdline()
-        # Only this data directory's packet: a recycled pid runs something else.
-        if packet.pid != os.getpid() and "run" in argv and str(layout.root) in argv:
-            packet.terminate()
-            packet.wait(PACKET_END_WAIT_S)
+    return status if stuck is None else 1
 
 
 async def _withdraw_warden(layout: DataLayout, shim: PlatformShim) -> int:

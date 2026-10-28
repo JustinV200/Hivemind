@@ -179,6 +179,7 @@ HiveMind/
 │   │   │   ├── cli.py            # `pollen install | uninstall | enrol | run | status | version`
 │   │   │   ├── errors.py         # PollenError and its pollen.* codes
 │   │   │   ├── state.py          # PacketState: the packet's persisted JSON (the node key has its own file)
+│   │   │   ├── teardown.py       # What `pollen uninstall` ends that the service left running: the packet and its lease programs
 │   │   │   ├── agent/            # The gateway loop: packet.py (PollenPacket), link.py (dial, verify, address), dispatch.py (sender, recipient and capability checks), checks.py (the pure capability matcher), heartbeat.py, moved.py (honours a signed QueenMoved)
 │   │   │   ├── enrol/            # First-run registration: invite.py (parse pollen1. strings), request.py (EnrolRequest from the probe), enrol.py (dial, enrol, verify the accept, persist)
 │   │   │   ├── executors/        # What the device can do: base.py (DeviceExecutor), session.py (exec), files.py, process.py (background programs), info.py (platform, capabilities, capacity), observe.py (watch mode's fixed collectors)

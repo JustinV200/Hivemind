@@ -29,6 +29,8 @@ hardware with no Docker, no SQLite extensions and no LLM SDK (ADR-0051).
 - `PacketState` and `DataLayout`: what the packet persists, and where its data directory is.
 - `PollenError`: the root of every error pollen raises on purpose.
 - The `pollen` command (`cli.py`): `enrol`, `run`, `install`, `uninstall`, `status` and `version`.
+- `teardown.py`: what `pollen uninstall` ends that the service left running (the packet under
+  the Windows task's console host, and the lease programs it started).
   `--data-dir`, else `POLLEN_DATA_DIR`, else the platform's default, names the data directory.
 
 ## Packages

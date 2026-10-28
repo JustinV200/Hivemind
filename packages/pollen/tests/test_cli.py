@@ -7,7 +7,8 @@ packet is doing and ``version`` prints the versions. Exit status 0 means done, 1
 (``EXIT_NO_RESTART``) means the packet stopped for a reason a restart cannot fix, so the service
 manager must not restart it. ``install`` also records the interpreter to build the Hive runtime
 with, ``status`` names the rung of the runtime ladder the device is on and whether its Warden runs,
-and ``uninstall`` ends the packet the service left running and the Warden the packet started.
+and ``uninstall`` ends the Warden the packet started (and, through pollen.teardown, the
+packet the service left running).
 These tests call ``main`` the way a shell would, with a recorder in place of the service manager
 and the scripted Queen for the verbs that need one; the Warden, where one is needed, is a real
 process in a group of its own.
@@ -305,28 +306,6 @@ def test_uninstall_removes_the_unit_and_leaves_the_data(
     out = capsys.readouterr().out
     assert layout.state.exists() and "left in place" in out and "Warden" not in out
     assert ("systemctl", "--user", "disable", "--now", "pollen.service") in recorder.calls
-
-
-@pytest.mark.parametrize(("runs_this_directory", "ended"), [(True, True), (False, False)])
-def test_uninstall_ends_this_directorys_packet_that_the_service_left_running(
-    recorder: Recorder, tmp_path: Path, clock: Clock, runs_this_directory: bool, ended: bool
-) -> None:
-    # Ending the Windows task ends its windowless console host, not the packet below it.
-    layout = DataLayout(tmp_path / "data")
-    layout.ensure()
-    data_dir = layout.root if runs_this_directory else tmp_path / "other"
-    sleep = "import time; time.sleep(60)"
-    argv = [sys.executable, "-c", sleep, "run", "--data-dir", str(data_dir)]
-    packet = subprocess.Popen(argv)  # noqa: S603  # SAFETY: this interpreter, fixed arguments.
-    try:
-        asyncio.run(write_status(layout.status, _document(clock, pid=packet.pid)))
-
-        assert main(["uninstall", "--data-dir", str(layout.root)]) == 0
-
-        assert (packet.poll() is not None) is ended  # A recycled pid's program is left alone.
-    finally:
-        packet.kill()
-        packet.wait()
 
 
 def test_uninstall_without_an_enrolment_has_no_warden_to_stop(
