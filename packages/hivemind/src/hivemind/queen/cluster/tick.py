@@ -158,6 +158,8 @@ async def _drain_orders(
     when CLUSTER/WAKE were the only two kinds.
     """
     for order in await deps.orders.pending():
+        if state.holds_resumes():
+            return  # A Supersedure's freeze began meanwhile: the rest wait, still pending.
         if order.kind not in _CLUSTER_TICK_KINDS:
             continue
         providers = _providers_for_order(order.kind, order.provider, deps, state)
@@ -230,8 +232,8 @@ async def _probe_clustered(
         return  # No way to reach a live LLMProvider by name; nothing this tick can probe.
     now = deps.clock.now()
     for provider in tuple(state.clustered_providers):
-        if is_frozen(state.mode):
-            return  # A Supersedure froze her while this tick was awaiting (ADR-0065).
+        if state.holds_resumes():
+            return  # A Supersedure is freezing her while this tick was awaiting (ADR-0065).
         if not deps.health_poller.is_due(provider, now):
             continue
         # A HEALTHY reading schedules its own next probe at the steady cadence (HealthPoller.

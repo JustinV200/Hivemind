@@ -23,6 +23,7 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
+from builders.queen import make_queen_deps
 from builders.supersedure import (
     FakeCandidate,
     FakeControls,
@@ -33,12 +34,14 @@ from builders.supersedure import (
 
 from hivemind.common.backup import BackupSource
 from hivemind.pheromone import TrailQuery
+from hivemind.queen.state import QueenMode
 from hivemind.queen.supersedure import (
     ABORTED_KIND,
     STARTED_KIND,
     SUPERSEDED_KIND,
     AbortCause,
     Handover,
+    QueenLevers,
     Rollback,
     SupersedurePlan,
     SupersedurePorts,
@@ -131,3 +134,18 @@ async def test_a_failed_copy_or_a_late_candidate_is_rolled_back(
     assert notice.is_rollback and notice.sequence > started.payload["sequence"]  # type: ignore[operator]
     assert await next_sequence(trail) > notice.sequence
     assert not await trail.query(TrailQuery(kind=SUPERSEDED_KIND))
+
+
+async def test_a_rollback_wakes_only_what_the_freeze_clustered() -> None:
+    """A provider an outage clustered first stays clustered for the health probe to resume."""
+    deps, _link, _end = make_queen_deps()
+    state = deps.cluster_state
+    state.mark_clustered("down")  # A real outage, before the operator started the move.
+    levers = QueenLevers(deps, tuple)
+
+    await levers.freeze()
+    frozen = state.clustered_providers
+    await levers.wake()
+
+    assert {"fake", "down"} <= frozen
+    assert state.clustered_providers == {"down"} and state.mode is QueenMode.CLUSTERED

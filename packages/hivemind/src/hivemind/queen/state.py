@@ -215,6 +215,7 @@ class ClusterState:
 
     _mode: QueenMode = field(default=QueenMode.RUNNING)
     _clustered_providers: set[str] = field(default_factory=set)
+    _freezing: bool = field(default=False)  # A Supersedure's freeze is clustering (ADR-0065).
 
     @property
     def mode(self) -> QueenMode:
@@ -225,6 +226,18 @@ class ClusterState:
     def clustered_providers(self) -> frozenset[str]:
         """Every `[llm.providers.<name>]` key currently clustered, in no particular order."""
         return frozenset(self._clustered_providers)
+
+    def holds_resumes(self) -> bool:
+        """True while a Supersedure freezes her, or its freeze is still clustering: none resumes."""
+        return self._freezing or is_frozen(self._mode)
+
+    def hold_resumes(self, held: bool) -> None:
+        """Hold (or stop holding) every resume while a Supersedure's freeze clusters (ADR-0065).
+
+        Taken before the freeze clusters its first provider, so a cluster tick running beside it
+        cannot resume one the freeze has just clustered; SUPERSEDING holds them from then on.
+        """
+        self._freezing = held
 
     def mark_clustered(self, provider: str) -> None:
         """Record `provider` as clustered, moving the Queen's own mode to CLUSTERED if needed.

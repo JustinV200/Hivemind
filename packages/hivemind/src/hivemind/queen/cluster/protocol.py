@@ -317,6 +317,9 @@ async def resume(
 
     if provider not in state.clustered_providers:
         return ResumeOutcome(provider=provider, resumed_task_ids=(), already_running=True)
+    if state.holds_resumes():
+        # ADR-0065: a Supersedure's freeze holds every bee; it stays clustered for the rollback.
+        return ResumeOutcome(provider=provider, resumed_task_ids=(), already_running=False)
 
     affected = _affected_bees(provider, deps.ledger.live_grants(), deps.map)
     task_ids: list[TaskId] = []
@@ -324,6 +327,9 @@ async def resume(
         task = await deps.chamber.get(task_id)
         if task.status is not TaskStatus.PAUSED:
             continue  # Cancelled, or already resumed by another path; nothing to redo here.
+        if state.holds_resumes():
+            # A freeze began while this awaited: the rest stay paused, the provider clustered.
+            return ResumeOutcome(provider, tuple(task_ids), already_running=False)
         resume_from = await _newest_handoff(deps, task)
         await resume_paused(deps, wardens, task_id, resume_from, "Clustering resumed.")
         task_ids.append(task_id)

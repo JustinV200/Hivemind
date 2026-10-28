@@ -99,27 +99,39 @@ class QueenLevers:
         """Act on `deps.cluster_state` through Clustering, with `wardens` read at each call."""
         self._deps = deps
         self._wardens = wardens
+        self._froze: list[str] = []  # Providers this freeze clustered, never an outage's.
 
     async def freeze(self) -> None:
         """Cluster every bound provider and the freeze key, then move to SUPERSEDING."""
         deps, state = self._deps, self._deps.cluster_state
-        for provider in sorted({binding.provider for binding in deps.bindings}):
-            await cluster(provider, FREEZE_CAUSE, deps, state, self._wardens())
-        # The key keeps her CLUSTERED (and so able to move to SUPERSEDING) on a Hive whose slots
-        # name no provider at all; `wake` removes it with the rest.
-        state.mark_clustered(FREEZE_KEY)
-        state.begin_supersedure()
+        # Before the first provider: a cluster tick beside this resumes none of them meanwhile.
+        state.hold_resumes(True)
+        try:
+            for provider in sorted({binding.provider for binding in deps.bindings}):
+                outcome = await cluster(provider, FREEZE_CAUSE, deps, state, self._wardens())
+                if not outcome.already_clustered:
+                    self._froze.append(provider)
+            # The key keeps her CLUSTERED (and so able to move to SUPERSEDING) on a Hive whose
+            # slots name no provider at all; `wake` removes it with the rest.
+            state.mark_clustered(FREEZE_KEY)
+            state.begin_supersedure()
+        finally:
+            state.hold_resumes(False)  # SUPERSEDING holds them from here, or the freeze failed.
 
     async def stand_down(self) -> None:
         """Move SUPERSEDING -> SUPERSEDED; her tick then ends her loop."""
         self._deps.cluster_state.finish_supersedure()
 
     async def wake(self) -> None:
-        """Back to CLUSTERED, then resume every provider the freeze (or an outage) clustered."""
+        """Back to CLUSTERED, then resume only the providers the freeze itself clustered.
+
+        One an outage clustered before or during the move stays clustered: the cluster tick's
+        health probe resumes it once it answers, never this.
+        """
         state = self._deps.cluster_state
         state.abort_supersedure()
         state.mark_resumed(FREEZE_KEY)
-        for provider in sorted(state.clustered_providers):
+        for provider in self._froze:
             await resume(provider, self._deps, state, self._wardens())
 
 
