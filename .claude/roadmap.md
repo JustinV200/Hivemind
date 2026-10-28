@@ -2954,6 +2954,16 @@ borrowed device and revoking every grant.
   copying a Real Cell's scratch in as tainted C2 Nectar is not built; such a Cell stays isolated
   for the human. `docs/guard/sting-cut.md`.
 - [ ] **13.5 Overwintering at scale.** QEMU snapshots and cloud stop; disk accounting; eviction.
+  **Disk accounting and eviction built 2026-10-27** (ADR-0066); not ticked, since QEMU snapshots
+  and a cloud backend's stop need those backends on real infrastructure. A backend that declares
+  `can_measure_disk` implements `DiskMeter` (the fake does; Docker and QEMU do not yet), and
+  `CellLifecycle.release` weighs a Cell at what it really holds, which the pool then accounts it at.
+  A full pool evicts its oldest dormant Cells to keep a freshly released one
+  (`hive/overwinter/room.py`, pure: only as many as the bounds need, only the same image while the
+  per-image bound blocks, none if nothing would help), each with `cell.evicted` (`pool full`), and
+  only once the policy has decided to keep the newcomer. Expired dormant Cells are evicted while the
+  Hive runs: on every release and from the dormant list the Queen reads on each placement pass and
+  liveness tick, so placement is never offered one. The placement views moved to `hive/inventory.py`.
 - [ ] **13.6 Chaos tests.** Kill Cells, drop links, drop a Nuc mid-task, corrupt replies, return
   refusals, malformed JSON and rate limits from the fake, take a provider down mid-run and assert
   Clustering then resume, flood the inbox, exhaust a grant, kill the old Queen mid-Supersedure,

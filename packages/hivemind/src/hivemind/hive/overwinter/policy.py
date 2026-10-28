@@ -83,12 +83,15 @@ class ReleaseOutcome:
             destroyed the moment the task ends and was never a candidate for reuse.
         backend_can_pause: The provisioning backend's own `hivemind.hive.backends.base.
             BackendCapabilities.can_pause`; a backend that cannot pause can never Overwinter.
+        disk_bytes: The disk the Cell really holds, when its backend measures it (roadmap step
+            13.5, `hivemind.hive.backends.base.DiskMeter`); None weighs the spec's allotment.
     """
 
     rolled_back_whole_cell: bool
     has_block_wax: bool
     single_use: bool
     backend_can_pause: bool
+    disk_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,8 +317,10 @@ def _requires_disk_budget(
     config: OverwinterConfig,
 ) -> str | None:
     """Veto when adding this Cell's own disk would exceed the pool's disk_budget_mb."""
-    del cell, outcome  # Unused: this rule reads only the pool's occupancy and this Cell's disk.
-    spec_disk_mb = spec.disk_bytes // (1024**2)
+    del cell  # Unused: this rule reads only the pool's occupancy and this Cell's disk.
+    # Measured disk when the backend reports it (step 13.5), else what the spec allots.
+    disk_bytes = outcome.disk_bytes if outcome.disk_bytes is not None else spec.disk_bytes
+    spec_disk_mb = disk_bytes // (1024**2)
     if pool.disk_used_mb + spec_disk_mb > config.disk_budget_mb:
         return (
             f"Adding {spec_disk_mb} MB would exceed the pool's {config.disk_budget_mb} MB "

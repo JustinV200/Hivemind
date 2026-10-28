@@ -317,7 +317,7 @@ def build_virtual_cells(
         lifecycle=lifecycle,
         provider=provider,
         virtual_backend_source=_virtual_backend_source(lifecycle, section, manifest.hive.id),
-        dormant_cell_source=_dormant_cell_source(lifecycle),
+        dormant_cell_source=_dormant_cell_source(lifecycle, clock),
         on_task_finished=make_on_task_finished(lifecycle, scrub, quiesce),
         on_cell_granted=make_on_cell_granted(lifecycle),
         retire_all=make_retire_all(lifecycle, quiesce),
@@ -508,10 +508,16 @@ def _virtual_backend_source(
     return source
 
 
-def _dormant_cell_source(lifecycle: CellLifecycle) -> DormantCellSource:
-    """Build the closure `QueenDeps.dormant_cell_source` holds: the lifecycle's own dormant list."""
+def _dormant_cell_source(lifecycle: CellLifecycle, clock: Clock) -> DormantCellSource:
+    """Build the closure `QueenDeps.dormant_cell_source` holds: the lifecycle's own dormant list.
+
+    The Queen asks for it on every placement pass and every liveness tick, so it is where a
+    running Hive evicts dormant Cells past their deadline (roadmap step 13.5): placement is never
+    offered one, and an idle Hive does not hold them until it stops.
+    """
 
     async def source() -> tuple[DormantCandidate, ...]:
+        await lifecycle.evict_expired(clock.now())
         return tuple(
             dormant_candidate_from_lifecycle(cell) for cell in lifecycle.dormant_candidates()
         )

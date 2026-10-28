@@ -29,6 +29,13 @@ the next task with the same image starts in seconds; Night Veil Cells are never 
   every `cell.*` trail event now lives on `hivemind.hive.lifecycle.CellLifecycle`, which calls into
   this pool immediately around each one -- see that module's own docstring for the reconciliation.
 
+- `room.py` -- `make_room(occupants, image, disk_mb, config)`: a pure function (roadmap step 13.5,
+  ADR-0066) naming the oldest dormant Cells whose eviction lets one more Cell of `image` fit every
+  bound, or nothing when no eviction could. `OverwinterPool.room_for` asks it on every release, and
+  `OverwinterPool.evict` drops the entries once the lifecycle has decided to keep the newcomer. Each
+  entry is accounted at the disk its Cell held at admission (the backend's `DiskMeter` reading, or
+  the spec's allotment).
+
 ## How to test this
 
 ```

@@ -33,6 +33,12 @@ from the caller's own `ReleaseOutcome`, the injected `OverwinterSettings.pool.vi
 `CellLifecycle` built with `overwinter=None` always tears down on release, the same behaviour the
 old `always_teardown` default hook gave; this is the only place that default still exists.
 
+Roadmap step 13.5 (ADR-0066) adds disk accounting and eviction under pressure. `release()` weighs
+a Cell at the disk its backend measures (`hivemind.hive.backends.base.DiskMeter`, when declared),
+first evicts dormant Cells past their deadline, then asks the pool which of the oldest dormant
+Cells would have to go for this one to fit (`OverwinterPool.room_for`); when the policy then
+decides OVERWINTER, those go (`cell.evicted`, reason `pool full`) before it returns.
+
 `provision()` mints the Cell's id itself, before any backend is called, and records
 `cell.provisioning` under it at once: a backend can take minutes to bring a Cell up, and the
 record of provisioning having begun used to be written only once it had ended. The id rides on
@@ -69,9 +75,10 @@ Fits into the Hive:
     LifecycleVirtualCellProvider`, `hivemind.workers.roles.undertaker` (the Queen-startup sweep's
     dormant eviction, via `evict_expired`) and `hive cells` commands (5.13). Calls into
     `hivemind.cell` (Cell, CellIdentity, CombShieldLevel), `hivemind.hive.backends` (
-    BackendCapabilities, VirtualCellRecord), `hivemind.hive.cell_state`, `hivemind.hive.errors`,
-    `hivemind.hive.models`, `hivemind.hive.overwinter` (OverwinterConfig, OverwinterDecision,
-    OverwinterPool, ReleaseOutcome, Scrubber, decide_release), `hivemind.hive.registry`,
+    DiskMeter, VirtualCellRecord), `hivemind.hive.cell_state`, `hivemind.hive.errors`,
+    `hivemind.hive.inventory` (the placement views), `hivemind.hive.models`,
+    `hivemind.hive.overwinter` (OverwinterConfig, OverwinterDecision, OverwinterPool,
+    ReleaseOutcome, Scrubber, decide_release), `hivemind.hive.registry`,
     `hivemind.hive.snapshot.ledger` (SnapshotLedgerPort, roadmap step 5.10: `teardown()`'s own
     snapshot cleanup), `hivemind.hive.backends.base` (CellBackend, `snapshot_target`'s own return
     type), `hivemind.hive.night_veil.boundary` (the Night Veil boundary's open, purge and sweep),
@@ -111,15 +118,14 @@ See Also:
 
 from __future__ import annotations
 
-from collections import Counter
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from pydantic import JsonValue
 
 from hivemind.cell import Cell, CellIdentity, CombShieldLevel
-from hivemind.hive.backends.base import BackendCapabilities, CellBackend, VirtualCellRecord
+from hivemind.hive.backends.base import CellBackend, DiskMeter, VirtualCellRecord
 from hivemind.hive.cell_state import (
     VirtualCellStatus,
     assert_dormant_allowed,
@@ -127,6 +133,12 @@ from hivemind.hive.cell_state import (
     can_enter_dormant,
 )
 from hivemind.hive.errors import CellProvisionError, InvalidCellTransitionError, UnknownCellError
+from hivemind.hive.inventory import (
+    LifecycleDormantCell,
+    LifecycleVirtualBackend,
+    backend_views,
+    dormant_views,
+)
 from hivemind.hive.models import VirtualCellSpec
 from hivemind.hive.night_veil import boundary
 from hivemind.hive.overwinter.policy import (
@@ -141,6 +153,9 @@ from hivemind.hive.snapshot.ledger import SnapshotLedgerPort
 from hivemind.pheromone import CellEvent, PheromoneTrail
 from waggle.clock import Clock
 from waggle.ids import CellId, GrantId, HiveId, WardenId, new_cell_id, new_event_id
+
+_EXPIRED = "dormant_until expired"  # cell.evicted's reason for a Cell past its own deadline.
+_POOL_FULL = "pool full"  # cell.evicted's reason for an older Cell making room (step 13.5).
 
 __all__ = [
     "CellLifecycle",
@@ -198,6 +213,8 @@ class LiveVirtualCell:
             falls back to teardown for one -- decide_release has nothing to check against).
         warden_id: The attached Warden's own id, once a `WardenLink` exists for this Cell.
         grant_id: The live `ForageGrant` id, once `grant()` has been called.
+        disk_bytes: The disk `release()` weighed it at (roadmap step 13.5), which the pool then
+            accounts it at; None until then.
     """
 
     cell_id: CellId
@@ -209,47 +226,7 @@ class LiveVirtualCell:
     spec: VirtualCellSpec | None = None
     warden_id: WardenId | None = None
     grant_id: GrantId | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class LifecycleDormantCell:
-    """One dormant Virtual Cell, as `dormant_candidates()` reports it.
-
-    A hive-layer value, deliberately not `hivemind.queen.placement.inventory.DormantCandidate`
-    itself: `hive` is Layer 3 and `queen.placement` is Layer 6, so this module may never import
-    it (codingrules section 4). The composition root converts one of these into the queen-layer
-    type once it already holds both.
-
-    Attributes:
-        cell_id: The dormant Cell itself.
-        warden_id: Its own Warden, if still known (see `LiveVirtualCell.warden_id`).
-        image: The image it was provisioned from.
-        comb_shield: Its own security tier; never NIGHT_VEIL (the module invariant).
-    """
-
-    cell_id: CellId
-    warden_id: WardenId | None
-    image: str
-    comb_shield: CombShieldLevel
-
-
-@dataclass(frozen=True, slots=True)
-class LifecycleVirtualBackend:
-    """One registered backend, as `virtual_backend_candidates()` currently sees it.
-
-    Also deliberately hive-layer, not `hivemind.queen.placement.inventory.VirtualBackendCandidate`
-    (see `LifecycleDormantCell`'s own docstring for why); `capabilities.headroom` here is already
-    narrowed to this backend's *remaining* room (its own declared cap minus how many Cells this
-    lifecycle currently tracks on it), matching what the queen-layer type's own docstring requires
-    of its caller.
-
-    Attributes:
-        name: The backend's own registry name.
-        capabilities: What this backend can do, with `headroom` narrowed to remaining room.
-    """
-
-    name: str
-    capabilities: BackendCapabilities
+    disk_bytes: int | None = None
 
 
 class CellLifecycle:
@@ -392,12 +369,12 @@ class CellLifecycle:
         return await _evict_expired(self, now)
 
     def dormant_candidates(self) -> tuple[LifecycleDormantCell, ...]:
-        """Return every DORMANT Cell this lifecycle tracks. See `_dormant_candidates`."""
-        return _dormant_candidates(self)
+        """Return every DORMANT Cell this lifecycle tracks (`hivemind.hive.inventory`)."""
+        return dormant_views(self._cells.values())
 
     def virtual_backend_candidates(self) -> tuple[LifecycleVirtualBackend, ...]:
-        """Return every backend with its remaining headroom. See `_virtual_backend_candidates`."""
-        return _virtual_backend_candidates(self)
+        """Return every backend with its remaining headroom (`hivemind.hive.inventory`)."""
+        return backend_views(self._cells.values(), self._registry)
 
     def _require(self, cell_id: CellId) -> LiveVirtualCell:
         """Return `cell_id`'s tracked record, or raise UnknownCellError."""
@@ -584,10 +561,28 @@ async def _release(
         # A reconciled record this process never provisioned: decide_release has no VirtualCellSpec
         # to check against (module docstring's own "Key invariants"), so it is never Overwintered.
         return OverwinterDecision.TEARDOWN
-    decision = decide_release(
-        record.cell, record.spec, outcome, lifecycle._pool.view(), lifecycle._overwinter_config
-    )
+    # Step 13.5: weigh what the Cell really holds; expired Cells never hold room against it.
+    disk = await _measured_disk(lifecycle, record.backend, cell_id)
+    record.disk_bytes = disk if disk is not None else record.spec.disk_bytes
+    await _evict_expired(lifecycle, lifecycle._clock.now())
+    victims, view = lifecycle._pool.room_for(record.spec.image, record.disk_bytes)
+    outcome = replace(outcome, disk_bytes=disk)
+    decision = decide_release(record.cell, record.spec, outcome, view, lifecycle._overwinter_config)
+    if decision.decision is OverwinterDecision.OVERWINTER:
+        # Only now that it is kept: the oldest go, so the fresher Cell takes their room.
+        await _evict(lifecycle, lifecycle._pool.evict(victims), _POOL_FULL)
     return decision.decision
+
+
+async def _measured_disk(
+    lifecycle: CellLifecycle, backend_name: str, cell_id: CellId
+) -> int | None:
+    """The disk `cell_id` holds, from a backend that declares it can say; None otherwise."""
+    backend = lifecycle._registry.get(backend_name)
+    if not backend.capabilities.can_measure_disk or not isinstance(backend, DiskMeter):
+        return None  # Accounted at the spec's allotment instead.
+    # Local to the backend's own store: milliseconds, never a network call on the fake.
+    return await backend.disk_used_bytes(cell_id)
 
 
 async def _overwinter(lifecycle: CellLifecycle, cell_id: CellId, scrub: Scrubber) -> None:
@@ -605,7 +600,7 @@ async def _overwinter(lifecycle: CellLifecycle, cell_id: CellId, scrub: Scrubber
             reason="No OverwinterPool is configured, or this Cell's own spec is unknown "
             "(a reconciled record this process never provisioned).",
         )
-    await lifecycle._pool.admit(record.cell, record.spec, scrub=scrub)
+    await lifecycle._pool.admit(record.cell, record.spec, scrub=scrub, disk_bytes=record.disk_bytes)
     backend = lifecycle._registry.get(record.backend)
     await backend.pause(cell_id)
     record.status = VirtualCellStatus.DORMANT
@@ -660,52 +655,17 @@ async def _evict_expired(lifecycle: CellLifecycle, now: datetime) -> tuple[CellI
     """
     if lifecycle._pool is None:
         return ()
-    expired_ids = await lifecycle._pool.evict_expired(now)
-    for cell_id in expired_ids:
-        await lifecycle._record(cell_id, "cell.evicted", reason="dormant_until expired")
+    return await _evict(lifecycle, await lifecycle._pool.evict_expired(now), _EXPIRED)
+
+
+async def _evict(
+    lifecycle: CellLifecycle, cell_ids: Sequence[CellId], reason: str
+) -> tuple[CellId, ...]:
+    """Record `cell.evicted` for each dormant Cell the pool already dropped, then tear it down."""
+    for cell_id in cell_ids:
+        await lifecycle._record(cell_id, "cell.evicted", reason=reason)
         await lifecycle.teardown(cell_id)
-    return tuple(expired_ids)
-
-
-def _dormant_candidates(lifecycle: CellLifecycle) -> tuple[LifecycleDormantCell, ...]:
-    """Return every DORMANT Cell `lifecycle` tracks, for `queen.placement`'s own inventory.
-
-    Hive-layer values only (module docstring); a composition root converts these into
-    `hivemind.queen.placement.inventory.DormantCandidate`.
-    """
-    return tuple(
-        LifecycleDormantCell(
-            cell_id=record.cell_id,
-            warden_id=record.warden_id,
-            image=record.image,
-            comb_shield=record.comb_shield,
-        )
-        for record in lifecycle._cells.values()
-        if record.status is VirtualCellStatus.DORMANT
-    )
-
-
-def _virtual_backend_candidates(lifecycle: CellLifecycle) -> tuple[LifecycleVirtualBackend, ...]:
-    """Return every registered backend with its *remaining* headroom, live.
-
-    `headroom` is narrowed by how many Cells `lifecycle` currently tracks on that backend (every
-    status but DESTROYED/FAILED, neither of which this table ever holds -- see `_teardown`/
-    `_provision`'s own key invariants), matching what `queen.placement.inventory.
-    VirtualBackendCandidate.capabilities.headroom`'s own docstring requires.
-    """
-    counts = _counts_by_backend(lifecycle._cells.values())
-    candidates: list[LifecycleVirtualBackend] = []
-    for name in lifecycle._registry.names():
-        capabilities = lifecycle._registry.get(name).capabilities
-        remaining = capabilities.headroom
-        if remaining is not None:
-            remaining = max(0, remaining - counts.get(name, 0))
-        candidates.append(
-            LifecycleVirtualBackend(
-                name=name, capabilities=capabilities.model_copy(update={"headroom": remaining})
-            )
-        )
-    return tuple(candidates)
+    return tuple(cell_ids)
 
 
 def _from_backend_record(record: VirtualCellRecord, backend_name: str) -> LiveVirtualCell:
@@ -724,8 +684,3 @@ def _from_backend_record(record: VirtualCellRecord, backend_name: str) -> LiveVi
         image=record.image,
         comb_shield=boundary.tier_from_labels(record.labels),
     )
-
-
-def _counts_by_backend(records: Iterable[LiveVirtualCell]) -> Counter[str]:
-    """Count live records per backend name, for `_virtual_backend_candidates`'s own narrowing."""
-    return Counter(record.backend for record in records)

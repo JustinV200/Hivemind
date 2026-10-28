@@ -165,3 +165,8 @@ modules' own docstrings for the split). It mints a Virtual Cell's id itself as p
 (`VirtualCellSpec.cell_id`, which every backend gives the Cell) and records `cell.provisioning`
 under it before any backend is called; `cell.provisioned` (or `cell.provision_failed`) follows
 under the same id.
+Roadmap step 13.5 (ADR-0066): `release()` weighs a Cell at the disk its backend measures
+(`DiskMeter`, when it declares `can_measure_disk`), evicts expired dormant Cells, and evicts the
+oldest dormant ones a full pool would need gone to keep it (`overwinter/room.py`). The placement
+views it hands the Queen (`LifecycleDormantCell`, `LifecycleVirtualBackend`) live in
+`inventory.py`.

@@ -99,6 +99,7 @@ def _make_lifecycle(
     *,
     with_pool: bool = False,
     snapshot_ledger: SnapshotLedger | None = None,
+    pool_config: OverwinterConfig | None = None,
 ) -> tuple[CellLifecycle, MemoryPheromoneTrail]:
     """Build a CellLifecycle over one registered "fake" backend, and the trail it records to.
 
@@ -109,18 +110,16 @@ def _make_lifecycle(
             release() always decides TEARDOWN (the old always_teardown default's behaviour).
         snapshot_ledger: Roadmap step 5.10: the SnapshotLedger `teardown()` deletes a Cell's own
             snapshots from, when one is given; None (the default) matches every pre-5.10 test.
+        pool_config: The pool's bounds when `with_pool`; the generous default when None.
     """
     clock = FakeClock()
     trail = MemoryPheromoneTrail(clock)
     registry = BackendRegistry()
     registry.register("fake", lambda: backend)
     identity = make_identity(clock)
+    config = pool_config if pool_config is not None else _overwinter_config()
     overwinter = (
-        OverwinterSettings(
-            pool=OverwinterPool(clock, _overwinter_config()), config=_overwinter_config()
-        )
-        if with_pool
-        else None
+        OverwinterSettings(pool=OverwinterPool(clock, config), config=config) if with_pool else None
     )
     lifecycle = CellLifecycle(registry, trail, clock, identity, overwinter=overwinter)
     if snapshot_ledger is not None:
@@ -420,6 +419,29 @@ async def test_evict_expired_tears_down_every_cell_past_its_own_deadline() -> No
     assert lifecycle.status_of(cell.id) is None
     assert backend.destroy_calls == [cell.id]
     assert (await _kinds_for(trail, cell.id))[-2:] == ["cell.destroying", "cell.destroyed"]
+
+
+async def test_release_evicts_the_oldest_dormant_cell_for_a_fresher_one_at_measured_disk() -> None:
+    # Room for one dormant Cell of 2 MB: each 10 GB spec fits only at its measured 1 MB.
+    backend = FakeCellBackend(FakeClock())
+    config = _overwinter_config(max_cells=1, disk_budget_mb=2)
+    lifecycle, trail = _make_lifecycle(backend, with_pool=True, pool_config=config)
+    older, fresher = [await lifecycle.provision(_make_spec(), "fake") for _ in range(2)]
+    for cell in (older, fresher):
+        backend.set_disk_used(cell.id, 1024**2)
+
+    decisions = []
+    for cell in (older, fresher):
+        await lifecycle.mark_ready(cell.id)
+        await lifecycle.grant(cell.id, new_grant_id(FakeClock()))
+        decisions.append(await lifecycle.release(cell.id, _outcome()))
+        await lifecycle.overwinter(cell.id, scrub=_no_op_scrub)
+
+    assert decisions == [OverwinterDecision.OVERWINTER] * 2
+    assert lifecycle.status_of(older.id) is None and backend.destroy_calls == [older.id]
+    assert lifecycle.status_of(fresher.id) is VirtualCellStatus.DORMANT
+    [evicted] = await trail.query(TrailQuery(subject_id=older.id, kind="cell.evicted"))
+    assert evicted.payload["reason"] == "pool full"
 
 
 async def test_evict_expired_returns_empty_without_a_pool() -> None:

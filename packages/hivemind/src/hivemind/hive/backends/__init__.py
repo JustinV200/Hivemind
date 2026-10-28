@@ -31,6 +31,8 @@ Public API:
       types every implementation shares (hivemind.hive.backends.base).
     - EgressCutter: the optional capability to cut a running Cell's egress to its control link
       alone, and restore it (hivemind.hive.backends.base, roadmap step 10.6a).
+    - DiskMeter: the optional capability to report the disk one Cell really holds
+      (hivemind.hive.backends.base, roadmap step 13.5).
     - FakeCellBackend: the in-memory reference implementation (hivemind.hive.backends.fake).
     - CellBootstrap, QueenEndpoint, ReadinessGate, CellReadyInfo, mint_cell_bootstrap: the
       backend-independent provisioning seam (hivemind.hive.backends.bootstrap).
@@ -48,6 +50,7 @@ Public API:
 from hivemind.hive.backends.base import (
     BackendCapabilities,
     CellBackend,
+    DiskMeter,
     EgressCutter,
     VirtualCellRecord,
 )
@@ -69,6 +72,7 @@ __all__ = [
     "CellBackend",
     "CellBootstrap",
     "CellReadyInfo",
+    "DiskMeter",
     "DockerCellBackend",
     "EgressCutter",
     "FakeCellBackend",

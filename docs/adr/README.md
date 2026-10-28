@@ -329,3 +329,7 @@ ADRs that exist today, in numeric order:
   `SUPERSEDED`, acknowledges her, and only then does a `QueenMoved` (now carrying the TLS pin,
   Waggle 1.16) go out; a candidate not ready inside the grace window is rolled back; each trail
   says which side of a Supersedure its node was on, and a restart obeys it.
+- `0066-overwintered-cells-are-evicted-oldest-first-under-pressure.md`: a backend that declares
+  `can_measure_disk` reports what one Cell holds, and the Overwintering pool weighs and accounts it
+  at that; a full pool evicts its oldest dormant Cells (only as many as the bounds need) to keep a
+  freshly released one; expired dormant Cells are evicted while the Hive runs, not only at start.

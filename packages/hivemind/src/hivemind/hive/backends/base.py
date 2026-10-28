@@ -19,6 +19,9 @@ the Cell's own network policy back when the human lifts it. It is a separate Pro
 only by dual-homing its Cells on a control network, `hivemind.hive.backends.docker.network`; QEMU
 cannot yet), and a caller that finds the capability undeclared, or a backend that refuses it for one
 Cell, records that the egress stayed as it was rather than attempting a cut.
+Roadmap step 13.5 adds `DiskMeter` the same way: a backend declaring `can_measure_disk` reports
+how much disk one Cell really holds, so the Overwintering pool accounts a dormant Cell at what it
+uses rather than at its spec's allotment.
 
 Fits into the Hive:
     Layer 3 (sources of Cells). Called by hivemind.hive.lifecycle (roadmap step 5.6, not yet
@@ -67,7 +70,7 @@ from hivemind.hive.cell_state import VirtualCellStatus
 from hivemind.hive.models import VirtualCellSpec
 from waggle.ids import CellId, HiveId
 
-__all__ = ["BackendCapabilities", "CellBackend", "EgressCutter", "VirtualCellRecord"]
+__all__ = ["BackendCapabilities", "CellBackend", "DiskMeter", "EgressCutter", "VirtualCellRecord"]
 
 
 class BackendCapabilities(BaseModel):
@@ -104,6 +107,12 @@ class BackendCapabilities(BaseModel):
         "(codingrules section 12: nothing of the Cell outlives it on the host); placement never "
         "chooses one that cannot, and it refuses such a spec itself. False, the default: a "
         "backend declares it only once its teardown is shown to meet the rule.",
+    )
+    can_measure_disk: bool = Field(
+        default=False,
+        description="Whether this backend can report the disk one Cell really holds (roadmap "
+        "step 13.5); a backend declaring it implements DiskMeter. False, the default: the "
+        "Overwintering pool then accounts a Cell at its spec's disk allotment.",
     )
 
 
@@ -162,6 +171,27 @@ class EgressCutter(Protocol):
 
         Args:
             cell_id: The Cell whose isolation the human lifted.
+        """
+        ...
+
+
+@runtime_checkable
+class DiskMeter(Protocol):
+    """Report how much disk one Virtual Cell really holds (roadmap step 13.5).
+
+    Optional, like `EgressCutter`: implemented only by a backend whose
+    `BackendCapabilities.can_measure_disk` is True, and read by `hivemind.hive.lifecycle` when a
+    released Cell is weighed for the Overwintering pool.
+    """
+
+    async def disk_used_bytes(self, cell_id: CellId) -> int:
+        """Return the bytes `cell_id`'s disk holds right now.
+
+        Args:
+            cell_id: A Cell this backend provisioned and still holds.
+
+        Returns:
+            The bytes in use, never negative.
         """
         ...
 

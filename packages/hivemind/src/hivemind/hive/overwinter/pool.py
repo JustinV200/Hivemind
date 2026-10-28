@@ -9,10 +9,14 @@ until when, and which one is "the oldest matching entry" for a given image. `adm
 released Cell (an injected `Scrubber`, since the pool never opens a session of its own) and
 records it dormant, but does not pause it; `claim`/`claim_by_id` pick an entry and remove it, but
 do not resume it; `evict_expired` returns the ids past their own `dormant_until`, but does not
-destroy them. The lifecycle calls `backend.pause`/`backend.resume`/`backend.destroy` itself,
-immediately around each of these calls, so the abstract Virtual Cell state (`hivemind.hive.
-cell_state.VirtualCellStatus`) and the backend's own real state never drift apart mid-call the way
-they could when two classes each called the backend independently.
+destroy them. Roadmap step 13.5 adds disk accounting and eviction under pressure: each entry holds
+the disk its Cell really used at admission (the backend's measurement, or the spec's allotment),
+`view` sums those, `room_for` names the oldest entries whose eviction would let one more Cell in
+(`hivemind.hive.overwinter.room.make_room`), and `evict` drops entries the caller then tears down.
+The lifecycle calls `backend.pause`/`backend.resume`/`backend.destroy` itself, immediately around
+each of these calls, so the abstract Virtual Cell state (`hivemind.hive.cell_state.
+VirtualCellStatus`) and the backend's own real state never drift apart mid-call the way they could
+when two classes each called the backend independently.
 
 Fits into the Hive:
     Layer 3 (sources of Cells, and capabilities handed down), inside `hivemind.hive.overwinter`.
@@ -38,9 +42,10 @@ Key invariants:
       placement.inventory.DormantCandidate` directly: `hive` is Layer 3 and `queen` is Layer 6
       (codingrules section 4's layer table). A Layer-6 caller converts one `PooledCandidate` into
       one `DormantCandidate` per row.
-    - Every admitted Cell's disk (`VirtualCellSpec.disk_bytes`) and image are what `view()` sums for
-      `hivemind.hive.overwinter.policy.PoolView`; `evict_expired`, `claim` and `claim_by_id` all
-      remove the entry before returning, so occupancy is never double-counted mid-call.
+    - Every admitted Cell's disk (measured at admission, else `VirtualCellSpec.disk_bytes`) and
+      image are what `view()` sums for `hivemind.hive.overwinter.policy.PoolView`;
+      `evict_expired`, `evict`, `claim` and `claim_by_id` all remove the entry before returning,
+      so occupancy is never double-counted mid-call.
 
 See Also:
     - docs/adr/0029-overwintering-policy.md for the pool this module implements.
@@ -55,7 +60,7 @@ See Also:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -64,6 +69,7 @@ from hivemind.hive.cell_state import VirtualCellStatus, assert_dormant_allowed, 
 from hivemind.hive.errors import CellScrubError, InvalidCellTransitionError
 from hivemind.hive.models import VirtualCellSpec
 from hivemind.hive.overwinter.policy import OverwinterConfig, PoolView
+from hivemind.hive.overwinter.room import Occupant, make_room
 from waggle.clock import Clock
 from waggle.ids import CellId
 
@@ -73,6 +79,8 @@ from waggle.ids import CellId
 # raises hivemind.hive.errors.CellScrubError when it cannot confirm both, and `admit` then admits
 # nothing: a Cell is never paused dirty (ADR-0029).
 Scrubber = Callable[[Cell], Awaitable[None]]
+
+_DESTROYING = VirtualCellStatus.DESTROYING  # The edge an evicted entry stands in for.
 
 __all__ = ["DormantCell", "OverwinterPool", "PooledCandidate", "Scrubber"]
 
@@ -89,12 +97,14 @@ class DormantCell:
         dormant_since: When `admit` recorded it dormant.
         dormant_until: When `CellLifecycle.evict_expired` tears it down if nothing claims it first
             (`dormant_since + OverwinterConfig.max_dormant_s`).
+        disk_bytes: The disk the pool accounts it at (roadmap step 13.5).
     """
 
     cell: Cell
     spec: VirtualCellSpec
     dormant_since: datetime
     dormant_until: datetime
+    disk_bytes: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +135,13 @@ class _Entry:
     spec: VirtualCellSpec
     dormant_since: datetime
     dormant_until: datetime
+    disk_bytes: int
+
+    def frozen(self) -> DormantCell:
+        """Return this entry as the DormantCell callers see."""
+        return DormantCell(
+            self.cell, self.spec, self.dormant_since, self.dormant_until, self.disk_bytes
+        )
 
 
 class OverwinterPool:
@@ -149,7 +166,9 @@ class OverwinterPool:
         self._config = config
         self._entries: dict[CellId, _Entry] = {}
 
-    async def admit(self, cell: Cell, spec: VirtualCellSpec, *, scrub: Scrubber) -> DormantCell:
+    async def admit(
+        self, cell: Cell, spec: VirtualCellSpec, *, scrub: Scrubber, disk_bytes: int | None = None
+    ) -> DormantCell:
         """Scrub and record `cell` as dormant; the caller pauses it on the backend around this.
 
         The caller (`hivemind.hive.lifecycle.CellLifecycle.overwinter`) is the one that already
@@ -163,6 +182,8 @@ class OverwinterPool:
             scrub: Stops every sub-bee and removes scratch (ADR-0029: "every sub-bee is stopped,
                 scratch is removed... before the backend pauses the Cell" -- the pause itself now
                 happens in the caller, immediately after this returns).
+            disk_bytes: The disk the Cell really holds, when its backend measured it; None
+                accounts it at `spec.disk_bytes`.
 
         Returns:
             The DormantCell this pool now holds for `cell.id`.
@@ -183,10 +204,15 @@ class OverwinterPool:
         await scrub(cell)
         now = self._clock.now()
         dormant_until = now + timedelta(seconds=self._config.max_dormant_s)
-        self._entries[cell.id] = _Entry(
-            cell=cell, spec=spec, dormant_since=now, dormant_until=dormant_until
+        entry = _Entry(
+            cell=cell,
+            spec=spec,
+            dormant_since=now,
+            dormant_until=dormant_until,
+            disk_bytes=disk_bytes if disk_bytes is not None else spec.disk_bytes,
         )
-        return DormantCell(cell=cell, spec=spec, dormant_since=now, dormant_until=dormant_until)
+        self._entries[cell.id] = entry
+        return entry.frozen()
 
     async def claim(self, image: str) -> DormantCell | None:
         """Select and remove the oldest dormant Cell provisioned from `image`, or return None.
@@ -230,12 +256,7 @@ class OverwinterPool:
             return None
         assert_transition(VirtualCellStatus.DORMANT, VirtualCellStatus.READY, cell_id=cell_id)
         del self._entries[cell_id]
-        return DormantCell(
-            cell=entry.cell,
-            spec=entry.spec,
-            dormant_since=entry.dormant_since,
-            dormant_until=entry.dormant_until,
-        )
+        return entry.frozen()
 
     async def evict_expired(self, now: datetime) -> list[CellId]:
         """Remove every dormant entry whose own `dormant_until` is at or before `now`.
@@ -251,18 +272,44 @@ class OverwinterPool:
         Returns:
             Every expired Cell's id, in no particular order; empty when nothing has expired.
         """
-        expired = [entry for entry in self._entries.values() if entry.dormant_until <= now]
-        evicted: list[CellId] = []
-        for entry in expired:
-            assert_transition(
-                VirtualCellStatus.DORMANT, VirtualCellStatus.DESTROYING, cell_id=entry.cell.id
-            )
-            del self._entries[entry.cell.id]
-            evicted.append(entry.cell.id)
+        expired = [entry.cell.id for entry in self._entries.values() if entry.dormant_until <= now]
+        return list(self.evict(expired))
+
+    def evict(self, cell_ids: Sequence[CellId]) -> tuple[CellId, ...]:
+        """Remove the dormant entries for `cell_ids`; the caller tears each one down.
+
+        Args:
+            cell_ids: Cells to drop, as `room_for` or `evict_expired` named them.
+
+        Returns:
+            The ids removed, in order; one no longer held (claimed meanwhile) is skipped.
+        """
+        # Claimed or evicted since it was named: nothing to drop for that one.
+        evicted = tuple(cell_id for cell_id in cell_ids if cell_id in self._entries)
+        for cell_id in evicted:
+            assert_transition(VirtualCellStatus.DORMANT, _DESTROYING, cell_id=cell_id)
+            del self._entries[cell_id]
         return evicted
 
-    def view(self) -> PoolView:
+    def room_for(self, image: str, disk_bytes: int) -> tuple[tuple[CellId, ...], PoolView]:
+        """Name the oldest Cells whose eviction lets one more Cell in; nothing is removed yet.
+
+        Args:
+            image: The incoming Cell's image.
+            disk_bytes: The incoming Cell's disk.
+
+        Returns:
+            The ids to evict (empty when it already fits or cannot be made to), and the
+            occupancy `decide_release` should weigh: the pool as it would be after those go.
+        """
+        victims = make_room(_occupants(self._entries), image, disk_bytes // 1024**2, self._config)
+        return victims, self.view(excluding=frozenset(victims))
+
+    def view(self, excluding: frozenset[CellId] = frozenset()) -> PoolView:
         """Return this pool's current occupancy, for `hivemind.hive.overwinter.policy.PoolView`.
+
+        Args:
+            excluding: Cells to leave out, as if evicted (`room_for`).
 
         Returns:
             Total dormant count, per-image count and disk used (megabytes), summed from every
@@ -270,10 +317,11 @@ class OverwinterPool:
         """
         per_image: dict[str, int] = {}
         disk_used_mb = 0
-        for entry in self._entries.values():
+        kept = [entry for cell_id, entry in self._entries.items() if cell_id not in excluding]
+        for entry in kept:
             per_image[entry.spec.image] = per_image.get(entry.spec.image, 0) + 1
-            disk_used_mb += entry.spec.disk_bytes // (1024**2)
-        return PoolView(total=len(self._entries), per_image=per_image, disk_used_mb=disk_used_mb)
+            disk_used_mb += entry.disk_bytes // (1024**2)
+        return PoolView(total=len(kept), per_image=per_image, disk_used_mb=disk_used_mb)
 
     def dormant_candidates(self) -> tuple[PooledCandidate, ...]:
         """Return every dormant Cell as a PooledCandidate, for a Layer-6 placement snapshot.
@@ -295,6 +343,14 @@ class OverwinterPool:
     ) -> tuple[CellId, ...]:
         """Admit every (Cell, spec) pair Clustering considers idle; see `_admit_idle_batch`."""
         return await _admit_idle_batch(self, idle, scrub)
+
+
+def _occupants(entries: Mapping[CellId, _Entry]) -> list[Occupant]:
+    """Every entry as `make_room` weighs it: image, disk in megabytes, and when it went dormant."""
+    return [
+        Occupant(entry.cell.id, entry.spec.image, entry.disk_bytes // 1024**2, entry.dormant_since)
+        for entry in entries.values()
+    ]
 
 
 async def _admit_idle_batch(

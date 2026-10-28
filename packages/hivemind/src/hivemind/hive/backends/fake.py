@@ -108,8 +108,14 @@ _FAKE_DISK_BYTES = 10 * 1024**3
 _FAKE_MAX_SUB_BEES = 4
 # What a fake declares when a test names nothing: a Cell pauses, (step 10.6a) cuts its egress
 # and, like the Docker backend it stands in for, holds Night Veil (nothing of it is on a host).
+# Step 13.5: it measures a Cell's disk, so the Overwintering pool's accounting runs in process.
 _DEFAULT_CAPABILITIES = BackendCapabilities(
-    can_snapshot=False, can_pause=True, headroom=None, can_cut_egress=True, can_night_veil=True
+    can_snapshot=False,
+    can_pause=True,
+    headroom=None,
+    can_cut_egress=True,
+    can_night_veil=True,
+    can_measure_disk=True,
 )
 
 __all__ = ["FakeCellBackend", "FakeReadinessGate", "ReadinessGateExpect"]
@@ -141,6 +147,7 @@ class _TrackedCell:
     labels: dict[str, str]
     created_at: datetime
     egress_cut: bool = False  # Roadmap step 10.6a: only the control link is reachable while set.
+    disk_bytes: int = 0  # Roadmap step 13.5: what disk_used_bytes reports; the spec's at first.
 
 
 class _FakeEgress:
@@ -188,7 +195,38 @@ class _FakeEgress:
             raise BackendCapabilityError(_FAKE_BACKEND_NAME, "egress cut", cell_id=cell_id)
 
 
-class FakeCellBackend(_FakeEgress):
+class _FakeDisk:
+    """The fake's `DiskMeter` half (roadmap step 13.5), a base of `FakeCellBackend`.
+
+    Split out, like `_FakeEgress`, only to keep `FakeCellBackend` inside codingrules 5.1's class
+    limit; it reads and writes the backend's own Cell table.
+    """
+
+    _cells: dict[CellId, _TrackedCell]
+
+    def set_disk_used(self, cell_id: CellId, disk_bytes: int) -> None:
+        """Make `disk_used_bytes` report `disk_bytes` for `cell_id`; a no-op for an unknown Cell.
+
+        Args:
+            cell_id: A Cell this fake holds.
+            disk_bytes: The bytes it should appear to hold; must be >= 0.
+
+        Raises:
+            ValueError: `disk_bytes` is negative.
+        """
+        if disk_bytes < 0:
+            raise ValueError(f"disk_bytes must be >= 0, got {disk_bytes}")
+        tracked = self._cells.get(cell_id)
+        if tracked is not None:
+            tracked.disk_bytes = disk_bytes
+
+    async def disk_used_bytes(self, cell_id: CellId) -> int:
+        """Return the disk `cell_id` holds; see `DiskMeter.disk_used_bytes` (0 when unknown)."""
+        tracked = self._cells.get(cell_id)
+        return tracked.disk_bytes if tracked is not None else 0
+
+
+class FakeCellBackend(_FakeEgress, _FakeDisk):
     """An in-memory CellBackend: provisions, destroys, pauses and lists Cells with no real infra."""
 
     def __init__(
@@ -313,9 +351,8 @@ class FakeCellBackend(_FakeEgress):
         cell_id = await self._mint_cell_id(spec)
         cell = _build_cell(spec, self.name, cell_id)
         labels = _labels(spec, self.bootstraps.get(cell_id))
-        self._cells[cell.id] = _TrackedCell(
-            cell=cell, status=VirtualCellStatus.READY, labels=labels, created_at=self._clock.now()
-        )
+        now, ready = self._clock.now(), VirtualCellStatus.READY
+        self._cells[cell.id] = _TrackedCell(cell, ready, labels, now, disk_bytes=spec.disk_bytes)
         return cell
 
     async def _mint_cell_id(self, spec: VirtualCellSpec) -> CellId:
