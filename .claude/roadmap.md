@@ -3218,8 +3218,10 @@ neither track changes it, and 15.3a rebases on it once it merges.
   Warden suspends Watch observations and the Patrol episode (codingrules 8.7's watch mode), so the
   operator's command lines, logs and touched files never reach Bee Bread or a model; with
   `--alongside`, the bees still running can see the operator's processes and files like any
-  other process on the Cell, and an in-Cell Warden on a Virtual Cell always can. The operator
-  is told so before an `--alongside` Inspection opens.
+  other process on the Cell, and the operator is told so before such an Inspection opens. A
+  Virtual Cell's Warden runs inside the Cell, so under Smoke it runs no awake episode and writes
+  nothing to Bee Bread until the Inspection closes, and `--alongside` is refused on a Virtual
+  Cell.
 - **Authorisation.** A new human-only family `entrance:inspect` with scopes `shell`, `screen_view`
   and `screen_control`, never in a bee's set and never in the UI's default credentials; widened only
   on loopback. Opening needs an interactive device and a fresh step-up (`ActionKind.INSPECT`), every
@@ -3281,8 +3283,10 @@ in daily use.
 - [ ] **15.1 ADRs, vocabulary and manifest.** Write the four ADRs below before any code; add
   Inspection, operator lease and Smoke to the README glossary; amend codingrules 8.11, 12 (the two
   `cell.inspection_*` skeleton events) and 15, and gateway-contract sections 6 (the `inspect.*`
-  open kinds, shell and screen, join rule 3's Queen-only list, so a Warden can never open one) and
-  16, as the ADRs decide.
+  open kinds, shell and screen, join rule 3's Queen-only list, so a Warden can never open one),
+  9.1 (an operator lease opens only through `inspect.open`, never a `cell.request`), 9.2 (every
+  `session.*` request on an operator lease is refused), 12 (the operator lease is exempt from
+  left-as-found restore) and 16, as the ADRs decide.
   The section 15 changes: "Real Cells are borrowed" gains the operator lease as the one lease
   exempt from restore; "Nothing lands uncapped" exempts a human's own keystrokes and pointer;
   "Watching is bounded" names `entrance:inspect:screen_*` plus the device's opt-in as the separate
@@ -3297,20 +3301,37 @@ in daily use.
   inside a channel keyed at the signed open, so a keystroke is not a fresh signed envelope and
   never enters the replay window; no output frame is ever queued in the outbox. `spec.md` and the
   gateway contract gain the section, and the open kinds are Queen-only (gateway-contract section 6,
-  rule 3). *Exit:* contract suite covers open, resize, input, close and a replayed or out-of-order
-  frame refused; an `inspect.open` signed by the Cell's Warden (on a colonized device or a Nuc)
-  is dropped. *Size:* medium, 2 to 3 agent-days.
+  rule 3). The Queen learns a device's opt-in from a new `inspect_opt_in` field (shell, screen,
+  remembered screen approval) on the packet's heartbeat in the same minor; it is Inspection
+  availability, not a capability report, so a change never counts toward 13.4a's dire pattern.
+  *Exit:* contract suite covers open, resize, input, close and a replayed or out-of-order frame
+  refused; an `inspect.open` signed by the Cell's Warden (on a colonized device or a Nuc) is
+  dropped; flipping a device's opt-in shows in the next heartbeat and raises no Guard request or
+  Sting Cut. *Size:* medium, 3 agent-days.
 - [ ] **15.3a Pollen PTY on POSIX and the operator lease.** A PTY executor on Linux and macOS
   (`pty`); the shell is the device's own default, never text from a request; window resize; the
   process group recorded in the lease table before the first byte; the operator lease kind, exempt
   from left-as-found restore and named so on the trail; idle and hard timeouts; kill on release,
   Sting Cut and dead-man. The device-side opt-in lands here, with the executor, so no build of the
   packet ever carries an ungated shell: `pollen allow inspect --shell|--screen` and `--revoke`,
-  typed on the device and kept in its state, and the executor refusing with
-  `pollen.capability_denied` without it. *Exit:* through a Waggle-level test harness standing in
-  for the operator's terminal (the clients arrive in 15.7 and 15.8), on Ubuntu and Arch, a device
-  that has not opted in refuses; one that has renders and resizes `vim` and `htop`; killing the
-  link ends the shell after the grace. *Size:* medium, 2.5 agent-days.
+  and the executor refusing with `pollen.capability_denied` without it. The opt-in is human-on-
+  device only, because a bee with exec on a `FULL` Cell can run any command the packet's account
+  can, and a colonized Warden can write the packet's state: `pollen allow inspect` refuses
+  without an interactive console or when it descends from the packet, then asks for the OS's own
+  elevation (UAC, `sudo` or polkit, macOS authorization), and writes the opt-in to a store the
+  packet's account can read but not write (root- or Administrators-owned); a device where that
+  account elevates without a prompt (passwordless `sudo`, an elevated packet) cannot opt in at
+  all. The operator lease opens only through the Queen-only `inspect.open`: the packet refuses a
+  `cell.request` of the operator kind, from the Warden or anyone, and every `session.*` request
+  (exec, files, process) on an operator lease. As a second wall (gateway-contract section 10), it
+  refuses a PTY on any lease whose granted access is below `FULL`. *Exit:* through a Waggle-level
+  test harness standing in for the operator's terminal (the clients arrive in 15.7 and 15.8), on
+  Ubuntu and Arch, a device that has not opted in refuses; one that has renders and resizes `vim`
+  and `htop`; killing the link ends the shell after the grace; `pollen allow inspect` run through
+  `session.exec`, and a direct write to the opt-in store by the colonized Warden's account, are
+  both refused; a Warden `cell.request` for an operator lease and a `session.exec` on an open
+  operator lease are refused; a PTY on a `SCRATCH` lease is refused. *Size:* medium to large, 3.5
+  agent-days.
 - [ ] **15.3b Windows ConPTY.** The same executor on Windows through `pywinpty` (MIT), added to the
   packet build on every platform's CI; the Job Object recorded before the first byte. *Exit:* the
   15.3a run on Windows 11 in PowerShell and `cmd`, from the single-file packet. *Size:* medium, 2
@@ -3327,14 +3348,20 @@ in daily use.
   level, tier and Hive Stand checks; the `cell.inspection_*` events and their Night Veil boundary
   rows; a `guard.entrance_inspection_opened` push event sent to every other enrolled device
   (codingrules 8.15 and 15), saying only that an Inspection opened and on which Cell; the idle and
-  hard timeouts, and Absconding, ending every open Inspection. *Exit:* opening on a Cell with a
+  hard timeouts, and Absconding, ending every open Inspection. `inspect.open` can be built and
+  sent only by `QueenDoor.open_inspection`, and only from the Entrance's step-up-checked
+  principal: the door mints an `InspectionWarrant` no other module can construct, the Queen's
+  sender requires one, and an import-linter contract keeps the warrant and the open builder out of
+  every Warden (Level-0 Wardens sign as `hive_id` too, spec.md:353-356) and out of autopilot.
+  *Exit:* neither a Level-0 Warden nor Queen autopilot can send `inspect.open` (a test and the
+  lint contract); opening on a Cell with a
   running task pauses it, closing resumes it from its Handoff with no work redone; `--alongside`
   leaves it running; a `SCRATCH` Cell refuses a shell; every other enrolled device receives the
   push; an Inspection idle past `idle_minutes`, and one open during `hive abscond`, each end within
   five seconds with one `cell.inspection_closed` carrying the right reason; after an Inspection
   that ran `mysql -psecret` and edited a file, nothing from it (command line, process, log line
   or file change) is in Bee Bread and no Patrol episode ran meanwhile.
-  *Size:* medium to large, 3 agent-days.
+  *Size:* medium to large, 3.5 agent-days.
 - [ ] **15.5 Virtual Cells and the Hive Stand.** Needs the separate guest-loopback fix landed
   first. Docker: an exec with a tty attached from the Hive Stand; QEMU: a virtio console on a
   Unix socket (a named pipe on Windows) with a getty from cloud-init; the Hive Stand: a local PTY
@@ -3345,7 +3372,9 @@ in daily use.
   Cell, a QEMU Cell, a Night Veil Docker Cell and the Hive Stand; from an Inspection shell on a
   QEMU Cell and on a Docker Desktop Cell, a request to the Entrance's loopback port through
   `10.0.2.2` or `host.docker.internal`, with a forged `Host: localhost`, is refused, and a backend
-  that fails this check refuses remote Inspection. *Size:* medium, 2 to 3 agent-days.
+  that fails this check refuses remote Inspection; after an Inspection on a Docker Cell that ran
+  `mysql -psecret`, nothing from it is in Bee Bread and the in-Cell Warden ran no episode
+  meanwhile; `--alongside` on a Virtual Cell is refused. *Size:* medium, 3 agent-days.
 - [ ] **15.6 Entrance terminal route.** `/v1/cells/{cell}/inspect/terminal`, a `Duplex` socket
   behind `entrance:inspect:shell` and `ActionKind.INSPECT`; OpenAPI regenerated; the route test
   gains its allow-list row. *Exit:* a device without the scope gets 403, one without fresh step-up
@@ -3361,7 +3390,7 @@ in daily use.
   with a retention window, announced in the client; refused on Night Veil. *Exit:* a recorded
   session replays; an unrecorded one leaves no bytes anywhere. *Size:* small, 1.5 agent-days.
 
-Track A total: about 24 agent-days.
+Track A total: about 26 agent-days.
 
 Track B (remote desktop). The on-device notice (15.12) lands before any step that drives a Real
 Cell's screen, and every Real Cell exit below is run with it up; until it lands, 15.11a and 15.11b
@@ -3445,9 +3474,13 @@ attached to the Entrance relay by a test harness.
 - [ ] **15.15a Wayland on GNOME and KDE.** The RemoteDesktop and ScreenCast portals over PipeWire.
   The device's user approves in a system dialog at least once; later sessions skip it only if that
   user ticks the portal's "remember" choice, in which case the portal's restore token
-  (`persist_mode`) is kept in Pollen's device state, never on the Hive Stand, and revoked with
-  `pollen allow inspect --revoke`. *Exit:* with the test client, control an Ubuntu GNOME Wayland
-  desktop after the local approval, and again without it when it was remembered. *Size:* medium to large, 3 agent-days.
+  (`persist_mode`) is obtained only by `pollen allow inspect --screen --remember`, run by the
+  human on the device under the same elevation and console checks as 15.3a, and kept in the same
+  store the packet's account cannot write, never on the Hive Stand; it is revoked with
+  `pollen allow inspect --revoke`. A token written anywhere else is ignored. *Exit:* with the test client, control an Ubuntu GNOME Wayland
+  desktop after the local approval, and again without it when it was remembered; a restore token
+  planted by the packet's account or through `session.exec` is ignored. *Size:* medium to large,
+  3.5 agent-days.
 - [ ] **15.15b Wayland on wlroots.** wayvnc (ISC) on loopback for Sway and other wlroots
   compositors. *Exit:* control a Sway desktop on Arch from the test client. *Size:* small, 1.5 agent-days.
 - [ ] **15.16 macOS (best effort).** A bundled server or the packet's own capture (ScreenCaptureKit
@@ -3480,10 +3513,11 @@ attached to the Entrance relay by a test harness.
   unrecorded one leaves no bytes anywhere; a Night Veil Cell refuses to record. *Size:* small, 1.5
   agent-days.
 
-Track B total: about 34 agent-days, plus about 3 more if the spike chooses own capture over RFB.
+Track B total: about 35 agent-days, plus about 3 more if the spike chooses own capture over RFB.
 
-Steps are sized for one PR each. 15.4 stays whole because the door, the pause and the trail
-events only make sense landed together, and 15.14a because capture and input are proven together.
+Steps are sized for one PR each. 15.3a stays whole because the executor must never ship without
+its opt-in and lease walls, 15.4 because the door, the pause and the trail events only make sense
+landed together, and 15.14a because capture and input are proven together.
 
 ### Exit criteria
 
@@ -3516,8 +3550,12 @@ events only make sense landed together, and 15.14a because capture and input are
   and CLAUDE.md; and, if `hive_stand_remote` is kept, the plain statement that it ends
   loopback-only approval in practice; the rule that the Entrance's loopback listener is
   unreachable from any Virtual Cell guest, and that remote Inspection of a backend's Cells is
-  refused until it holds; `INSPECTED` suspending Watch and the Patrol, and the plain statement
-  that `--alongside` lets the Cell's bees see the operator's processes and files).
+  refused until it holds; `INSPECTED` suspending Watch and the Patrol, and a Virtual Cell's
+  in-Cell Warden running no episode under Smoke, with `--alongside` refused there; the plain
+  statement that `--alongside` lets the Cell's bees see the operator's processes and files; the
+  opt-in as human-on-device only, behind OS elevation in a store the packet cannot write; the
+  operator lease closed to every `cell.request` and `session.*` request; `inspect.open` built
+  only by the Queen's door; the heartbeat opt-in field, outside 13.4a's dire pattern).
 - `inspection-channel-on-waggle.md` (the keyed byte channel inside a signed open; sequence numbers
   instead of the replay window; never queued; the amendments to gateway-contract section 6, making
   the `inspect.*` open kinds for shell and screen Queen-only under rule 3 so a Warden's signature
