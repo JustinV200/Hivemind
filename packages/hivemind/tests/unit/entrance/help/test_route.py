@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
 from builders.entrance.help import ASK, ASKER, ask, help_rig
 from builders.entrance.serving import RigOptions, serving
 
@@ -66,16 +65,12 @@ async def test_a_session_past_its_budget_is_refused_without_a_model_call() -> No
     assert len(provider.calls) == 2
 
 
-@pytest.mark.parametrize(
-    "target",
-    [f"{ASK}?q=hi", f"{ASK}?q={'x' * 501}", ASK, f"{ASK}?q=night+veil&stray=1"],
-    ids=["short", "long", "missing", "stray"],
-)
-async def test_a_question_the_route_does_not_take_is_refused(target: str) -> None:
+async def test_a_question_the_route_does_not_take_is_refused() -> None:
+    # One case only: the query's bounds are tabled in test_models; this proves the gate's body.
     async with serving(help_rig(FakeLLMProvider())) as rig:
         client, session = await rig.program(ASKER)
 
-        refused = await client.call(session, "GET", target)
+        refused = await client.call(session, "GET", ASK)
 
     assert refused.status_code == 422, refused.text
     assert refused.json()["error"] == "hivemind.entrance.invalid_request"
