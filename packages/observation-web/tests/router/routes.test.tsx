@@ -42,6 +42,9 @@ const TABLE: [string, Route][] = [
   ['#/capping', { name: 'capping' }],
   ['#/devices', { name: 'devices' }],
   ['#/enrol', { name: 'enrol' }],
+  ['#/help', { name: 'help', page: null, section: null }],
+  ['#/help/glossary', { name: 'help', page: 'glossary', section: null }],
+  ['#/help/screens?s=fleet', { name: 'help', page: 'screens', section: 'fleet' }],
 ];
 
 describe('resolveRoute', () => {
@@ -49,12 +52,17 @@ describe('resolveRoute', () => {
     expect(resolveRoute(hash, 'loopback')).toEqual(route);
   });
 
-  it.each(['#/nope', '#/cells', '#/cells/a/b', '#/fleet/x', '#/chat/x', '#/%E0%A4%A'])(
-    'treats %s as not found',
-    (hash) => {
-      expect(resolveRoute(hash, 'loopback')).toEqual({ name: 'not_found' });
-    },
-  );
+  it.each([
+    '#/nope',
+    '#/cells',
+    '#/cells/a/b',
+    '#/fleet/x',
+    '#/chat/x',
+    '#/help/a/b',
+    '#/%E0%A4%A',
+  ])('treats %s as not found', (hash) => {
+    expect(resolveRoute(hash, 'loopback')).toEqual({ name: 'not_found' });
+  });
 
   it('hides the loopback-only screen off the Hive Stand and before login', () => {
     expect(resolveRoute('#/enrol', 'remote')).toEqual({ name: 'not_found' });

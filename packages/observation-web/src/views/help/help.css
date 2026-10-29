@@ -1,0 +1,190 @@
+/*
+ * Help view styles: the page list, the search box, the page's text, the hits and the tour card.
+ *
+ * Mobile first (design.md section 2): one column on a phone, the page list first as one
+ * wrapping row of links, then the tour card, then the text; from 1080px the list, with a summary
+ * under each page, and the card sit in a column to the left of the text, which is capped at a
+ * reading measure. The text is running prose, so
+ * paragraphs and lists get the rhythm the working views' tables do not need. A section heading
+ * keeps a scroll margin the height of the sticky head, so a link into a section lands it in view
+ * rather than under the strip.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/help/`. Imported by `help_screen.tsx`. Class names are
+ *   those rendered by `help_screen.tsx`, `render.tsx` and `tour/tour.tsx` (its card).
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - Nothing here makes the page wider than the viewport; long words in prose wrap.
+ *   - The current page in the list is bold with a rule beside it, never colour alone.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 2, 5.12 and 6.
+ */
+.help {
+  display: grid;
+  gap: var(--sp-4);
+  align-items: start;
+}
+
+.help-side {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+/* The search box in the title row: label, field and Clear on one wrapping line */
+.help-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.help-search input {
+  min-height: 36px;
+  min-width: 12rem;
+  padding: 0 var(--sp-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.help-search .button {
+  min-height: 36px;
+}
+
+/* The page list: a comb cell of links, each with its one-line summary under it */
+.help-pages {
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface);
+}
+
+.help-pages ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.help-pages li {
+  display: grid;
+  padding-left: var(--sp-3);
+  border-left: 3px solid transparent;
+}
+
+/* The open page: bold and ruled, the same mark the nav gives its current item */
+.help-pages li:has(a[aria-current='page']) {
+  border-left-color: var(--accent);
+}
+
+.help-pages a[aria-current='page'] {
+  font-weight: 600;
+}
+
+.help-summary {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* The page's text: a comb cell of prose at a reading measure */
+.help-page {
+  display: grid;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--surface);
+  max-width: 72ch;
+  overflow-wrap: anywhere;
+}
+
+.help-page p,
+.help-page li {
+  line-height: 1.5;
+}
+
+.help-page ul {
+  margin: 0;
+  padding-left: var(--sp-5);
+  display: grid;
+  gap: var(--sp-1);
+}
+
+/* A section heading inside the text; its scroll margin keeps it out from under the sticky head */
+.help-heading {
+  margin-top: var(--sp-3);
+  scroll-margin-top: calc(var(--head-h) + var(--sp-4));
+}
+
+h3.help-heading {
+  font-size: var(--fs-md);
+  margin-top: var(--sp-2);
+}
+
+/* A search hit: the page it is on as a small line above the section's own heading */
+.help-hit {
+  display: grid;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-soft);
+}
+
+.help-hit .help-heading {
+  margin-top: 0;
+}
+
+.help-hit-page {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* The tour card: one button and one line on whether this browser has finished the tour */
+.help-tour {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--surface);
+}
+
+.help-tour h2 {
+  font-size: var(--fs-md);
+}
+
+.help-tour p {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.help-tour .button {
+  justify-self: start;
+}
+
+/* Below the two-column width the list is one wrapping row of links, without the summaries, so
+   the text is not pushed down a phone's screen; the open page keeps its bold and a rule under it */
+@media (max-width: 1079px) {
+  .help-pages ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-2) var(--sp-4);
+  }
+
+  .help-pages li {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .help-pages a[aria-current='page'] {
+    border-bottom: 3px solid var(--accent);
+  }
+
+  .help-summary {
+    display: none;
+  }
+}
+
+@media (min-width: 1080px) {
+  .help {
+    grid-template-columns: 18rem minmax(0, 1fr);
+  }
+}

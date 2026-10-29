@@ -69,7 +69,7 @@ export function Nav(): ReactElement {
   const classes = ['nav', moreOpen ? 'nav--more-open' : '', scrolledDown ? 'nav--hidden' : ''];
 
   return (
-    <nav className={classes.filter(Boolean).join(' ')} aria-label="Main">
+    <nav className={classes.filter(Boolean).join(' ')} aria-label="Main" data-tour="nav">
       <ul>
         {visibleItems(listener).map((item) => (
           <li key={item.label} className={item.primary ? undefined : 'nav-secondary'}>

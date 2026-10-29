@@ -1,8 +1,8 @@
 /**
  * The nav's items: what each is called, where it goes, and its icon.
  *
- * The nav lists Fleet, Forage, Thoughts, Attendant, Chat, Honey, Cost, Capping and Devices, with
- * Enrol added only on the Hive Stand (design.md section 2). The first five are `primary`: they
+ * The nav lists Fleet, Forage, Thoughts, Attendant, Chat, Honey, Cost, Capping, Devices and Help,
+ * with Enrol added only on the Hive Stand (design.md section 2). The first five are `primary`: they
  * are the bottom bar on a phone, and the rest sit behind a "More" item there. This file is data
  * and tiny icon components, so the nav itself stays about behaviour.
  *
@@ -127,6 +127,18 @@ export const NAV_ITEMS: readonly NavItem[] = [
     loopbackOnly: true,
     icon: 'M12 5v14M5 12h14',
     hint: VIEW_HINTS.enrol,
+  },
+  {
+    label: 'Help',
+    href: '#/help',
+    owns: ['help'],
+    primary: false,
+    loopbackOnly: false,
+    // A circle holding a question mark: the hook and its dot.
+    icon:
+      'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.6-2.5 2-2.5 3.5' +
+      'M12 17h.01',
+    hint: VIEW_HINTS.help,
   },
 ];
 

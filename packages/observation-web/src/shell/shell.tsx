@@ -5,7 +5,8 @@
  * so the counters never scroll away or disappear while the human navigates; the nav is a bottom
  * bar on a phone and a rail beside the content from 720px. The shell also owns the live feeds: it
  * starts them when it mounts (a session is active) and stops them when it unmounts (logout or the
- * session ending), so there is no stream without a session and none left behind.
+ * session ending), so there is no stream without a session and none left behind. The guided tour
+ * (started from the Help screen) is mounted here too, since its steps move between screens.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/shell/`. Rendered by `src/app.tsx` when the session slice is
@@ -24,6 +25,7 @@
 import { useEffect, useRef } from 'react';
 import type { MouseEvent, ReactElement } from 'react';
 import { startFeeds, useHive } from '../store';
+import { Tour } from '../views/help';
 import { NoticeBar, StepUpBanner, SummaryStrip, TopBar } from './head';
 import { Nav } from './nav';
 import { Outlet } from './outlet';
@@ -60,6 +62,8 @@ export function Shell(): ReactElement {
       <main id="main" className="shell-main" tabIndex={-1}>
         <Outlet />
       </main>
+      {/* The guided tour, mounted once so it outlives the route changes its steps make. */}
+      <Tour />
     </div>
   );
 }

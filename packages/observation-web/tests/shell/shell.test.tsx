@@ -222,6 +222,7 @@ describe('top bar and nav', () => {
       'Cost',
       'Capping',
       'Devices',
+      'Help',
     ]) {
       expect(within(nav).getByRole('link', { name: label })).toBeTruthy();
     }
@@ -354,6 +355,20 @@ describe('routes', () => {
     window.location.hash = '#/enrol';
     await openShell({ listener: 'loopback' });
     expect(screen.getByRole('heading', { name: 'Enrol' })).toBeTruthy();
+  });
+
+  it('starts the tour from the Help screen, outlines the strip, and closes on Skip', async () => {
+    window.location.hash = '#/help';
+    await openShell();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Take the tour' }));
+    const dialog = await screen.findByRole('dialog', { name: 'The summary strip' });
+    expect(within(dialog).getByText('Step 1 of 10')).toBeTruthy();
+    // The first step's target is the strip, which every screen carries.
+    expect(document.querySelector('[data-tour="strip"]')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Skip tour' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(window.localStorage.getItem('hive.tour')).toBeNull();
   });
 
   it('skips to the main area without changing the route', async () => {

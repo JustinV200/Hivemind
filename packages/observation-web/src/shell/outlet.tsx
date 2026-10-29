@@ -32,6 +32,7 @@ import { DevicesScreen } from '../views/devices';
 import { EnrolScreen } from '../views/enrol';
 import { FleetView } from '../views/fleet/fleet';
 import { ForageScreen } from '../views/forage';
+import { HelpScreen } from '../views/help';
 import { HoneyScreen } from '../views/honey';
 import { ThoughtsView } from '../views/thoughts/thoughts_view';
 import { NotFound } from './not_found';
@@ -60,6 +61,8 @@ function viewFor(route: Route): ReactElement {
       return <DevicesScreen />;
     case 'enrol':
       return <EnrolScreen />;
+    case 'help':
+      return <HelpScreen page={route.page} section={route.section} />;
     case 'not_found':
       return <NotFound />;
   }

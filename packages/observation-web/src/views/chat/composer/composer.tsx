@@ -84,6 +84,7 @@ export function Composer(props: {
       className="chat-composer comb-cell comb-cell--strong"
       onSubmit={submit}
       aria-label="Message the Queen"
+      data-tour="composer"
     >
       <label>
         <span className="sr-only">Message to the Queen</span>

@@ -69,7 +69,7 @@ export function TopBar(): ReactElement {
       <span className="topbar-comb">
         <HexPattern tone="chrome" />
       </span>
-      <span aria-live="polite" className="topbar-connection">
+      <span aria-live="polite" className="topbar-connection" data-tour="connection">
         <StatusDot word={connectionWord(connection)} />
       </span>
       <ThemeToggle />

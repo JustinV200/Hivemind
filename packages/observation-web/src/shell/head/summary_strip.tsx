@@ -112,6 +112,7 @@ export function SummaryStrip(): ReactElement {
       role="status"
       aria-live="off"
       aria-busy={counters === null}
+      data-tour="strip"
     >
       {groupsOf(counters).map((group) => (
         <Cell

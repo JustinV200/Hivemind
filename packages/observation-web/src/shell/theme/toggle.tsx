@@ -32,6 +32,7 @@ export function ThemeToggle(): ReactElement {
     <button
       type="button"
       className="button topbar-theme"
+      data-tour="theme"
       aria-label={`Theme: ${word}. Switch to ${next}`}
       title={`Switch to ${next}`}
       onClick={() => setTheme(next)}

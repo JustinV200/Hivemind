@@ -31,6 +31,7 @@ export const VIEW_HINTS = {
   capping: 'The change gate: what bees asked to do outside scratch and whether it was allowed.',
   devices: 'The devices enrolled on the Hive, what each may do, and remote access.',
   enrol: 'Let a new device in: create an invite, then approve the device once it joins.',
+  help: 'What the words mean, how the Hive works and how to read each screen, and the tour.',
 } as const;
 
 export type GlossedView = keyof typeof VIEW_HINTS;

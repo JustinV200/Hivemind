@@ -1,0 +1,84 @@
+/*
+ * Tour styles: the fixed panel and the ring around the step's element.
+ *
+ * The panel sits at the bottom of the viewport, above the nav bar on a phone and at the lower
+ * right from tablet width, as a comb cell outlined like a form (`comb-cell--strong`), since it
+ * holds controls. The ring is a 3px accent border at the element's measured box with a halo of
+ * the surface, so it reads on the chrome and on the page alike; the panel's words name the
+ * element, so the ring is never the only signal. Nothing moves: a changed step redraws in place,
+ * and the scroll that brings an element into view is the browser's, off under reduced motion.
+ *
+ * Fits into the Hive:
+ *   Layer 7 (observation-web), `src/views/help/tour/`. Imported by `tour.tsx`. Class names are
+ *   those rendered there.
+ *
+ * Key invariants:
+ *   - Tokens only: a hex value here is a bug.
+ *   - The panel is above the nav (z 30) and the head (z 20) and below the skip link (z 100).
+ *   - The ring takes no pointer events, so the element under it stays usable.
+ *
+ * See Also:
+ *   - docs/observation/design.md sections 5.12 and 7.
+ */
+.tour-ring {
+  position: fixed;
+  z-index: 35;
+  pointer-events: none;
+  border: 3px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.tour {
+  position: fixed;
+  z-index: 40;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: calc(var(--bottom-nav-h) + var(--sp-3));
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  background: var(--surface);
+}
+
+.tour h2 {
+  font-size: var(--fs-md);
+}
+
+.tour-progress {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.tour-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding-top: var(--sp-1);
+}
+
+/* Skip stands apart from the two that move, at the row's far end */
+.tour-skip {
+  margin-left: auto;
+}
+
+/* The element is in the lower half of the viewport: the panel sits under the head instead */
+.tour--top {
+  top: calc(var(--head-h) + var(--sp-3));
+  bottom: auto;
+}
+
+@media (min-width: 720px) {
+  .tour {
+    left: auto;
+    right: var(--gutter);
+    bottom: var(--gutter);
+    width: min(400px, calc(100vw - 2 * var(--gutter)));
+  }
+
+  .tour--top {
+    top: calc(var(--head-h) + var(--gutter));
+    bottom: auto;
+  }
+}

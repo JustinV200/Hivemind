@@ -5,9 +5,10 @@
  * the Capacitor APK loads from `file://`; only the hash survives a reload or a pasted link. This
  * file is pure: it turns a hash string and the session's listener into a `Route`, and a route
  * back into a hash. A query after the path (`#/honey/hive?item=honey_1`) carries what a view
- * opens inside itself (the Honey item in its reading pane), so that too survives a reload, can be
- * shared, and closes with Back. The loopback-only screens resolve to `not_found` off the Hive Stand, which is
- * defence in depth only, as the remote listener answers those routes with a 404 itself.
+ * opens inside itself (the Honey item in its reading pane, a Help page's section), so that too
+ * survives a reload, can be shared, and closes with Back. The loopback-only screens resolve to
+ * `not_found` off the Hive Stand, which is defence in depth only, as the remote listener answers
+ * those routes with a 404 itself.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/router/`. Used by `use_route.ts`, the shell's nav and outlet.
@@ -17,7 +18,8 @@
  *   - Parameters are percent-decoded once; a malformed escape makes the route `not_found`.
  *   - `#/thoughts`, `#/attendant` and `#/honey` without a parameter mean the Queen, the Queen and
  *     the root, so the nav can link to the bare names.
- *   - Only the Honey route reads the query; every other route ignores one.
+ *   - Only the Honey route (`item`) and the Help route (`s`, a section) read the query; every
+ *     other route ignores one.
  *
  * See Also:
  *   - docs/observation/design.md section 5 for the route list.
@@ -37,6 +39,7 @@ export type Route =
   | { name: 'capping' }
   | { name: 'devices' }
   | { name: 'enrol' }
+  | { name: 'help'; page: string | null; section: string | null }
   | { name: 'not_found' };
 
 export type RouteName = Route['name'];
@@ -93,6 +96,11 @@ function parse({ segments, query }: Parts): Route {
       return bare({ name: 'devices' });
     case 'enrol':
       return bare({ name: 'enrol' });
+    case 'help':
+      // `?s=` names a section of the page, which the screen scrolls to and focuses.
+      return rest.length === 0
+        ? { name: 'help', page: first ?? null, section: query.get('s') || null }
+        : NOT_FOUND;
     default:
       return NOT_FOUND;
   }
@@ -120,6 +128,10 @@ export function hrefFor(route: Route): string {
         ? `#/honey/${route.path.split('/').map(encode).join('/')}`
         : '#/honey';
       return route.item ? `${folder}?item=${encode(route.item)}` : folder;
+    }
+    case 'help': {
+      const page = route.page ? `#/help/${encode(route.page)}` : '#/help';
+      return route.section ? `${page}?s=${encode(route.section)}` : page;
     }
     case 'not_found':
       return '#/';
