@@ -906,6 +906,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/help/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ask the help: an answer from the help pages, with the sections it cites. */
+        get: operations["ask_help_v1_help_ask_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/hive/supersede": {
         parameters: {
             query?: never;
@@ -3324,6 +3341,71 @@ export interface components {
              * @description Shared sub-bee slots free after reserve and live grants.
              */
             sub_bees: number;
+        };
+        /**
+         * HelpAnswerView
+         * @description What the Ask answered: the words, or the passages alone, and why.
+         */
+        HelpAnswerView: {
+            /**
+             * Answer
+             * @description The model's words, grounded in the sources; null unless ANSWERED.
+             */
+            answer: string | null;
+            /** @description What happened, in one word. */
+            outcome: components["schemas"]["HelpOutcome"];
+            /**
+             * Question
+             * @description The question as it was asked.
+             */
+            question: string;
+            /**
+             * Slot
+             * @description The ModelSlot the answer's call was filed under (the Cost view's row); null when no model ran.
+             */
+            slot: string | null;
+            /**
+             * Sources
+             * @description The passages retrieved for the question, best first, numbered from 1 as the answer's [n] marks count them; empty when NOTHING_FOUND.
+             */
+            sources: components["schemas"]["HelpSourceView"][];
+        };
+        /**
+         * HelpOutcome
+         * @description What the Ask did with a question, in one word the screen shows as is.
+         * @enum {string}
+         */
+        HelpOutcome: "ANSWERED" | "NO_MODEL" | "MODEL_FAILED" | "NOTHING_FOUND";
+        /**
+         * HelpSourceView
+         * @description One help passage an answer was grounded in, addressed the way the Help screen is.
+         */
+        HelpSourceView: {
+            /**
+             * Cited
+             * @description Whether the answer cites this passage by its number.
+             */
+            cited: boolean;
+            /**
+             * Heading
+             * @description The heading's words; empty for the page's opening.
+             */
+            heading: string;
+            /**
+             * Page
+             * @description The help page's id, as #/help/<page> names it.
+             */
+            page: string;
+            /**
+             * Section
+             * @description The heading's id, as ?s=<section> names it; null for the page's opening.
+             */
+            section: string | null;
+            /**
+             * Snippet
+             * @description The passage's first words, cut short.
+             */
+            snippet: string;
         };
         /**
          * HiveKeyView
@@ -10117,6 +10199,83 @@ export interface operations {
                 };
             };
             /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    ask_help_v1_help_ask_get: {
+        parameters: {
+            query: {
+                /** @description The question, in the person's own words; read as data, never as an instruction, and never kept. */
+                q: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HelpAnswerView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The session has asked its help questions for the minute. */
             429: {
                 headers: {
                     [name: string]: unknown;

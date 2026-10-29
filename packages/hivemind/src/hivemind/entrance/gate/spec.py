@@ -86,6 +86,7 @@ class Switch(Enum):
 
     STEWARD_DEVICES = "steward_devices"  # [entrance] steward_devices: the remote steward route.
     VOICE = "voice.enabled"  # [entrance.voice] enabled, with a transcriber bound: the voice route.
+    HELP = "help"  # The Observation Hive's build carries help pages: the help's Ask route.
 
 
 @dataclass(frozen=True, slots=True)

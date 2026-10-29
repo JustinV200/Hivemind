@@ -22,6 +22,7 @@ See Also:
 from __future__ import annotations
 
 from hivemind.entrance.gate.spec import RouteSpec
+from hivemind.entrance.help import HELP_ROUTES
 from hivemind.entrance.images import IMAGE_ROUTES
 from hivemind.entrance.routes import auth, chat, devices, enrol, goals, inbox, push
 from hivemind.entrance.routes.entrance import (
@@ -72,6 +73,7 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     chat.ROUTES,
     VOICE_ROUTES,  # POST /v1/chat/audio, beside the chat it speaks into (hivemind.entrance.voice).
     IMAGE_ROUTES,  # POST /v1/nectar/images, roadmap step 12.12 (hivemind.entrance.images).
+    HELP_ROUTES,  # GET /v1/help/ask, the help's Ask, ADR-0069 (hivemind.entrance.help).
     inbox.ROUTES,
     push.ROUTES,
     TASK_ROUTES,

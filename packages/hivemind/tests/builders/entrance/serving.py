@@ -50,6 +50,7 @@ from hivemind.entrance.expose import (
     load_or_create_authority,
 )
 from hivemind.entrance.gate import HiveReads, HoneyReads, LlmReads
+from hivemind.entrance.help import HelpServices
 from hivemind.entrance.images import ImageRules, ImageServices
 from hivemind.entrance.notify import HumanChannelRelay
 from hivemind.entrance.push import (
@@ -129,6 +130,8 @@ class RigOptions:
             from requests (no rig listener demands one: none of them speaks TLS).
         honey: The Honey browser the Honey routes read through (a real one over a temp-file
             store, see ``unit.honey_store.browse.harness``); None serves a Hive with no Honey.
+        help: The help's Ask (its pages, retriever, answerer and question budget); None serves
+            no Ask (the route unmounted).
     """
 
     remote: bool = False
@@ -143,6 +146,7 @@ class RigOptions:
     web_root: Path | None = None
     authority: bool = False
     honey: HoneyReads | None = None
+    help: HelpServices | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,6 +331,7 @@ async def serving(options: RigOptions | None = None) -> AsyncIterator[ServingRig
             own_addresses=frozenset({ipaddress.ip_address(OWN_ADDRESS)}),
             resolver=resolver,
             voice=_voice(active, deps),
+            help=active.help,
         )
         built = build_entrance(parts, bind_listener(LOOPBACK_HOST, 0))
         relay.bind(built.human_channel)

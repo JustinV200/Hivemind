@@ -3510,6 +3510,118 @@
         "title": "HeadroomView",
         "type": "object"
       },
+      "HelpAnswerView": {
+        "description": "What the Ask answered: the words, or the passages alone, and why.",
+        "properties": {
+          "answer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The model's words, grounded in the sources; null unless ANSWERED.",
+            "title": "Answer"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/HelpOutcome",
+            "description": "What happened, in one word."
+          },
+          "question": {
+            "description": "The question as it was asked.",
+            "title": "Question",
+            "type": "string"
+          },
+          "slot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The ModelSlot the answer's call was filed under (the Cost view's row); null when no model ran.",
+            "title": "Slot"
+          },
+          "sources": {
+            "description": "The passages retrieved for the question, best first, numbered from 1 as the answer's [n] marks count them; empty when NOTHING_FOUND.",
+            "items": {
+              "$ref": "#/components/schemas/HelpSourceView"
+            },
+            "title": "Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "question",
+          "outcome",
+          "answer",
+          "sources",
+          "slot"
+        ],
+        "title": "HelpAnswerView",
+        "type": "object"
+      },
+      "HelpOutcome": {
+        "description": "What the Ask did with a question, in one word the screen shows as is.",
+        "enum": [
+          "ANSWERED",
+          "NO_MODEL",
+          "MODEL_FAILED",
+          "NOTHING_FOUND"
+        ],
+        "title": "HelpOutcome",
+        "type": "string"
+      },
+      "HelpSourceView": {
+        "description": "One help passage an answer was grounded in, addressed the way the Help screen is.",
+        "properties": {
+          "cited": {
+            "description": "Whether the answer cites this passage by its number.",
+            "title": "Cited",
+            "type": "boolean"
+          },
+          "heading": {
+            "description": "The heading's words; empty for the page's opening.",
+            "title": "Heading",
+            "type": "string"
+          },
+          "page": {
+            "description": "The help page's id, as #/help/<page> names it.",
+            "title": "Page",
+            "type": "string"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The heading's id, as ?s=<section> names it; null for the page's opening.",
+            "title": "Section"
+          },
+          "snippet": {
+            "description": "The passage's first words, cut short.",
+            "title": "Snippet",
+            "type": "string"
+          }
+        },
+        "required": [
+          "page",
+          "section",
+          "heading",
+          "snippet",
+          "cited"
+        ],
+        "title": "HelpSourceView",
+        "type": "object"
+      },
       "HiveKeyView": {
         "description": "The Hive's public signing key: what a webhook receiver verifies with.",
         "properties": {
@@ -13453,6 +13565,114 @@
           "loopback",
           "remote"
         ]
+      }
+    },
+    "/v1/help/ask": {
+      "get": {
+        "operationId": "ask_help_v1_help_ask_get",
+        "parameters": [
+          {
+            "description": "The question, in the person's own words; read as data, never as an instruction, and never kept.",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "The question, in the person's own words; read as data, never as an instruction, and never kept.",
+              "maxLength": 500,
+              "minLength": 3,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelpAnswerView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The session has asked its help questions for the minute."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Ask the help: an answer from the help pages, with the sections it cites.",
+        "tags": [
+          "help"
+        ],
+        "x-hive-c2": false,
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ],
+        "x-hive-switch": "help"
       }
     },
     "/v1/hive/supersede": {

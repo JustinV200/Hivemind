@@ -561,6 +561,22 @@ that is empty or does not begin as its label says is `422`, and a device that ha
 bytes than its budget for the minute is `429` (`hivemind.entrance.image_over_budget`); a refused
 image is neither kept nor charged.
 
+### 8.5 Ask the help
+
+`GET /v1/help/ask?q=<question>` answers a question about the Hive from the help pages the
+Observation Hive ships (ADR-0069), and from nothing else: it is the Help screen's Ask, not the
+chat, and writes nothing. Any session may call it; `q` is 3 to 500 characters. The `200` answer is
+a `HelpAnswerView`: the `question`, an `outcome` (`ANSWERED`, `NO_MODEL`, `MODEL_FAILED` or
+`NOTHING_FOUND`), the `answer` (the model's words, citing passages by `[n]`; null unless
+`ANSWERED`), the `sources` it was grounded in, numbered from 1 in order (each a help `page`, its
+`section` id or null for the page's opening, the `heading`, a `snippet` and whether the answer
+`cited` it; a page opens at `#/help/<page>?s=<section>` on the Observation Hive) and the model
+`slot` the call was filed under for the Cost view. The answer runs with no tools on the chat
+binding the Hive's Forage map prices lowest; a Hive with no chat binding answers the sources
+alone. A session that has asked more questions this minute than its budget is `429`
+(`hivemind.entrance.help_over_budget`), and a Hive served without a front-end build has no such
+route (`404`).
+
 ## 9. The push contract
 
 - **A notice says only that something is waiting, never what.** A `PushNotice` has four members:

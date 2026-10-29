@@ -32,6 +32,7 @@ from hivemind.entrance.auth.session import SOCKET_HELLO_DEADLINE_S
 from hivemind.entrance.enrol import EntranceIdentity
 from hivemind.entrance.expose import ExposurePlan, HiveAuthority
 from hivemind.entrance.gate import HiveReads, QueenDoor
+from hivemind.entrance.help import HelpServices
 from hivemind.entrance.images import ImageServices
 from hivemind.entrance.push import Resolver, SubscriptionStore, VapidSigner, system_resolver
 from hivemind.entrance.store import EntranceStore
@@ -150,6 +151,9 @@ class EntranceParts:
         resolver: Resolves push destinations; the system resolver unless a test injects one.
         voice: The transcriber, scanner, Nectar seam and rules voice needs; None while
             ``[entrance.voice]`` is off, which leaves the voice route unmounted.
+        help: The help pages, their retriever, the cheapest chat binding and the question
+            budget the help's Ask answers with; None when the build carries no help pages,
+            which leaves the Ask route unmounted.
     """
 
     settings: EntranceSettings
@@ -162,3 +166,4 @@ class EntranceParts:
     own_addresses: frozenset[IPAddress] = frozenset()
     resolver: Resolver = system_resolver
     voice: VoiceServices | None = None
+    help: HelpServices | None = None

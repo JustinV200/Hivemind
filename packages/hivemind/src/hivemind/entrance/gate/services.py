@@ -61,8 +61,9 @@ from waggle.clock import Clock
 from waggle.ids import CellId, DeviceId, MessageId, TaskId
 
 if TYPE_CHECKING:
-    # Type-only: the streams, voice and images packages import this module's services, so a
+    # Type-only: the streams, voice, images and help packages import this module's services, so a
     # runtime import of any of them here would cycle.
+    from hivemind.entrance.help.services import HelpServices
     from hivemind.entrance.images.services import ImageServices
     from hivemind.entrance.streams.hub import StreamHub
     from hivemind.entrance.streams.registry import SocketRegistry
@@ -314,6 +315,7 @@ class EntranceServices:
     clock: Clock
     images: ImageServices
     voice: VoiceServices | None = None
+    help: HelpServices | None = None
 
     @property
     def enrolment(self) -> EnrolmentDeps:

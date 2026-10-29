@@ -60,6 +60,7 @@ own session.
 | POST | /v1/chat | L+R | entrance:submit | inbox |
 | POST | /v1/chat/audio | L+R, only with `[entrance.voice] enabled` | entrance:submit +c2 (an answer also entrance:answer; a goal steps up as `/v1/goals` does) | inbox |
 | POST | /v1/nectar/images | L+R | entrance:submit (no c2: the answer holds no content) | inbox |
+| GET | /v1/help/ask | L+R, only with help pages in the served build | session | read (one model call on the cheapest chat binding) |
 | GET | /v1/inbox | L+R | entrance:answer +c2 | read |
 | POST | /v1/inbox/questions/{question_id}/answer | L+R | entrance:answer | inbox |
 | POST | /v1/inbox/alarms/{alarm_id}/acknowledge | L+R | entrance:answer | inbox |
@@ -90,6 +91,15 @@ own session.
 | GET | /v1/metrics | L+R | observe | read (`text/plain; version=0.0.4`) |
 | GET | /v1/tools | L+R | observe (501 until phase 9) | read |
 | GET | /v1/swarm | L+R | observe (501 until phase 11) | read |
+
+`GET /v1/help/ask?q=` (`hivemind.entrance.help`, ADR-0069) is the Help screen's Ask: the question
+(3 to 500 characters) is answered from the help pages the served build carries, the top passages
+retrieved by BM25 or the `EMBEDDER` slot and one call made on the chat binding the Forage map
+prices lowest, with no tools; the answer cites the sections it used as `#/help/<page>?s=<section>`
+links, and a Hive with no chat binding, a model that fails or a question no page matches answers
+with the passages alone (`outcome`). Any session may ask; each is held to a few questions a minute
+(429, `hivemind.entrance.help_over_budget`). The row is mounted only when the build holds help
+pages (`Switch.HELP`); otherwise a 404.
 
 `GET /v1/tasks` pages by keyset (`goal_id`, `status`, `after` = the previous page's `next_after`,
 `limit` up to 500) and answers no task's words; `/brief` holds them. `GET /v1/trail` takes
