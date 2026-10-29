@@ -29,6 +29,7 @@ import {
   grant,
   headroom,
   inMinutes,
+  llm,
   mountForage,
   warden,
 } from './support';
@@ -87,10 +88,14 @@ describe('seed', () => {
     await mountForage({
       forage: forageView({ capacities: [], grants: [] }),
       wardens: { wardens: [] },
+      llm: llm({ providers: [], slots: [] }),
     });
     expect(await screen.findByText(/No grants yet/)).toBeTruthy();
     expect(screen.getByText(/No Cell has reported capacity yet/)).toBeTruthy();
     expect(screen.getByText(/No requests since this view opened/)).toBeTruthy();
+    // No sources: the sentence, not a bare header row.
+    expect(screen.getByText(/No model sources yet/)).toBeTruthy();
+    expect(screen.queryByRole('table', { name: /Forage map/ })).toBeNull();
   });
 
   it('shows the error table sentence for a 403 and no diagrams', async () => {

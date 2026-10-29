@@ -10,9 +10,11 @@
  * page's type.
  * Under 720 px a table row becomes a stacked card whose cells keep their labels (from
  * `data-label`), so nothing needs width and the page never scrolls sideways; the Grants table,
- * whose ten columns need the wide rail, keeps its cards to 1080 px (`forage-table--wide`), while
+ * whose ten columns need the wide rail, keeps its cards to 1080 px (`forage-table--wide`) and
+ * leads each card with a title line, while
  * the Wardens, requests and map tables fit the pane from 720 px. A grant nearing expiry is shown
- * with the warn token and the words "expiring soon", never colour alone.
+ * with the warn token and the words "expiring soon", never colour alone. Below 720 px the
+ * secondary sections are closed disclosures, so the page stays a screen or two long.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/`. Imported by `forage_screen.tsx`. Class names are
@@ -186,6 +188,7 @@
   gap: var(--sp-1);
 }
 
+/* The unit switch: its pressed button takes the shared pressed look from base.css */
 .forage-units {
   display: flex;
   flex-wrap: wrap;
@@ -193,10 +196,28 @@
   margin-bottom: var(--sp-3);
 }
 
-.forage-units .button[aria-pressed='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
+/* A secondary section (Wardens, requests, the map) is a closed disclosure on a phone, so the
+   page is not three diagrams and four stacks of cards long before the reader chooses */
+.forage-section summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.forage-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.forage-section summary .section-heading::before {
+  content: '+ ';
+}
+
+.forage-section[open] summary .section-heading::before {
+  content: '- ';
+}
+
+/* The words a grant's card leads with (its Warden, its expiry word): not in the table */
+.forage-card-only {
+  display: none;
 }
 
 .forage-spend {
@@ -358,6 +379,25 @@
 @media (min-width: 720px) and (max-width: 1079px) {
   .forage-table--wide td {
     white-space: normal;
+  }
+}
+
+/* A grant's card leads with a title line (`grant_2 · warden_2 · expiring soon`) rather than ten
+   flat label and value rows; the table from 1080px has a header row instead */
+@media (max-width: 1079px) {
+  .forage-table--wide td[data-label='Grant'] {
+    justify-content: flex-start;
+    gap: var(--sp-1);
+    font-weight: 600;
+  }
+
+  .forage-table--wide td[data-label='Grant']::before {
+    content: none;
+  }
+
+  .forage-table--wide .forage-card-only {
+    display: inline;
+    font-weight: 400;
   }
 }
 

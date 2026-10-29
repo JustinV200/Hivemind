@@ -7,7 +7,9 @@
  * has passed) and the warn token, then the rest in the ledger's order. The expiry is one relative
  * `TimeStamp`, which keeps the ISO moment in its `<time>`. Spend is a gauge of what the grant has
  * spent against what it allows. Its ten columns need the wide rail, so under 1080 px each grant
- * becomes a stacked card (`forage-table--wide`), where the other Forage tables are tables from 720.
+ * becomes a stacked card (`forage-table--wide`), where the other Forage tables are tables from 720;
+ * a card leads with a title line (the grant, its Warden and the expiry word), which the stylesheet
+ * hides in the table.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/tables/`. Drawn by `forage_screen.tsx` from the
@@ -36,6 +38,12 @@ function Row(props: { grant: GrantView; nowMs: number }): ReactElement {
     <tr className={near ? 'forage-near' : undefined}>
       <td data-label="Grant">
         <IdToken id={grant.id} />
+        {/* On a card this cell is the title line, so it names the holder and the expiry word */}
+        <span className="forage-card-only">
+          {' · '}
+          <IdToken id={grant.holder} />
+          {near ? ` · ${word}` : null}
+        </span>
       </td>
       <td data-label="Warden">
         <IdToken id={grant.holder} />

@@ -19,6 +19,8 @@
  *     on dark there.
  *   - A destructive control is `.button--danger`: outlined in --alarm, never filled, and always
  *     followed by a confirm step in the view that draws it.
+ *   - A pressed toggle (`aria-pressed="true"`) is filled in the accent in every view, hovered or
+ *     not; no view carries a pressed rule of its own.
  *
  * See Also:
  *   - docs/observation/design.md sections 6 and 7.
@@ -120,6 +122,17 @@ a.button {
 .button:hover:not(:disabled) {
   background: var(--surface-2);
   border-color: var(--text);
+}
+
+/* A pressed toggle (the Forage's unit switch, the Thoughts' Follow) is filled in the accent, and
+   stays so under the pointer: the hover rule above has the same specificity and is injected
+   after a view's own sheet, so without this a pressed button went white on a pale fill */
+.button[aria-pressed='true'],
+.button[aria-pressed='true']:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
 }
 
 .button:disabled {

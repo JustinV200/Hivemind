@@ -6,8 +6,9 @@
  * capacity (cores, memory, GPUs, model seats and sub-bee slots, in use, granted, reserved and
  * free) as a grid of compact cards named from the fleet, then spend against the grants' caps,
  * every live grant with those nearing expiry first, the Forage requests with the Queen's decision,
- * the Wardens, and the Forage map of model sources. It seeds from three reads and then redraws
- * from each ledger frame on the forage stream, so nothing needs a refresh.
+ * the Wardens, and the Forage map of model sources (those last three closed behind a disclosure on
+ * a phone, where the page would otherwise run to several screens). It seeds from three reads and
+ * then redraws from each ledger frame on the forage stream, so nothing needs a refresh.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/forage/`. Chosen by the outlet in `src/shell/` when the
@@ -25,7 +26,14 @@
  */
 import { useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { EmptyState, ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
+import {
+  EmptyState,
+  ErrorNotice,
+  RAIL_MIN,
+  useMinWidth,
+  VIEW_HINTS,
+  ViewTitle,
+} from '../../components';
 import { useSlice } from '../../store';
 import { CapacityDiagram } from './capacity/diagram';
 import { hostBlocks } from './capacity/model';
@@ -45,14 +53,34 @@ import { useNow } from './use_now';
 
 const POOL_ID = 'shared-pool';
 
-function Section(props: { title: string; empty?: string; children?: ReactNode }): ReactElement {
+function Section(props: {
+  title: string;
+  empty?: string;
+  // A secondary section is a closed disclosure on a phone, so the page stays short there.
+  secondary?: boolean;
+  children?: ReactNode;
+}): ReactElement {
+  const wide = useMinWidth(RAIL_MIN);
+  const body = props.empty ? <EmptyState>{props.empty}</EmptyState> : props.children;
+  if (props.secondary && !wide) {
+    return (
+      <details className="forage-section">
+        <summary>
+          <h2 className="section-heading">{props.title}</h2>
+        </summary>
+        {body}
+      </details>
+    );
+  }
   return (
     <section className="forage-section">
       <h2 className="section-heading">{props.title}</h2>
-      {props.empty ? <EmptyState>{props.empty}</EmptyState> : props.children}
+      {body}
     </section>
   );
 }
+
+const NO_SOURCES = 'No model sources yet. One appears here when a provider is configured.';
 
 // The Cell names the fleet knows, so a host card reads "hive-stand" rather than a 24 character id.
 function useHostNames(): ReadonlyMap<string, string> {
@@ -124,6 +152,7 @@ function Tables(props: { state: ForageState; nowMs: number }): ReactElement {
       </Section>
       <Section
         title="Requests"
+        secondary
         empty={
           state.requests.length === 0
             ? 'No requests since this view opened. A request appears here when a Warden asks for Forage beyond its grant.'
@@ -133,12 +162,21 @@ function Tables(props: { state: ForageState; nowMs: number }): ReactElement {
         <RequestsTable requests={state.requests} />
       </Section>
       {state.wardens.length > 0 ? (
-        <Section title="Wardens">
+        <Section title="Wardens" secondary>
           <WardensTable wardens={state.wardens} />
         </Section>
       ) : null}
       {state.llm ? (
-        <Section title="Forage map">
+        <Section
+          title="Forage map"
+          secondary
+          // A map with no source would draw a bare header row; say what would fill it instead.
+          empty={
+            state.llm.slots.length === 0 && state.llm.providers.length === 0
+              ? NO_SOURCES
+              : undefined
+          }
+        >
           <MapTable llm={state.llm} />
         </Section>
       ) : null}
