@@ -41,7 +41,7 @@ export const EXAMPLE_QUESTIONS: readonly string[] = [
 // One sentence for each outcome without words, so the screen never shows a bare code.
 const OUTCOME_WORDS: Readonly<Record<Exclude<HelpAnswer['outcome'], 'ANSWERED'>, string>> = {
   NO_MODEL: 'No model is configured on this Hive, so here are the sections that match instead.',
-  MODEL_FAILED: 'The model did not answer in time. Here are the sections that match.',
+  MODEL_FAILED: 'The model did not answer. Here are the sections that match.',
   NOTHING_FOUND: 'Nothing in the help matches that question. Try other words, or the search box.',
 };
 
