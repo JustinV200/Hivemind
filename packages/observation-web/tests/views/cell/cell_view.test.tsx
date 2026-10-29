@@ -347,8 +347,10 @@ describe('Capping', () => {
     await mount({ body: pageView({ capping }) });
     const box = within(await screen.findByRole('region', { name: 'Capping' }));
     expect(box.getByLabelText('prop_flight')).toBeTruthy();
-    expect(box.getByText('CAPPED')).toBeTruthy();
-    expect(box.getByText('REJECTED')).toBeTruthy();
+    // The gate's states and verdicts are the Capping view's words, the code on the title.
+    expect(box.getByText('Approved').getAttribute('title')).toBe('CAPPED');
+    expect(box.getByText('Refused')).toBeTruthy();
+    expect(box.getByText('Checking')).toBeTruthy();
     expect(box.getAllByText('failed check path_allowlist').length).toBeGreaterThan(0);
     expect(box.getByText('the judge could not answer')).toBeTruthy();
     expect(box.getByText('restored by SNAPSHOT_RESTORE')).toBeTruthy();

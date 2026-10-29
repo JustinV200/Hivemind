@@ -40,6 +40,7 @@ export {
   inboxKindWords,
   KNOWN_CAPABILITIES,
   plainCode,
+  proposalStateWords,
   riskTierWords,
   VIEW_HINTS,
 } from './words';

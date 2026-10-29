@@ -25,6 +25,7 @@ import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
 import {
   IdToken,
+  proposalStateWords,
   riskTierWords,
   SortSelect,
   TimeStamp,
@@ -71,8 +72,13 @@ const STATE_TONE: Readonly<Record<ProposalState, Tone>> = {
   ROLLED_BACK: 'warn',
 };
 
-function Tag(props: { tone: Tone; children: string }): ReactElement {
-  return <span className={`tag tag--status tag--${props.tone}`}>{props.children}</span>;
+// A state or verdict in the words the rates cards use, with the gate's code on the title.
+function Tag(props: { tone: Tone; code: string }): ReactElement {
+  return (
+    <span className={`tag tag--status tag--${props.tone}`} title={props.code}>
+      {proposalStateWords(props.code)}
+    </span>
+  );
 }
 
 // A cell with nothing to say keeps the hyphen in the table and is left off the card, so three
@@ -100,7 +106,7 @@ function Row(props: { row: QueueRow }): ReactElement {
         {riskTierWords(proposal.tier)}
       </td>
       <td data-label="State">
-        <Tag tone={STATE_TONE[proposal.state]}>{wordsOf(proposal.state)}</Tag>
+        <Tag tone={STATE_TONE[proposal.state]} code={proposal.state} />
       </td>
       <td data-label="Bee">
         <BeeLink bee={proposal.bee_id} />
@@ -109,7 +115,7 @@ function Row(props: { row: QueueRow }): ReactElement {
       <Cell label="Cell">{proposal.cell_id ? <CellLink cell={proposal.cell_id} /> : NONE}</Cell>
       <Cell label="Verdict">
         {verdict ? (
-          <Tag tone={verdict.verdict === 'CAPPED' ? 'ok' : 'alarm'}>{verdict.verdict}</Tag>
+          <Tag tone={verdict.verdict === 'CAPPED' ? 'ok' : 'alarm'} code={verdict.verdict} />
         ) : WAITING.has(proposal.state) ? (
           'not decided yet'
         ) : (

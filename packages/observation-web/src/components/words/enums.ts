@@ -1,6 +1,6 @@
 /**
  * Plain words for the codes the Landing Board sends: Alarm kinds, inbox kinds, clearances,
- * risk tiers and device capabilities.
+ * risk tiers, the Capping gate's proposal states and device capabilities.
  *
  * The schema speaks in shouting codes (`CONTEXT_PRESSURE`, `SCRATCH_WRITE`, `entrance:submit`)
  * and the screen speaks to a person, so each enum has one table here that turns a code into a
@@ -44,9 +44,29 @@ const ALARM_KINDS: Readonly<Record<string, string>> = {
   QUOTA_EXCEEDED: 'its scratch folder is over quota',
   EXOSKELETON_FAILED: 'the Exoskeleton could not attach',
   SECURITY: 'a security event',
+  // The two the shipped policy sends all the way up to the human, so they must read at a glance.
+  PATROL_ANOMALY: 'a Patrol found something worth your eyes',
+  NURSE_UNRESOLVED: 'the Nurse Bee still wanted changes after the last fix round',
+  OTHER: 'something else went wrong',
 };
 
 export const alarmKindWords = (kind: string): string => ALARM_KINDS[kind] ?? plainCode(kind);
+
+// Where the gate has a proposal (`ProposalState`), and its verdict (`CAPPED` or `REJECTED`),
+// in the words the Capping view's rates cards count by: `CAPPED` is the README's word for
+// approved, which a newcomer cannot guess from the code.
+const PROPOSAL_STATES: Readonly<Record<string, string>> = {
+  PROPOSED: 'Proposed',
+  CHECKING: 'Checking',
+  CAPPED: 'Approved',
+  APPLIED: 'Applied',
+  VERIFIED: 'Verified',
+  REJECTED: 'Refused',
+  ROLLED_BACK: 'Rolled back',
+};
+
+export const proposalStateWords = (state: string): string =>
+  PROPOSAL_STATES[state] ?? plainCode(state);
 
 // What kind of thing landed in a supervisor's inbox (`InboxKind`).
 const INBOX_KINDS: Readonly<Record<string, string>> = {

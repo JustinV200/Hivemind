@@ -27,8 +27,8 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import { RAIL_MIN, riskTierWords, useMinWidth } from '../../../components';
-import { STATES, tierRank, wordsOf } from '../slice';
+import { proposalStateWords, RAIL_MIN, riskTierWords, useMinWidth } from '../../../components';
+import { STATES, tierRank } from '../slice';
 import type { ProposalState } from '../slice';
 import type { QueueRow } from './rows';
 
@@ -72,14 +72,22 @@ function only<T>(member: T | null): Set<T> {
   return member === null ? new Set() : new Set([member]);
 }
 
+// A chip's label is the option's words; the gate's own code rides on its title for the operator.
 function Chip(props: {
   label: string;
+  code?: string;
   count: number;
   on: boolean;
   onToggle: () => void;
 }): ReactElement {
   return (
-    <button type="button" className="capping-chip" aria-pressed={props.on} onClick={props.onToggle}>
+    <button
+      type="button"
+      className="capping-chip"
+      title={props.code}
+      aria-pressed={props.on}
+      onClick={props.onToggle}
+    >
       {props.label} <span className="capping-chip-count">{props.count}</span>
     </button>
   );
@@ -141,6 +149,7 @@ function Group<T extends string>(props: GroupProps<T>): ReactElement {
         <Chip
           key={option}
           label={props.wordsOf(option)}
+          code={option}
           count={props.countOf(option)}
           on={props.chosen.has(option)}
           onToggle={() => props.onToggle(option)}
@@ -177,7 +186,7 @@ export function QueueFilters(props: {
         chosen={filter.states}
         countOf={(state) => rows.filter((r) => r.proposal.state === state).length}
         total={rows.length}
-        wordsOf={wordsOf}
+        wordsOf={proposalStateWords}
         onToggle={filter.toggleState}
         onChoose={filter.chooseState}
       />

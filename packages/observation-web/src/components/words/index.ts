@@ -22,6 +22,7 @@ export {
   inboxKindWords,
   KNOWN_CAPABILITIES,
   plainCode,
+  proposalStateWords,
   riskTierWords,
 } from './enums';
 export type { HoneyClearance } from './enums';

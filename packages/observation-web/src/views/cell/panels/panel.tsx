@@ -35,8 +35,13 @@ export function Panel(props: { id: string; title: string; children: ReactNode })
   );
 }
 
-export function Tag(props: { tone: TagTone; children: ReactNode }): ReactElement {
-  return <span className={`tag tag--status tag--${props.tone}`}>{props.children}</span>;
+// `title` carries the schema's code when the tag's words are a phrase for one (design.md 8).
+export function Tag(props: { tone: TagTone; title?: string; children: ReactNode }): ReactElement {
+  return (
+    <span className={`tag tag--status tag--${props.tone}`} title={props.title}>
+      {props.children}
+    </span>
+  );
 }
 
 export function NotTracked(): ReactElement {

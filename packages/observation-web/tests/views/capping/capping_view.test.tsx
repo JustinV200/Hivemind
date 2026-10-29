@@ -112,20 +112,21 @@ describe('the queue', () => {
     await mount();
     expect(order(queue().getByRole('table'))).toEqual(['prop_roll', 'prop_rej', 'prop_wait']);
     const rolled = within(rowOf('prop_roll'));
-    expect(rolled.getByText('ROLLED BACK')).toBeTruthy();
-    expect(rolled.getByText('CAPPED')).toBeTruthy();
+    // A state and a verdict are the rates cards' words, with the gate's code on the title.
+    expect(rolled.getByText('Rolled back').getAttribute('title')).toBe('ROLLED_BACK');
+    expect(rolled.getByText('Approved').getAttribute('title')).toBe('CAPPED');
     expect(rolled.getByText('4 checks passed')).toBeTruthy();
     expect(rolled.getByText('rolled back, restored by SNAPSHOT')).toBeTruthy();
     const refused = within(rowOf('prop_rej'));
-    // The state and the gate's verdict both read REJECTED.
-    expect(refused.getAllByText('REJECTED', { selector: '.tag' })).toHaveLength(2);
+    // The state and the gate's verdict both read Refused.
+    expect(refused.getAllByText('Refused', { selector: '.tag' })).toHaveLength(2);
     expect(refused.getByText('failed check allowlist')).toBeTruthy();
     expect(refused.getAllByText('-').length).toBeGreaterThan(0);
     // A proposal still waiting says so under Verdict; its empty cells are marked so a card can
     // leave them out, while the table keeps every column.
     const waiting = within(rowOf('prop_wait'));
-    expect(waiting.getByText('CHECKING')).toBeTruthy();
-    expect(waiting.queryByText('CAPPED')).toBeNull();
+    expect(waiting.getByText('Checking')).toBeTruthy();
+    expect(waiting.queryByText('Approved')).toBeNull();
     expect(waiting.getByText('not decided yet')).toBeTruthy();
     expect(waiting.getAllByText('-').every((cell) => cell.className === 'capping-empty')).toBe(
       true,
@@ -148,7 +149,7 @@ describe('the filter chips', () => {
     const table = () => queue().getByRole('table');
     // Each chip counts the rows it would keep.
     expect(chip('Show tier', /^All 3$/).getAttribute('aria-pressed')).toBe('true');
-    expect(chip('Show state', /^REJECTED 1$/)).toBeTruthy();
+    expect(chip('Show state', /^Refused 1$/).getAttribute('title')).toBe('REJECTED');
     fireEvent.click(chip('Show tier', EGRESS));
     expect(order(table())).toEqual(['prop_rej']);
     expect(chip('Show tier', EGRESS).getAttribute('aria-pressed')).toBe('true');
@@ -156,7 +157,7 @@ describe('the filter chips', () => {
     // Two tiers are a union; a state narrows both.
     fireEvent.click(chip('Show tier', IRREVERSIBLE));
     expect(order(table())).toEqual(['prop_roll', 'prop_rej']);
-    fireEvent.click(chip('Show state', /^ROLLED BACK/));
+    fireEvent.click(chip('Show state', /^Rolled back/));
     expect(order(table())).toEqual(['prop_roll']);
     fireEvent.click(chip('Show tier', /^All/));
     fireEvent.click(chip('Show state', /^All/));
@@ -166,22 +167,22 @@ describe('the filter chips', () => {
   it('say so when nothing matches, and the chips stay put', async () => {
     await mount();
     fireEvent.click(chip('Show tier', SCRATCH));
-    fireEvent.click(chip('Show state', /^REJECTED/));
+    fireEvent.click(chip('Show state', /^Refused/));
     expect(queue().getByText('No proposals match these filters.')).toBeTruthy();
     expect(queue().queryByRole('table')).toBeNull();
-    // The seven states are always listed, in the gate's order.
+    // The seven states are always listed, in the gate's order, in words.
     const states = within(screen.getByRole('group', { name: 'Show state' }))
       .getAllByRole('button')
       .map((b) => b.textContent?.replace(/ \d+$/, ''));
     expect(states).toEqual([
       'All',
-      'PROPOSED',
-      'CHECKING',
-      'CAPPED',
-      'APPLIED',
-      'VERIFIED',
-      'REJECTED',
-      'ROLLED BACK',
+      'Proposed',
+      'Checking',
+      'Approved',
+      'Applied',
+      'Verified',
+      'Refused',
+      'Rolled back',
     ]);
   });
 });
@@ -343,12 +344,12 @@ describe('live frames', () => {
       );
     });
     const row = within(rowOf('prop_wait'));
-    // Both the state and the verdict now read CAPPED.
-    expect(row.getAllByText('CAPPED', { selector: '.tag' })).toHaveLength(2);
+    // Both the state and the verdict now read Approved (the gate's CAPPED).
+    expect(row.getAllByText('Approved', { selector: '.tag' })).toHaveLength(2);
     expect(row.getByText('3 checks passed')).toBeTruthy();
     // The newest change is now first, and the chip counts followed.
     expect(order(queue().getByRole('table'))[0]).toBe('prop_wait');
-    expect(chip('Show state', /^CAPPED 1$/)).toBeTruthy();
+    expect(chip('Show state', /^Approved 1$/)).toBeTruthy();
   });
 
   it('marks a rollback from its frame and ignores a frame of another family', async () => {
