@@ -1,6 +1,7 @@
 /**
  * Plain words for the codes the Landing Board sends: Alarm kinds, inbox kinds, clearances,
- * risk tiers, the Capping gate's proposal states, the judge's findings and device capabilities.
+ * risk tiers, the Capping gate's proposal states, the judge's findings, device capabilities and
+ * a Cell's operating-system family.
  *
  * The schema speaks in shouting codes (`CONTEXT_PRESSURE`, `SCRATCH_WRITE`, `entrance:submit`)
  * and the screen speaks to a person, so each enum has one table here that turns a code into a
@@ -122,6 +123,16 @@ const RISK_TIERS: Readonly<Record<string, string>> = {
 };
 
 export const riskTierWords = (tier: string): string => RISK_TIERS[tier] ?? plainCode(tier);
+
+// A Cell's operating-system family (`OsFamily`), spelled as its maker spells it: `plainCode`
+// would give `macos`, which no reader writes.
+const OS_FAMILIES: Readonly<Record<string, string>> = {
+  LINUX: 'Linux',
+  WINDOWS: 'Windows',
+  MACOS: 'macOS',
+};
+
+export const osWords = (os: string): string => OS_FAMILIES[os] ?? plainCode(os);
 
 // What a device capability lets it do; the set the Hive Stand console holds names them all.
 export const CAPABILITY_WORDS: Readonly<Record<string, string>> = {

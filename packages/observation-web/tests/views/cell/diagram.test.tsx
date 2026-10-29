@@ -66,6 +66,8 @@ describe('the model', () => {
     expect(m.warden?.id).toBe('warden_1');
     expect(m.bees.map((b) => b.id)).toEqual(['w_a', 'w_c', 'w_b']);
     expect(m.boxes.map((b) => b.key)).toEqual(['session', 'exoskeleton', 'lease', 'hosting']);
+    // The fixture carries the wire's `LINUX`; the frame names the OS as a reader writes it.
+    expect(m.frameLabel).toBe('Real Cell · Linux');
   });
 
   it('maps a reported state to the fixed word and tone, and keeps an unknown one as given', () => {

@@ -40,6 +40,7 @@ export {
   inboxKindWords,
   judgeOutcomeWords,
   KNOWN_CAPABILITIES,
+  osWords,
   plainCode,
   proposalStateWords,
   riskTierWords,

@@ -21,7 +21,7 @@
  * See Also:
  *   - docs/observation/design.md sections 4.5 and 4.6.
  */
-import { plainCode } from '../../../components';
+import { osWords, plainCode } from '../../../components';
 import type { BeeRow, CellPage } from '../slice';
 import { roleLook } from './glyphs';
 import type { GlyphKey } from './glyphs';
@@ -220,9 +220,10 @@ export function buildModel(page: CellPage, awake: ReadonlySet<string>): DiagramM
   const wardenRow = page.bees.find((b) => b.role === 'WARDEN' || b.id === cell.warden_id);
   const subs = page.bees.filter((b) => b !== wardenRow).sort(byRoleThenId);
   const kind = cell.kind === 'REAL' ? 'Real Cell' : 'Virtual Cell';
+  // The OS arrives as its `OsFamily` code (`LINUX`); the frame says it as a reader writes it.
   return {
     cellId: cell.id,
-    frameLabel: cell.os ? `${kind} · ${cell.os}` : kind,
+    frameLabel: cell.os ? `${kind} · ${osWords(cell.os)}` : kind,
     wardenRuns: runs,
     warden: wardenRow ? make(wardenRow) : null,
     bees: subs.map(make),
