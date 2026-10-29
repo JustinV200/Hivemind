@@ -21,6 +21,7 @@
  * See Also:
  *   - docs/observation/design.md sections 4.5 and 4.6.
  */
+import { plainCode } from '../../../components';
 import type { BeeRow, CellPage } from '../slice';
 import { roleLook } from './glyphs';
 import type { GlyphKey } from './glyphs';
@@ -161,7 +162,8 @@ function boxesOf(page: CellPage): FactBox[] {
   const leaseValue = cell.lease_state ?? 'no lease yet';
   const age = page.lease_age_s === null ? 'age not reported' : `age ${ageText(page.lease_age_s)}`;
   const virtualValue = cell.virtual_status ?? 'not tracked';
-  const slots = page.hosting.slots.map((s) => `${s.slot} ${HOSTING[s.models_from]}`);
+  // A slot is written in lower case, as the Cost tables and the Forage map write it.
+  const slots = page.hosting.slots.map((s) => `${plainCode(s.slot)} ${HOSTING[s.models_from]}`);
   const plan = page.hosting.plan_revision;
   const hostingDetail = plan === null ? 'no plan' : `plan revision ${plan}`;
   return [

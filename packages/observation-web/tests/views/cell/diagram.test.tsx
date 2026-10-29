@@ -138,7 +138,7 @@ describe('the model', () => {
       value: 'hybrid',
       detail: 'plan revision 3',
     });
-    expect(boxes.find((b) => b.key === 'hosting')!.title).toContain('WORKER local');
+    expect(boxes.find((b) => b.key === 'hosting')!.title).toContain('worker local');
     expect(boxes.find((b) => b.key === 'session')!.value).toBe('not tracked yet');
   });
 });

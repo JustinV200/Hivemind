@@ -75,7 +75,7 @@ export function ApproveForm(props: {
       </label>
       <CapabilityPicker
         legend="Capabilities"
-        hint="Nothing ticked: the usual set for this kind of device."
+        hint="Untick everything to give the usual set for this kind of device."
         chosen={capabilities}
         onChange={setCapabilities}
       />

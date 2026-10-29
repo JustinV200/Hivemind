@@ -37,7 +37,7 @@ export function DecisionRow(props: { decision: DecisionView }): ReactElement {
     <article className="thought-decision" aria-label="Autopilot decision">
       <TimeStamp at={d.at} />
       <span className="tag">Autopilot decision</span>
-      <span title={d.kind}>{KIND_WORDS[d.kind] ?? d.kind}</span>
+      <span title={d.kind}>{KIND_WORDS[d.kind] ?? plainCode(d.kind)}</span>
       {d.action ? <strong title={d.action}>{plainCode(d.action)}</strong> : null}
       {d.reason ? (
         // A reason is often an Alarm kind in lower case (`worker_crashed`); the table reads it

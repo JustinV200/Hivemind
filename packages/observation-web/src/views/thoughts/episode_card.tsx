@@ -88,7 +88,9 @@ function Usage(props: { episode: EpisodeView }): ReactElement {
   const { slot, input_tokens, output_tokens, cost_usd } = props.episode;
   return (
     <dl className="thought-pairs">
-      <Pair label="Model slot">{slot}</Pair>
+      <Pair label="Model slot">
+        <span title={slot}>{plainCode(slot)}</span>
+      </Pair>
       {input_tokens !== null ? <Pair label="Input tokens">{count(input_tokens)}</Pair> : null}
       {output_tokens !== null ? <Pair label="Output tokens">{count(output_tokens)}</Pair> : null}
       {cost_usd !== null ? <Pair label="Cost">{`$${cost_usd.toFixed(4)}`}</Pair> : null}

@@ -18,6 +18,7 @@
  * See Also:
  *   - docs/observation/design.md section 5.3 (the Forage map).
  */
+import { plainCode } from '../../../components';
 import type { LlmView } from '../slice';
 
 export const NONE = '-';
@@ -60,7 +61,8 @@ export function mapRows(llm: LlmView): MapRow[] {
       provider: slot.provider,
       kind: provider?.kind ?? NONE,
       health: provider?.health ?? NONE,
-      serves: slot.serves ?? NONE,
+      // The slot it serves is a `ModelSlot` code; lower case, as the Cost tables write a slot.
+      serves: slot.serves === null ? NONE : plainCode(slot.serves),
       effort: slot.effort,
       fallback: slot.fallback ?? NONE,
     };

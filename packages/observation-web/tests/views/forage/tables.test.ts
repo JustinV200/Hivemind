@@ -63,7 +63,7 @@ describe('the Forage map', () => {
       provider: 'cloud',
       kind: 'anthropic',
       health: 'HEALTHY',
-      serves: 'QUEEN',
+      serves: 'queen',
       fallback: NONE,
     });
     expect(rows.find((r) => r.key === 'worker')?.fallback).toBe('queen');
