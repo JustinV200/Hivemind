@@ -30,8 +30,7 @@
  * See Also:
  *   - docs/observation/design.md sections 4.7 and 4.8.
  */
-import { idText } from '../../../components/id_token';
-import { plainCode } from '../../../components/words';
+import { idText, plainCode } from '../../../components';
 import { cut } from '../format';
 import { formatAmount } from './model';
 import type { FlowModel } from './model';
