@@ -19,7 +19,7 @@
  *
  * Key invariants:
  *   - Tokens only: no colour or size literal except breakpoints and one-off pixel borders.
- *   - The strip dims, never hides, when its data is stale.
+ *   - A stale strip says so in words and mutes its numbers; it is never dimmed or hidden.
  *   - A value that just moved is marked with an underline, with or without motion.
  *
  * See Also:
@@ -132,8 +132,10 @@
   background: var(--surface-2);
 }
 
-.strip--stale .strip-group {
-  opacity: 0.55;
+/* Stale numbers go to the muted text, which still reads at 7.4:1, and the band says `stale since`;
+   dimming the cells would put the labels under 4.5:1 (design.md section 7) */
+.strip--stale .strip-value {
+  color: var(--text-muted);
 }
 
 .strip-group {

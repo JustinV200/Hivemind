@@ -8,8 +8,8 @@
  * come from the summary slice and never wait on the view the
  * person is looking at. A value that just changed is marked for five seconds (an underline in
  * the accent), so a reader can tell which number moved. If any stream that could be live is not,
- * the strip dims and says `stale since hh:mm:ss`, so old numbers are never mistaken for current
- * ones. A group whose stream the Entrance refused says `no access` instead of a number. Before
+ * the strip says `stale since hh:mm:ss` and mutes its numbers, so old numbers are never mistaken
+ * for current ones. A group whose stream the Entrance refused says `no access` instead of a number. Before
  * the first data arrives the strip shows dashes and `aria-busy`.
  *
  * Fits into the Hive:

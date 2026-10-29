@@ -215,8 +215,8 @@
   color: var(--text-muted);
 }
 
-/* The note is the main area's one mark of a dropped stream: dimming the view as the strip does
-   would put every caption, link and status word under 4.5:1 (design.md section 7) */
+/* The note is the main area's one mark of a dropped stream: dimming the view would put every
+   caption, link and status word under 4.5:1 (design.md section 7) */
 .view-stale {
   color: var(--warn);
   font-weight: 600;

@@ -2,7 +2,7 @@
  * The connection slice: the state of each live stream, for the top bar's dot and the strip.
  *
  * The shell opens three streams (cells, telemetry, episodes). The top bar shows one word for them
- * all (`live`, `connecting`, `reconnecting`, `offline`), and the summary strip dims and says `stale
+ * all (`live`, `connecting`, `reconnecting`, `offline`), and the summary strip says `stale
  * since` when any stream that was live and dropped is not back, rather than showing old numbers as
  * current. A stream on its
  * first attempt is `connecting`, not `reconnecting`: a quiet stream is only known to be accepted
