@@ -79,7 +79,7 @@ describe('a folder', () => {
       expect(row.getByText(label)).toBeTruthy();
     }
     expect(row.getByText('task_1')).toBeTruthy();
-    expect(row.getByText('BEE')).toBeTruthy();
+    expect(row.getByText('bee').getAttribute('title')).toBe('BEE');
     expect(row.getByTitle('2026-01-01T00:00:00Z').getAttribute('datetime')).toBe(
       '2026-01-01T00:00:00Z',
     );
@@ -110,11 +110,11 @@ describe('a folder', () => {
     const first = within(rowOf('Disk fills at night'));
     expect(first.getByText('C2 Royal')).toBeTruthy();
     expect(first.getByText('Cell Wax')).toBeTruthy();
-    expect(first.getByText('CAUTION')).toBeTruthy();
+    expect(first.getByText('caution')).toBeTruthy();
     expect(first.getByText('warden_1')).toBeTruthy();
     expect(first.getByTitle('2026-02-01T00:00:00Z')).toBeTruthy();
     const second = within(rowOf('Standing'));
-    expect(second.getByText('BLOCK')).toBeTruthy();
+    expect(second.getByText('block')).toBeTruthy();
     expect(second.getByText('the human')).toBeTruthy();
     expect(second.getByText('no expiry')).toBeTruthy();
   });

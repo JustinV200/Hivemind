@@ -19,7 +19,7 @@
  *   - docs/observation/design.md section 5.2.
  */
 import type { ReactElement } from 'react';
-import { alarmKindWords, IdToken, TimeStamp } from '../../../components';
+import { alarmKindWords, IdToken, plainCode, TimeStamp } from '../../../components';
 import type { CellPage } from '../slice';
 import { Panel, Tag } from './panel';
 import type { TagTone } from './panel';
@@ -40,7 +40,9 @@ export function AlarmsPanel(props: { page: CellPage }): ReactElement {
       <ul className="cell-list">
         {alarms.map((alarm) => (
           <li key={alarm.id} className="cell-row">
-            <Tag tone={SEVERITY_TONE[alarm.severity]}>{alarm.severity}</Tag>
+            <Tag tone={SEVERITY_TONE[alarm.severity]} title={alarm.severity}>
+              {plainCode(alarm.severity)}
+            </Tag>
             <span title={alarm.kind}>{alarmKindWords(alarm.kind)}</span>
             <IdToken id={alarm.id} />
             {alarm.task_id ? (

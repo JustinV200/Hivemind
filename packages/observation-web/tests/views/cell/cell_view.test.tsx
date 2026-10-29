@@ -285,11 +285,12 @@ describe('the panels', () => {
     });
     const wax = within(await screen.findByRole('region', { name: 'Cell Wax' }));
     const rows = wax.getAllByRole('listitem');
-    expect(within(rows[0]!).getByText('BLOCK')).toBeTruthy();
+    // The severity in words, with the wire's code on the tag's title (design.md 8).
+    expect(within(rows[0]!).getByText('block').getAttribute('title')).toBe('BLOCK');
     expect(within(rows[0]!).getByText('by worker_1')).toBeTruthy();
     expect(within(rows[0]!).getByText(/lapses/)).toBeTruthy();
-    expect(within(rows[1]!).getByText('NOTE')).toBeTruthy();
-    expect(within(rows[1]!).getByText('by HUMAN')).toBeTruthy();
+    expect(within(rows[1]!).getByText('note')).toBeTruthy();
+    expect(within(rows[1]!).getByText('by human')).toBeTruthy();
     expect(within(rows[1]!).getByText('standing')).toBeTruthy();
     // The row has no title or text; the note itself is read in the Honey browser.
     expect(within(rows[1]!).getByRole('link', { name: 'read the note' }).getAttribute('href')).toBe(
@@ -304,7 +305,7 @@ describe('the panels', () => {
       }),
     });
     const alarms = within(await screen.findByRole('region', { name: 'Alarms' }));
-    expect(alarms.getByText('CRITICAL')).toBeTruthy();
+    expect(alarms.getByText('critical')).toBeTruthy();
     // The kind as a plain phrase, with the schema's code kept on the phrase's title.
     expect(alarms.getByText('a Worker crashed').getAttribute('title')).toBe('WORKER_CRASHED');
     // An escalated Alarm is acknowledged in the chat, so the row leads there.

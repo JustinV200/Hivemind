@@ -240,7 +240,7 @@ describe('answering and acknowledging', () => {
   it('acknowledges an Alarm and drops its button', async () => {
     const chat = await mountChat(setup);
     chat.fake.respond('POST /v1/inbox/alarms/alarm_1/acknowledge', 200, { acknowledged: true });
-    expect(await screen.findByText('CRITICAL')).toBeTruthy();
+    expect(await screen.findByText('critical')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Acknowledge' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull());
     expect(chat.paths()).toContain('POST /v1/inbox/alarms/alarm_1/acknowledge');

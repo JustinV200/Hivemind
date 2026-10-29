@@ -193,7 +193,7 @@ describe('the lists', () => {
     expect(items).toHaveLength(3);
     expect(items[0]!.textContent).toContain('1');
     expect(items[0]!.textContent).toContain('Alarm');
-    expect(items[0]!.textContent).toContain('CRITICAL');
+    expect(items[0]!.textContent).toContain('critical');
     expect(items[0]!.textContent).toContain('score 91.25');
     expect(items[0]!.textContent).toContain('task task_2');
     expect(items[1]!.textContent).toContain('question');

@@ -20,7 +20,7 @@
  *   - docs/observation/design.md section 5.5.
  */
 import type { ReactElement } from 'react';
-import { IdToken, inboxKindWords, TimeStamp } from '../../../components';
+import { IdToken, inboxKindWords, plainCode, TimeStamp } from '../../../components';
 import type { components } from '../../../landing_board/types';
 
 type Entry = components['schemas']['InboxEntryView'];
@@ -34,7 +34,9 @@ function Row(props: { entry: Entry; rank: number }): ReactElement {
         <div className="att-row">
           <span className="att-kind">{inboxKindWords(entry.kind)}</span>
           {entry.severity ? (
-            <span className="tag tag--status tag--alarm">{entry.severity}</span>
+            <span className="tag tag--status tag--alarm" title={entry.severity}>
+              {plainCode(entry.severity)}
+            </span>
           ) : null}
           <IdToken id={entry.id} />
           <span className="att-score" title="higher is handled first">

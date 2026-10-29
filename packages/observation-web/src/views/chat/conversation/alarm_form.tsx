@@ -13,14 +13,15 @@
  *
  * Key invariants:
  *   - The button is disabled while the request is on its way.
- *   - Severity is always a word (INFO, WARNING, CRITICAL), never colour alone.
+ *   - Severity is always a word (`info`, `warning`, `critical`, the code on its `title`), never
+ *     colour alone.
  *
  * See Also:
  *   - docs/entrance/landing-board.md section 8.3.
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { alarmKindWords, ErrorNotice } from '../../../components';
+import { alarmKindWords, ErrorNotice, plainCode } from '../../../components';
 import type { AlarmView } from '../slice';
 import type { ChatActions } from '../writes/use_actions';
 
@@ -44,7 +45,9 @@ export function AlarmForm(props: { alarm: AlarmView; actions: ChatActions }): Re
   return (
     <div className="chat-form">
       <p className="chat-alarm-facts">
-        <span className="tag tag--status tag--alarm">{alarm.severity}</span>{' '}
+        <span className="tag tag--status tag--alarm" title={alarm.severity}>
+          {plainCode(alarm.severity)}
+        </span>{' '}
         <span title={alarm.kind}>{alarmKindWords(alarm.kind)}</span>
       </p>
       <div className="chat-row">

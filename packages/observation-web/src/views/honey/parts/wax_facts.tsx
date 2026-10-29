@@ -17,7 +17,7 @@
  *   - README.md (Cell Wax) for the severities.
  */
 import type { ReactElement } from 'react';
-import { IdToken, TimeStamp } from '../../../components';
+import { IdToken, plainCode, TimeStamp } from '../../../components';
 import type { ItemSummary } from '../slice';
 import { Fact } from './fact';
 
@@ -38,8 +38,11 @@ export function WaxFacts(props: { item: WaxFields }): ReactElement | null {
     <p className="honey-wax">
       {severity ? (
         <Fact label="Severity">
-          <span className={`tag tag--status tag--${SEVERITY_TONE[severity] ?? 'idle'}`}>
-            {severity}
+          <span
+            className={`tag tag--status tag--${SEVERITY_TONE[severity] ?? 'idle'}`}
+            title={severity}
+          >
+            {plainCode(severity)}
           </span>
         </Fact>
       ) : null}

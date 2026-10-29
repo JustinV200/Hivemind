@@ -18,7 +18,7 @@
  *   - src/components/id_token.tsx and time_stamp.tsx.
  */
 import type { ReactElement } from 'react';
-import { IdToken, TimeStamp } from '../../../components';
+import { IdToken, plainCode, TimeStamp } from '../../../components';
 import type { ProvenanceView } from '../slice';
 import { Fact } from './fact';
 
@@ -42,8 +42,9 @@ export function Provenance(props: { source: ProvenanceView }): ReactElement {
         </Fact>
       ) : null}
       {source ? (
+        // The source arrives as a code (`BEE`, `PATROL`); it is a word here, the code on title.
         <Fact label="Source">
-          <code>{source}</code>
+          <span title={source}>{plainCode(source)}</span>
         </Fact>
       ) : null}
       <Fact label="When">

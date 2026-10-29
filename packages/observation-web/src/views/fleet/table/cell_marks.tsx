@@ -22,7 +22,7 @@
  *   - docs/observation/design.md sections 4.4 and 5.1.
  */
 import type { ReactElement } from 'react';
-import { HEXAGON, IdToken } from '../../../components';
+import { HEXAGON, IdToken, plainCode } from '../../../components';
 import type { FleetRow } from '../slice';
 
 const WARDEN_WORDS: Record<NonNullable<FleetRow['warden_runs']>, string> = {
@@ -63,7 +63,7 @@ export function WaxMark(props: { severity: FleetRow['highest_wax_severity'] }): 
   return (
     <span className="status">
       <span className={`status-dot${WAX_TONE[props.severity]}`} aria-hidden="true" />
-      <span>{props.severity.toLowerCase()}</span>
+      <span title={props.severity}>{plainCode(props.severity)}</span>
     </span>
   );
 }

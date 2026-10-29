@@ -12,13 +12,13 @@
  *
  * Key invariants:
  *   - The order is the page's (highest severity first); the panel does not re-sort.
- *   - A human's note has no proposer id; it shows the origin `HUMAN` in its place.
+ *   - A human's note has no proposer id; it reads `by human`, the origin's code on `title`.
  *
  * See Also:
  *   - docs/observation/design.md section 5.2.
  */
 import type { ReactElement } from 'react';
-import { IdToken, TimeStamp } from '../../../components';
+import { IdToken, plainCode, TimeStamp } from '../../../components';
 import { hrefFor } from '../../../router';
 import type { CellPage } from '../slice';
 import { Panel, Tag } from './panel';
@@ -49,10 +49,12 @@ export function WaxPanel(props: { page: CellPage }): ReactElement {
       <ul className="cell-list">
         {wax.map((entry) => (
           <li key={entry.id} className="cell-row">
-            <Tag tone={SEVERITY_TONE[entry.severity]}>{entry.severity}</Tag>
+            <Tag tone={SEVERITY_TONE[entry.severity]} title={entry.severity}>
+              {plainCode(entry.severity)}
+            </Tag>
             <IdToken id={entry.id} />
-            <span>{entry.state.toLowerCase()}</span>
-            <span>{`by ${entry.proposer ?? entry.origin}`}</span>
+            <span title={entry.state}>{plainCode(entry.state)}</span>
+            <span title={entry.origin}>{`by ${entry.proposer ?? plainCode(entry.origin)}`}</span>
             <span>
               proposed <TimeStamp at={entry.proposed_at} />
             </span>
