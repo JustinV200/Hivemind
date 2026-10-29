@@ -578,12 +578,18 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   scratch folder`, `may send goals and messages (entrance:submit)`, `Approved` for `CAPPED`),
   with the code kept on the element's `title` for the operator; a code the table does not know
   is shown as sent, in lower case with spaces (`plainCode`), which is also how a code with no
-  table of its own (an episode's action, an autopilot decision's action and reason) is drawn.
-  An id the Landing Board carries without a title (a task, a wax note, an Alarm on the Cell page)
-  links to where its words are (the chat, the Honey item), and never invents a title. A model
-  slot (`QUEEN`, `JUDGE`) is written in lower case wherever it appears (the Cost tables, the
-  Forage map, the Cell diagram's hosting box, an episode's usage), the code on `title` where
-  there is an element to carry it.
+  table of its own (an episode's action, an autopilot decision's action and reason, an access
+  level, a grant's state, a Forage request's kind, a provider's health, an effort, a rollback's
+  method, a lease state, a Virtual Cell's status) is drawn, with the code on `title`. The Entrance
+  sends every such code in upper case (`FULL`, `HEALTHY`, `SNAPSHOT`), so a page writes it the
+  same way wherever it stands: the Fleet row and the Cell page header both say `read only`, the
+  Grants table and the Cell's Forage panel both say `active`. No view keeps a formatter of its
+  own for this; a fixture carries the wire's upper case so a test proves the rule where the data
+  arrives. An id the Landing Board carries without a title (a task, a wax note, an Alarm on the
+  Cell page) links to where its words are (the chat, the Honey item), and never invents a title.
+  A model slot arrives as its `ModelSlot` code (`QUEEN`, `JUDGE`) and is written in lower case
+  wherever it appears (the Cost tables, the Forage map, the Cell diagram's hosting box, an
+  episode's usage), the code on `title` where there is an element to carry it.
 - **A pressed toggle** (`aria-pressed="true"`) is filled in the accent in every view, under the
   pointer too, by one rule in `base.css`; no view carries a pressed rule of its own.
 - Labels are nouns (`Context`, `Grant`); buttons are verbs (`Answer`, `Acknowledge`, `Follow`).
