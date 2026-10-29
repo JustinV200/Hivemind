@@ -20,9 +20,9 @@
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { NARROW_TABLE_MIN, SortSelect, useMinWidth } from '../../../components';
+import { NARROW_TABLE_MIN, plainCode, SortSelect, useMinWidth } from '../../../components';
 import type { LlmView } from '../slice';
-import { MAP_COLUMNS, mapRows, sortMapRows } from './map_rows';
+import { MAP_COLUMNS, mapRows, NONE, sortMapRows } from './map_rows';
 import type { MapColumn, MapRow } from './map_rows';
 import { SortHeader } from './sort_header';
 
@@ -31,19 +31,26 @@ interface Sort {
   descending: boolean;
 }
 
-// Health reads as a word with a dot; the dot is decoration and the word is the content.
-function Health(props: { word: string }): ReactElement {
-  const tone = props.word === 'HEALTHY' ? 'ok' : props.word === 'DEGRADED' ? 'warn' : 'alarm';
+// Health reads as a word with a dot; the dot is decoration and the word is the content. The
+// word is the schema's code in lower case (`healthy`), the code on the title.
+function Health(props: { code: string }): ReactElement {
+  const tone = props.code === 'HEALTHY' ? 'ok' : props.code === 'DEGRADED' ? 'warn' : 'alarm';
   return (
-    <span className="status">
+    <span className="status" title={props.code}>
       <span className={`status-dot status-dot--${tone}`} aria-hidden="true" />
-      <span>{props.word}</span>
+      <span>{plainCode(props.code)}</span>
     </span>
   );
 }
 
+// The row keeps the schema's codes so the sort is on them; the two that are codes (health and
+// effort) are drawn as words here, the hyphen for a source that has neither.
 function cell(row: MapRow, column: MapColumn): ReactElement | string {
-  return column === 'health' && row.health !== '-' ? <Health word={row.health} /> : row[column];
+  const value = row[column];
+  if (value === NONE) return value;
+  if (column === 'health') return <Health code={value} />;
+  if (column === 'effort') return <span title={value}>{plainCode(value)}</span>;
+  return value;
 }
 
 export function MapTable(props: { llm: LlmView }): ReactElement {

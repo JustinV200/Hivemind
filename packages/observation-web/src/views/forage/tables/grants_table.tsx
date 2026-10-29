@@ -24,7 +24,7 @@
  *   - src/views/forage/tables/expiry.ts for the rule and the order.
  */
 import type { ReactElement } from 'react';
-import { Gauge, IdToken, TimeStamp } from '../../../components';
+import { Gauge, IdToken, plainCode, TimeStamp } from '../../../components';
 import { count } from '../format';
 import type { GrantView } from '../slice';
 import { hasLapsed, isNearExpiry, orderGrants } from './expiry';
@@ -52,7 +52,10 @@ function Row(props: { grant: GrantView; nowMs: number }): ReactElement {
         <IdToken id={grant.cell_id} />
       </td>
       <td data-label="Task">{grant.task_id ? <IdToken id={grant.task_id} /> : '-'}</td>
-      <td data-label="State">{grant.state}</td>
+      {/* The grant's state as a word (`active`), as the Wardens table writes one; code on title */}
+      <td data-label="State" title={grant.state}>
+        {plainCode(grant.state)}
+      </td>
       <td data-label="Seats">{count(grant.seats)}</td>
       <td data-label="Sub-bees">{count(grant.max_sub_bees)}</td>
       <td data-label="Tokens">{`${count(grant.tokens_spent)} / ${count(grant.token_budget)}`}</td>

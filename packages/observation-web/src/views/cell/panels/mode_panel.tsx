@@ -17,7 +17,7 @@
  *   - docs/observation/design.md sections 4.4 and 5.2.
  */
 import type { ReactElement } from 'react';
-import { StatusDot, TimeStamp } from '../../../components';
+import { plainCode, StatusDot, TimeStamp } from '../../../components';
 import type { CellPage } from '../slice';
 import { NotTracked, Panel } from './panel';
 
@@ -27,7 +27,8 @@ export function ModePanel(props: { page: CellPage }): ReactElement {
     <Panel id="mode" title="Access and mode">
       <dl className="cell-facts">
         <dt>Access level</dt>
-        <dd>{cell.access_level.replace('_', ' ')}</dd>
+        {/* The same words as the header and the Fleet row (`read only`), the code on title. */}
+        <dd title={cell.access_level}>{plainCode(cell.access_level)}</dd>
         <dt>Mode</dt>
         <dd>
           {cell.mode === null ? (

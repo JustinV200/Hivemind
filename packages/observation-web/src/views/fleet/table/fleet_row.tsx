@@ -23,10 +23,10 @@
  *   - docs/observation/design.md sections 2, 4.1 and 5.1; codingrules 8.11.
  */
 import type { ReactElement, ReactNode } from 'react';
-import { IdToken, MaskBadge, StatusDot, TierBadge } from '../../../components';
+import { IdToken, MaskBadge, plainCode, StatusDot, TierBadge } from '../../../components';
 import type { FleetRow } from '../slice';
 import { BeeLink, ModelsBadge, WardenBadge, WaxMark } from './cell_marks';
-import { leaseAge, words } from './format';
+import { leaseAge } from './format';
 import { COLUMNS } from './sorting';
 import type { SortKey } from './sorting';
 
@@ -56,7 +56,11 @@ function Task(props: { row: FleetRow }): ReactElement {
   return (
     <>
       <IdToken id={task} />
-      {role ? <span className="fleet-role">{words(role)}</span> : null}
+      {role ? (
+        <span className="fleet-role" title={role}>
+          {plainCode(role)}
+        </span>
+      ) : null}
     </>
   );
 }
@@ -108,7 +112,7 @@ export function FleetRowView(props: { row: FleetRow; cards: boolean }): ReactEle
         <Origin row={row} />
       </th>
       <Cell column="status" className="fleet-status">
-        <span>{words(row.status)}</span>
+        <span title={row.status}>{plainCode(row.status)}</span>
         {row.mode ? <StatusDot word={row.mode === 'ACTIVE' ? 'active' : 'watch'} /> : null}
       </Cell>
       <Cell column="tier" className="fleet-tier">
@@ -117,7 +121,9 @@ export function FleetRowView(props: { row: FleetRow; cards: boolean }): ReactEle
       <Cell column="mask" className="fleet-mask">
         <MaskBadge state={row.mask_state ?? 'OFF'} />
       </Cell>
-      <Cell column="access">{words(row.access_level)}</Cell>
+      <Cell column="access">
+        <span title={row.access_level}>{plainCode(row.access_level)}</span>
+      </Cell>
       <Cell column="warden">
         <WardenBadge runs={row.warden_runs} />
       </Cell>

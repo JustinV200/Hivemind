@@ -96,6 +96,8 @@ const WAITING: ReadonlySet<ProposalState> = new Set(['PROPOSED', 'CHECKING']);
 
 function Row(props: { row: QueueRow }): ReactElement {
   const { proposal, verdict, exoskeleton } = props.row;
+  // The rollback's words carry the method's code on their title, where there is a method.
+  const rollback = rollbackOf(proposal);
   return (
     <tr>
       <td data-label="Proposal">
@@ -122,7 +124,13 @@ function Row(props: { row: QueueRow }): ReactElement {
         )}
       </Cell>
       <Cell label="Reason">{reasonOf(props.row)}</Cell>
-      <Cell label="Rollback">{rollbackOf(proposal)}</Cell>
+      <Cell label="Rollback">
+        {rollback !== NONE && proposal.rollback_method ? (
+          <span title={proposal.rollback_method}>{rollback}</span>
+        ) : (
+          rollback
+        )}
+      </Cell>
       <Cell label="Recording">{exoskeleton ? <RecordingNote /> : NONE}</Cell>
       <td data-label="Updated">
         <TimeStamp at={proposal.updated_at} />

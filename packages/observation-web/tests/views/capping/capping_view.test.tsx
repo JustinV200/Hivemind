@@ -116,7 +116,9 @@ describe('the queue', () => {
     expect(rolled.getByText('Rolled back').getAttribute('title')).toBe('ROLLED_BACK');
     expect(rolled.getByText('Approved').getAttribute('title')).toBe('CAPPED');
     expect(rolled.getByText('4 checks passed')).toBeTruthy();
-    expect(rolled.getByText('rolled back, restored by SNAPSHOT')).toBeTruthy();
+    expect(rolled.getByText('rolled back, restored by snapshot').getAttribute('title')).toBe(
+      'SNAPSHOT',
+    );
     const refused = within(rowOf('prop_rej'));
     // The state and the gate's verdict both read Refused.
     expect(refused.getAllByText('Refused', { selector: '.tag' })).toHaveLength(2);
@@ -361,7 +363,7 @@ describe('live frames', () => {
       trail.receive(hop('alarm.raised', 'cell_1', { family: 'alarm' }));
       trail.receive(hop('capping.rolled_back', 'prop_wait', { payload: { method: 'GUI_STATE' } }));
     });
-    expect(within(rowOf('prop_wait')).getByText('rolled back, restored by GUI_STATE')).toBeTruthy();
+    expect(within(rowOf('prop_wait')).getByText('rolled back, restored by gui state')).toBeTruthy();
   });
 });
 

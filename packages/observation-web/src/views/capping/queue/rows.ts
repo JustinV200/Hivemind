@@ -21,6 +21,7 @@
  * See Also:
  *   - docs/observation/design.md sections 4.3 and 5.9.
  */
+import { plainCode } from '../../../components';
 import { stateRank, tierRank } from '../slice';
 import type { CappingState, ProposalRow, ProposalState, VerdictRow } from '../slice';
 
@@ -73,11 +74,12 @@ export function reasonOf(row: QueueRow): string {
   return parts.length > 0 ? parts.join(', ') : NONE;
 }
 
-// How a rolled-back proposal was restored, or the hyphen for one that was not rolled back.
+// How a rolled-back proposal was restored, or the hyphen for one that was not rolled back. The
+// method is a code on the trail (`SNAPSHOT`), written as words; the table keeps the code on title.
 export function rollbackOf(proposal: ProposalRow): string {
   if (proposal.state !== 'ROLLED_BACK') return NONE;
   return proposal.rollback_method
-    ? `rolled back, restored by ${proposal.rollback_method}`
+    ? `rolled back, restored by ${plainCode(proposal.rollback_method)}`
     : 'rolled back';
 }
 

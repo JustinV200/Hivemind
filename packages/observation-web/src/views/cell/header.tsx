@@ -41,7 +41,8 @@ function Badges(props: { page: CellPage }): ReactElement {
       {cell.mask_state == null ? (
         <span className="cell-muted">mask state not tracked yet</span>
       ) : null}
-      <span>{`Access ${cell.access_level.replace('_', ' ')}`}</span>
+      {/* The access level reads as the Fleet row writes it (`read only`), the code on title. */}
+      <span title={cell.access_level}>{`Access ${plainCode(cell.access_level)}`}</span>
       <span className="cell-mode">
         Mode{' '}
         {cell.mode === null ? (

@@ -1,9 +1,9 @@
 /**
- * Small text formatters for the Fleet's cells: a lease's age and a schema word as plain words.
+ * Small text formatter for the Fleet's cells: a lease's age in seconds as a short duration.
  *
- * The aggregate gives a lease age in seconds and enumerations as shouting words (`GUARD_BEE`,
- * `READ_ONLY`). The table shows them the way a person reads them. Pure functions, so the rules
- * are testable without a page.
+ * The aggregate gives a lease age in seconds; the table shows it the way a person reads one
+ * (`1h 05m`). A schema word (`GUARD_BEE`, `READ_ONLY`) goes through the shared `plainCode` of
+ * `components/words`, not a formatter of its own. Pure, so the rule is testable without a page.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/fleet/table/`. Used by `fleet_row.tsx`.
@@ -24,8 +24,4 @@ export function leaseAge(seconds: number | null): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 48) return `${hours}h ${minutes % 60}m`;
   return `${Math.floor(hours / 24)}d ${hours % 24}h`;
-}
-
-export function words(value: string): string {
-  return value.replaceAll('_', ' ').toLowerCase();
 }

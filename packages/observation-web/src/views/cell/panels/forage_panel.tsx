@@ -20,7 +20,7 @@
  *   - docs/observation/design.md sections 4.2 and 5.2.
  */
 import type { ReactElement } from 'react';
-import { Gauge, IdToken, TimeStamp } from '../../../components';
+import { Gauge, IdToken, plainCode, TimeStamp } from '../../../components';
 import type { CellPage } from '../slice';
 import { Panel, Tag } from './panel';
 
@@ -33,7 +33,10 @@ function GrantRow(props: { grant: Grant }): ReactElement {
     <li className="cell-item">
       <div className="cell-row">
         <IdToken id={grant.id} />
-        <Tag tone={grant.state === 'EXHAUSTED' ? 'alarm' : 'ok'}>{grant.state}</Tag>
+        {/* The state as a word (`active`), as the Forage's Grants table writes it */}
+        <Tag tone={grant.state === 'EXHAUSTED' ? 'alarm' : 'ok'} title={grant.state}>
+          {plainCode(grant.state)}
+        </Tag>
         <span>{`revision ${grant.revision}`}</span>
         <span>{`${grant.seats} seats`}</span>
         <span>{`up to ${grant.max_sub_bees} sub-bees`}</span>
@@ -87,7 +90,10 @@ export function ForagePanel(props: { page: CellPage }): ReactElement {
       <ul className="cell-list">
         {forage.pending_requests.map((request) => (
           <li key={`${request.grant_id}:${request.requested_at}`} className="cell-row">
-            <span>{request.request_kind ?? 'unknown kind'}</span>
+            {/* The kind is a code (`SHARED_SEATS`), read as words with the code on title */}
+            <span title={request.request_kind ?? undefined}>
+              {request.request_kind ? plainCode(request.request_kind) : 'unknown kind'}
+            </span>
             <span>
               for grant <IdToken id={request.grant_id} />
             </span>

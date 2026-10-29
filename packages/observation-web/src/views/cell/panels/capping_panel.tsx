@@ -23,7 +23,13 @@
  *   - docs/observation/design.md section 5.2 (flight-recorder playback, a later addition).
  */
 import type { ReactElement } from 'react';
-import { IdToken, proposalStateWords, riskTierWords, TimeStamp } from '../../../components';
+import {
+  IdToken,
+  plainCode,
+  proposalStateWords,
+  riskTierWords,
+  TimeStamp,
+} from '../../../components';
 import type { CellPage } from '../slice';
 import { Panel, Tag } from './panel';
 import type { TagTone } from './panel';
@@ -60,7 +66,10 @@ function ProposalRow(props: { row: Proposal; gui: boolean }): ReactElement {
       <span>{`by ${row.bee_id}`}</span>
       {row.action_kind ? <span>{`action ${row.action_kind}`}</span> : null}
       {row.failing_check ? <span>{`failed check ${row.failing_check}`}</span> : null}
-      {row.rollback_method ? <span>{`restored by ${row.rollback_method}`}</span> : null}
+      {row.rollback_method ? (
+        // The method is a trail code (`SNAPSHOT`), written as the Capping queue writes it.
+        <span title={row.rollback_method}>{`restored by ${plainCode(row.rollback_method)}`}</span>
+      ) : null}
       <TimeStamp at={row.updated_at} />
       {gui ? <RecordingNote /> : null}
     </li>

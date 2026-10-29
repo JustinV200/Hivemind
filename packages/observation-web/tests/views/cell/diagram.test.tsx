@@ -116,7 +116,7 @@ describe('the model', () => {
 
   it('words the lease for a Real Cell and the status for a Virtual Cell', () => {
     const real = model({ lease_age_s: 3900 }).boxes.find((b) => b.key === 'lease')!;
-    expect(real).toMatchObject({ label: 'Lease', value: 'OPEN', detail: 'age 1h 05m' });
+    expect(real).toMatchObject({ label: 'Lease', value: 'open', detail: 'age 1h 05m' });
     const virtual = model({
       cell: cellRecord({
         kind: 'VIRTUAL',
@@ -127,7 +127,7 @@ describe('the model', () => {
     }).boxes.find((b) => b.key === 'lease')!;
     expect(virtual).toMatchObject({
       label: 'Virtual Cell',
-      value: 'READY',
+      value: 'ready',
       detail: 'backend docker',
     });
   });

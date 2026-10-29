@@ -159,10 +159,12 @@ function boxesOf(page: CellPage): FactBox[] {
   const { cell } = page;
   const exo = EXO[String(page.exoskeleton_attached) as 'true' | 'false' | 'null'];
   const real = cell.kind === 'REAL';
-  const leaseValue = cell.lease_state ?? 'no lease yet';
+  // A lease state, a Virtual Cell status and a slot are schema codes, written in lower case as
+  // every view writes one; the box's title carries the same words, since a box is not a table.
+  const leaseValue = cell.lease_state === null ? 'no lease yet' : plainCode(cell.lease_state);
   const age = page.lease_age_s === null ? 'age not reported' : `age ${ageText(page.lease_age_s)}`;
-  const virtualValue = cell.virtual_status ?? 'not tracked';
-  // A slot is written in lower case, as the Cost tables and the Forage map write it.
+  const virtualValue =
+    cell.virtual_status === null ? 'not tracked' : plainCode(cell.virtual_status);
   const slots = page.hosting.slots.map((s) => `${plainCode(s.slot)} ${HOSTING[s.models_from]}`);
   const plan = page.hosting.plan_revision;
   const hostingDetail = plan === null ? 'no plan' : `plan revision ${plan}`;

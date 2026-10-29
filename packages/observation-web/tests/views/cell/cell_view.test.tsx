@@ -85,7 +85,7 @@ describe('the header', () => {
     expect(head.getByText(/Real Cell, source hive_stand, active/)).toBeTruthy();
     expect(head.getByText('PROPOLIS')).toBeTruthy();
     expect(head.getByText('WARDEN')).toBeTruthy();
-    expect(head.getByText('Access READ ONLY')).toBeTruthy();
+    expect(head.getByText('Access read only').getAttribute('title')).toBe('READ_ONLY');
     expect(head.getByText('active')).toBeTruthy();
   });
 
@@ -236,9 +236,9 @@ describe('the panels', () => {
       forage.getByRole('meter', { name: 'Tokens, all grants' }).getAttribute('aria-valuemax'),
     ).toBe('100000');
     expect(forage.getAllByText('40,000 / 100,000 (40%)')).toHaveLength(2);
-    expect(forage.getByText('EXHAUSTED')).toBeTruthy();
+    expect(forage.getByText('exhausted')).toBeTruthy();
     expect(forage.getByText('5 seats')).toBeTruthy();
-    expect(forage.getByText('SPEND')).toBeTruthy();
+    expect(forage.getByText('spend')).toBeTruthy();
   });
 
   it('say so when there is no Warden and so no Forage', async () => {
@@ -255,7 +255,7 @@ describe('the panels', () => {
   it('show access level, mode and "not tracked yet" for the last Patrol', async () => {
     await mount({ body: pageView({ cell: cellRecord({ mode: null }) }) });
     const mode = within(await screen.findByRole('region', { name: 'Access and mode' }));
-    expect(mode.getByText('SCRATCH')).toBeTruthy();
+    expect(mode.getByText('scratch')).toBeTruthy();
     expect(mode.getByText('not reported yet')).toBeTruthy();
     expect(mode.getByText('not tracked yet')).toBeTruthy();
   });
@@ -353,7 +353,7 @@ describe('Capping', () => {
     expect(box.getByText('Checking')).toBeTruthy();
     expect(box.getAllByText('failed check path_allowlist').length).toBeGreaterThan(0);
     expect(box.getByText('the judge could not answer')).toBeTruthy();
-    expect(box.getByText('restored by SNAPSHOT_RESTORE')).toBeTruthy();
+    expect(box.getByText('restored by snapshot restore')).toBeTruthy();
   });
 
   it('says "recording not available" on Exoskeleton actions only, with no control', async () => {

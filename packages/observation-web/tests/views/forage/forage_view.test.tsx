@@ -248,8 +248,8 @@ describe('the Forage map', () => {
   it('shows each source with its provider kind and health as a word', async () => {
     await mountForage();
     const map = await screen.findByRole('table', { name: /Forage map/ });
-    expect(within(map).getByText('HEALTHY')).toBeTruthy();
-    expect(within(map).getByText('DEGRADED')).toBeTruthy();
+    expect(within(map).getByText('healthy')).toBeTruthy();
+    expect(within(map).getByText('degraded')).toBeTruthy();
     expect(within(map).getByText('openai_compat')).toBeTruthy();
   });
 });
