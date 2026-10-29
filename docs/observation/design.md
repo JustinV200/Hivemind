@@ -46,10 +46,11 @@ From top to bottom, on every screen after login:
    (`bees deciding with a model vs by rule (autopilot)`) rides on the cell as its `title`.
 
    It is a slice seeded by `/v1/summary` and kept live by the cells, telemetry and episodes
-   streams (ADR-0049). If a stream is down, the strip dims and says `stale since hh:mm:ss` rather
-   than showing old numbers as if they were current; on a phone the note is a third line of the
-   band and the four cells give up 2 px of padding each, so the band keeps its 116 px and the
-   head does not grow. Under it a **notice bar** appears while the
+   streams (ADR-0049). If a stream is down, the strip says `stale since hh:mm:ss` and sets its
+   numbers in `--text-muted` (7.4:1, section 3.1) rather than showing old numbers as if they
+   were current; it is never dimmed, for the reason item 4 gives. On a phone the note is a third
+   line of the band and the four cells give up 2 px of padding each, so the band keeps its
+   116 px and the head does not grow. Under it a **notice bar** appears while the
    push stream (`/v1/push/stream`) says something is waiting (a question, an Alarm, a reply, a
    finished goal, a security event): one line per kind with a count and a link to the view that
    holds the item; opening the chat clears the chat kinds, Dismiss clears the rest.
@@ -66,10 +67,10 @@ From top to bottom, on every screen after login:
    one-line gloss, the same sentence the nav item carries, from `components/words`), then its
    body. While any stream the screen could be drawing from has dropped, the title row adds
    `stale since hh:mm:ss, reconnecting` in the warn tone, so rows drawn from the last frames are
-   never taken for current ones. The main area is not dimmed with the strip: at any opacity that
-   still reads as dimmed, `--text-muted`, `--accent` and the status tones fall under the 4.5:1 of
-   section 7 on the page and the comb surface (0.9 leaves `--warn` at 4.2 on `--surface-2`), and
-   the note already carries the state in words.
+   never taken for current ones. Neither the main area nor the strip is dimmed: at any opacity
+   that still reads as dimmed, `--text-muted`, `--accent` and the status tones fall under the
+   4.5:1 of section 7 on the page and the comb surface (0.9 leaves `--warn` at 4.1 on
+   `--surface-2`), and the note already carries the state in words.
 
 | Width | Shell |
 |---|---|
@@ -409,7 +410,10 @@ telemetry.
 
 `<principal>` is `queen` or a Warden's id. Shows the task graph the principal is concerned with
 (a layered left-to-right graph, nodes by task id order within a layer), what recently finished,
-what comes next, and the ordered inbox behind it, with each task's placement and Alarms. Reached
+what comes next, and the ordered inbox behind it, with each task's placement and Alarms. A task
+node shows its id as the tables do (4.3), its status word beside its dot and its Cell; one with
+open Alarms has its outline in `--alarm` and the count with its word (`2 Alarms`) at the right
+of its status line, as the bee node of 4.5 writes `Alarm`, never a bare number. Reached
 from the fleet row and the Cell diagram. Read: `/v1/attendant/{principal}` (added in 12.1),
 `/v1/tasks`, `/v1/wardens`. Streams: tasks (for the Queen: every task; for a Warden: its tasks).
 
@@ -472,7 +476,9 @@ The Fleet's filter is a segmented control because it is one choice at a time. A 
 and the gate's verdict are the words of `enums.ts` (`Approved` for `CAPPED`, `Refused` for
 `REJECTED`, `Rolled back`), the same words the rates cards count by, on the queue's tags, the
 state chips and the Cell page's Capping panel alike, with the gate's code on each tag's and chip's
-`title`. Every item links to the bee's thoughts and, for an
+`title`; the judge's finding on a sampled audit is drawn the same way (`Approved`, `Wants
+changes`, `Refused`), and a tier's `title` is its code (`OUTSIDE_SCRATCH_WRITE`), like every
+other `title` on the page. Every item links to the bee's thoughts and, for an
 Exoskeleton action, to its recording. Read: `/v1/capping` (added in 12.1). Streams: trail.
 
 ### 5.10 Devices and enrolment (`#/devices`, `#/enrol`)
@@ -574,7 +580,10 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   is shown as sent, in lower case with spaces (`plainCode`), which is also how a code with no
   table of its own (an episode's action, an autopilot decision's action and reason) is drawn.
   An id the Landing Board carries without a title (a task, a wax note, an Alarm on the Cell page)
-  links to where its words are (the chat, the Honey item), and never invents a title.
+  links to where its words are (the chat, the Honey item), and never invents a title. A model
+  slot (`QUEEN`, `JUDGE`) is written in lower case wherever it appears (the Cost tables, the
+  Forage map, the Cell diagram's hosting box, an episode's usage), the code on `title` where
+  there is an element to carry it.
 - **A pressed toggle** (`aria-pressed="true"`) is filled in the accent in every view, under the
   pointer too, by one rule in `base.css`; no view carries a pressed rule of its own.
 - Labels are nouns (`Context`, `Grant`); buttons are verbs (`Answer`, `Acknowledge`, `Follow`).
