@@ -1,8 +1,9 @@
 """Test hivemind.llm.routing.cheapest: the chat row the Forage map prices lowest.
 
 A free local fallback beats every priced hosted row; with no free row the cheapest priced one
-wins; a row the map does not price ranks last; the non-chat rows (embedder, transcriber) are never
-chosen however cheap, and a table with no chat row gives None.
+wins; a row the map does not price ranks last, and among unpriced rows the lowest slot floor wins,
+never the manifest's first row; the non-chat rows (embedder, transcriber) are never chosen however
+cheap, and a table with no chat row gives None.
 
 Fits into the Hive:
     Mirrors src/hivemind/llm/routing/cheapest.py (codingrules section 3).
@@ -54,7 +55,7 @@ LOCAL = (
     [
         (HOSTED + LOCAL, "local_worker"),  # Free beats priced; the non-chat rows never count.
         (HOSTED, "attendant"),  # Nothing free priced: the cheapest hosted row.
-        ((), "queen"),  # Nothing priced at all: manifest order, the first chat slot's row.
+        ((), "attendant"),  # Nothing priced at all: the lowest slot floor, never the Queen's row.
     ],
     ids=["free-local", "cheapest-hosted", "unpriced"],
 )

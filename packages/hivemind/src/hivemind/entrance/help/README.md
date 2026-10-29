@@ -43,7 +43,8 @@ ranks by cosine, and falls back to keywords on any `LLMError`.
 
 `cheapest_chat_binding` (`hivemind.llm.routing`) picks the `[llm.slots]` row a chat slot can reach
 that the Forage map prices lowest (token price, then grade, then manifest order; an unpriced row
-last; never the embedder or transcriber rows), and the composition root binds it through the
+last, ranked by the grade floor of the slot it serves, so a manifest with no map never picks the
+Queen's row; never the embedder or transcriber rows), and the composition root binds it through the
 Hive's own registry. `answer` renders the shipped `help_answer` prompt with the passages as a
 numbered RETRIEVED section and the question as a USER section, both with their delimiters
 neutralised, and makes one call with `tools=()`, no schema, low effort, a 400-token budget and a
