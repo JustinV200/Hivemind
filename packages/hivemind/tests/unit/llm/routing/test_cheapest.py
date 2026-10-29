@@ -14,12 +14,14 @@ Key invariants:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import pytest
 from builders.forage import make_source
 from builders.llm import make_binding
 
-from hivemind.forage import ModelCost, ModelSource, SlotBinding
-from hivemind.llm.routing import cheapest_chat_binding
+from hivemind.forage import ModelCost, ModelSlot, ModelSource, SlotBinding
+from hivemind.llm.routing import cheapest_chat_binding, default_floors
 
 
 def _priced(provider: str, model: str, grade: int, in_usd: float, out_usd: float) -> ModelSource:
@@ -48,21 +50,24 @@ LOCAL = (
     _priced("local", "vectors", 1, 0.0, 0.0),
     _priced("local", "ears", 1, 0.0, 0.0),
 )
+# An operator's [llm.floors] that holds the Attendant to a higher grade than the Worker.
+RAISED: Mapping[ModelSlot, int] = {**default_floors(), ModelSlot.ATTENDANT: 3}
 
 
 @pytest.mark.parametrize(
-    ("sources", "expected"),
+    ("sources", "floors", "expected"),
     [
-        (HOSTED + LOCAL, "local_worker"),  # Free beats priced; the non-chat rows never count.
-        (HOSTED, "attendant"),  # Nothing free priced: the cheapest hosted row.
-        ((), "attendant"),  # Nothing priced at all: the lowest slot floor, never the Queen's row.
+        (HOSTED + LOCAL, None, "local_worker"),  # Free beats priced; non-chat rows never count.
+        (HOSTED, None, "attendant"),  # Nothing free priced: the cheapest hosted row.
+        ((), None, "attendant"),  # Nothing priced: the lowest slot floor, never the Queen's row.
+        ((), RAISED, "worker"),  # The operator's floors rank unpriced rows, not the shipped ones.
     ],
-    ids=["free-local", "cheapest-hosted", "unpriced"],
+    ids=["free-local", "cheapest-hosted", "unpriced", "unpriced-raised-floor"],
 )
 def test_the_lowest_priced_reachable_chat_row_wins(
-    sources: tuple[ModelSource, ...], expected: str
+    sources: tuple[ModelSource, ...], floors: Mapping[ModelSlot, int] | None, expected: str
 ) -> None:
-    chosen = cheapest_chat_binding(ROWS, sources)
+    chosen = cheapest_chat_binding(ROWS, sources, floors)
 
     assert chosen is not None and chosen.key == expected
 
