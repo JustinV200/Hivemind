@@ -19,8 +19,8 @@
  *   - tests/shell/shell.test.tsx for the tour inside the real shell.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
-import { startTour, Tour } from '../../../src/views/help/tour';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { startTour, Tour, tourDone } from '../../../src/views/help/tour';
 import type { TourStep } from '../../../src/views/help/tour';
 
 const STEPS: readonly TourStep[] = [
@@ -46,6 +46,8 @@ beforeEach(() => {
   window.localStorage.clear();
   window.location.hash = '';
 });
+
+afterEach(() => vi.restoreAllMocks());
 
 describe('Tour', () => {
   it('says the step in words, moves with Next and Back, and opens a step’s route', async () => {
@@ -75,7 +77,7 @@ describe('Tour', () => {
     expect(screen.getByText('Step 2 of 2')).toBeTruthy();
   });
 
-  it('remembers a finished tour, and not a skipped one', async () => {
+  it('remembers a finished tour, not a skipped one, and finishes without storage', async () => {
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Finish' }, { timeout: 3000 }));
@@ -87,6 +89,18 @@ describe('Tour', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Skip tour' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(window.localStorage.getItem('hive.tour')).toBeNull();
+
+    // Storage refused (a private window): the tour still closes, and reads as not taken.
+    const refuse = (): never => {
+      throw new Error('refused');
+    };
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(refuse);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(refuse);
+    act(() => startTour());
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'ArrowRight' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Finish' }, { timeout: 3000 }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(tourDone()).toBe(false);
   });
 
   it('closes when the shell unmounts it, so the next session never opens mid-tour', async () => {

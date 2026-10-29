@@ -368,7 +368,6 @@ describe('routes', () => {
     expect(document.querySelector('[data-tour="strip"]')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Skip tour' }));
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(window.localStorage.getItem('hive.tour')).toBeNull();
   });
 
   it('skips to the main area without changing the route', async () => {
