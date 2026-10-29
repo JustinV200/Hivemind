@@ -37,15 +37,16 @@ export interface MapRow {
 
 export type MapColumn = Exclude<keyof MapRow, 'key'>;
 
+// The headers in plain words: a slot is the model a kind of bee runs on, bound to a provider.
 export const MAP_COLUMNS: readonly { column: MapColumn; label: string }[] = [
-  { column: 'slot', label: 'Binding' },
+  { column: 'slot', label: 'Slot' },
   { column: 'model', label: 'Model' },
   { column: 'provider', label: 'Provider' },
-  { column: 'kind', label: 'Kind' },
+  { column: 'kind', label: 'Provider kind' },
   { column: 'health', label: 'Health' },
-  { column: 'serves', label: 'Serves' },
-  { column: 'effort', label: 'Effort' },
-  { column: 'fallback', label: 'Falls back to' },
+  { column: 'serves', label: 'Which bees use it' },
+  { column: 'effort', label: 'Effort (speed vs care)' },
+  { column: 'fallback', label: 'If it fails, use' },
 ];
 
 export function mapRows(llm: LlmView): MapRow[] {

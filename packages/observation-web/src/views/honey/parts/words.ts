@@ -3,7 +3,8 @@
  *
  * The schema's kind is an open enum (`honey|note|wax|bee_bread`, and it may grow), so a kind this
  * file does not know is shown as the schema gave it rather than hidden. Clearance names are the
- * README's: Wildflower (C0), Apiary (C1), Royal (C2). Paths are held with a leading slash; the
+ * README's (Wildflower, Apiary, Royal), shared with the other views from `components/words`.
+ * Paths are held with a leading slash; the
  * route table wants them without one. An item's address is its folder's with `?item=<id>`, so an
  * open reading pane is a link that can be shared and comes back on reload.
  *
@@ -21,21 +22,12 @@
  *   - README.md for the clearance vocabulary; src/router/routes.ts for the hash grammar.
  */
 import { hrefFor } from '../../../router';
-import type { components } from '../../../landing_board/types';
-
-type Schemas = components['schemas'];
 
 const KIND_LABELS: Readonly<Record<string, string>> = {
   honey: 'Honey',
   note: 'Note',
   wax: 'Cell Wax',
   bee_bread: 'Bee Bread',
-};
-
-export const CLEARANCE_NAMES: Readonly<Record<Schemas['HoneyClearance'], string>> = {
-  C0: 'Wildflower',
-  C1: 'Apiary',
-  C2: 'Royal',
 };
 
 // An unknown kind is shown as sent, with its underscores read as spaces.

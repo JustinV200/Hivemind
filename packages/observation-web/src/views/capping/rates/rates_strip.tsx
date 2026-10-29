@@ -1,7 +1,8 @@
 /**
  * `RatesStrip`: one card per risk tier with its proposals, the gate's outcomes and its audit rates.
  *
- * Tier names are the gate's `RiskTier` in words (`SCRATCH WRITE`), shown as text and never as the
+ * Tier names are the gate's `RiskTier` as what the action does (`writes inside its scratch
+ * folder`, the code in the heading's `title`), shown as text and never as the
  * Cell tier badge, which is a different scale. Each card is a definition list so a screen reader
  * hears every figure with its label. Findings are audits the judge rejected, and the percentages
  * are the server's fractions (audited of finished, rejected of scored).
@@ -18,6 +19,7 @@
  *   - src/views/capping/rates/model.ts for the arithmetic.
  */
 import type { ReactElement } from 'react';
+import { riskTierWords } from '../../../components';
 import { wordsOf } from '../slice';
 import type { CappingState } from '../slice';
 import { percent, tierRates } from './model';
@@ -36,7 +38,7 @@ function TierCard(props: { rates: TierRates }): ReactElement {
   const r = props.rates;
   return (
     <li className="capping-rate comb-cell">
-      <h3>{wordsOf(r.tier)}</h3>
+      <h3 title={wordsOf(r.tier)}>{riskTierWords(r.tier)}</h3>
       <dl className="capping-figures">
         <Figure label="Proposals" value={r.proposals} />
         <Figure label="Waiting" value={r.waiting} />

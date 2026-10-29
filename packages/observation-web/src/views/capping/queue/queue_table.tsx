@@ -22,7 +22,14 @@
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { IdToken, SortSelect, TimeStamp, useMinWidth, WIDE_TABLE_MIN } from '../../../components';
+import {
+  IdToken,
+  riskTierWords,
+  SortSelect,
+  TimeStamp,
+  useMinWidth,
+  WIDE_TABLE_MIN,
+} from '../../../components';
 import { wordsOf } from '../slice';
 import type { ProposalState } from '../slice';
 import { BeeLink, CellLink, RecordingNote } from './links';
@@ -74,7 +81,9 @@ function Row(props: { row: QueueRow }): ReactElement {
       <td data-label="Proposal">
         <IdToken id={proposal.id} />
       </td>
-      <td data-label="Tier">{wordsOf(proposal.tier)}</td>
+      <td data-label="Tier" title={wordsOf(proposal.tier)}>
+        {riskTierWords(proposal.tier)}
+      </td>
       <td data-label="State">
         <Tag tone={STATE_TONE[proposal.state]}>{wordsOf(proposal.state)}</Tag>
       </td>

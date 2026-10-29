@@ -27,7 +27,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import { RAIL_MIN, useMinWidth } from '../../../components';
+import { RAIL_MIN, riskTierWords, useMinWidth } from '../../../components';
 import { STATES, tierRank, wordsOf } from '../slice';
 import type { ProposalState } from '../slice';
 import type { QueueRow } from './rows';
@@ -91,6 +91,8 @@ interface GroupProps<T extends string> {
   chosen: ReadonlySet<T>;
   countOf: (option: T) => number;
   total: number;
+  // The option as the chip or the select names it: the tier as what it does, a state as a word.
+  wordsOf: (option: T) => string;
   onToggle: (option: T | null) => void;
   onChoose: (option: T | null) => void;
 }
@@ -116,7 +118,7 @@ function SelectGroup<T extends string>(props: GroupProps<T>): ReactElement {
         <option value="">{`All (${props.total})`}</option>
         {props.options.map((option) => (
           <option key={option} value={option}>
-            {`${wordsOf(option)} (${props.countOf(option)})`}
+            {`${props.wordsOf(option)} (${props.countOf(option)})`}
           </option>
         ))}
       </select>
@@ -138,7 +140,7 @@ function Group<T extends string>(props: GroupProps<T>): ReactElement {
       {props.options.map((option) => (
         <Chip
           key={option}
-          label={wordsOf(option)}
+          label={props.wordsOf(option)}
           count={props.countOf(option)}
           on={props.chosen.has(option)}
           onToggle={() => props.onToggle(option)}
@@ -165,6 +167,7 @@ export function QueueFilters(props: {
         chosen={filter.tiers}
         countOf={(tier) => rows.filter((r) => r.proposal.tier === tier).length}
         total={rows.length}
+        wordsOf={riskTierWords}
         onToggle={filter.toggleTier}
         onChoose={filter.chooseTier}
       />
@@ -174,6 +177,7 @@ export function QueueFilters(props: {
         chosen={filter.states}
         countOf={(state) => rows.filter((r) => r.proposal.state === state).length}
         total={rows.length}
+        wordsOf={wordsOf}
         onToggle={filter.toggleState}
         onChoose={filter.chooseState}
       />

@@ -16,6 +16,7 @@
  * See Also:
  *   - docs/observation/design.md section 8 for the wording rules.
  */
+import { capabilityWords as phraseOf } from '../../../components';
 import type { DeviceRecord } from '../slice';
 
 // A status as the word the page shows: the enum in lower case.
@@ -25,9 +26,9 @@ export function spendCapWords(cap: number | null): string {
   return cap === null ? 'uncapped' : `$${cap.toFixed(2)} per day`;
 }
 
-// The capability strings a device holds, in the order the Entrance gives them.
+// What a device may do, each capability as a phrase with its code, in the Entrance's order.
 export const capabilityWords = (capabilities: readonly string[]): string =>
-  capabilities.length === 0 ? 'nothing' : capabilities.join(', ');
+  capabilities.length === 0 ? 'nothing' : capabilities.map(phraseOf).join('; ');
 
 // What the device said about its platform at redemption, or a word saying it did not.
 export const platformWords = (device: DeviceRecord): string =>

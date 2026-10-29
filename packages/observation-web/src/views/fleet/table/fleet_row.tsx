@@ -100,7 +100,7 @@ export function FleetRowView(props: { row: FleetRow; cards: boolean }): ReactEle
         <Origin row={row} />
       </th>
       <Cell column="status" className="fleet-status">
-        <span>{row.status}</span>
+        <span>{words(row.status)}</span>
         {row.mode ? <StatusDot word={row.mode === 'ACTIVE' ? 'active' : 'watch'} /> : null}
       </Cell>
       <Cell column="tier" className="fleet-tier">

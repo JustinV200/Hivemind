@@ -42,7 +42,11 @@ describe('the list', () => {
     const row = (await screen.findByText('Pixel 9')).closest('tr')!;
     const cells = within(row);
     expect(cells.getByText('approved')).toBeTruthy();
-    expect(cells.getByText('observe, entrance:submit')).toBeTruthy();
+    expect(
+      cells.getByText(
+        'may watch the Hive (observe); may send goals and messages (entrance:submit)',
+      ),
+    ).toBeTruthy();
     expect(cells.getByText('$5.00 per day')).toBeTruthy();
     expect(cells.getByText('Android 16')).toBeTruthy();
     expect(cells.getByText('does not expire')).toBeTruthy();

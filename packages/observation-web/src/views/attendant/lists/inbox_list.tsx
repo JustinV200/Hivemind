@@ -20,12 +20,10 @@
  *   - docs/observation/design.md section 5.5.
  */
 import type { ReactElement } from 'react';
-import { IdToken, TimeStamp } from '../../../components';
+import { IdToken, inboxKindWords, TimeStamp } from '../../../components';
 import type { components } from '../../../landing_board/types';
 
 type Entry = components['schemas']['InboxEntryView'];
-
-const kindWord = (kind: Entry['kind']): string => kind.toLowerCase().replace(/_/g, ' ');
 
 function Row(props: { entry: Entry; rank: number }): ReactElement {
   const { entry, rank } = props;
@@ -34,7 +32,7 @@ function Row(props: { entry: Entry; rank: number }): ReactElement {
       <span className="att-rank">{rank}</span>
       <div className="att-entry-body">
         <div className="att-row">
-          <span className="att-kind">{kindWord(entry.kind)}</span>
+          <span className="att-kind">{inboxKindWords(entry.kind)}</span>
           {entry.severity ? (
             <span className="tag tag--status tag--alarm">{entry.severity}</span>
           ) : null}

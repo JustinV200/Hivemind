@@ -22,7 +22,14 @@
  *   - docs/observation/design.md sections 3.3, 4.1 and 5.2; codingrules 8.11.
  */
 import type { ReactElement } from 'react';
-import { MaskBadge, StatusDot, TierBadge, VIEW_HINTS, ViewTitle } from '../../components';
+import {
+  MaskBadge,
+  plainCode,
+  StatusDot,
+  TierBadge,
+  VIEW_HINTS,
+  ViewTitle,
+} from '../../components';
 import type { CellPage } from './slice';
 
 function Badges(props: { page: CellPage }): ReactElement {
@@ -54,7 +61,7 @@ export function CellHeader(props: { id: string; page: CellPage | null }): ReactE
       <ViewTitle title={page?.cell.name ?? 'Cell'} subject={props.id} hint={VIEW_HINTS.cell}>
         {page ? (
           <span className="cell-meta">
-            {`${page.cell.kind === 'REAL' ? 'Real' : 'Virtual'} Cell, source ${page.cell.source}, ${page.status}`}
+            {`${page.cell.kind === 'REAL' ? 'Real' : 'Virtual'} Cell, source ${page.cell.source}, ${plainCode(page.status)}`}
           </span>
         ) : null}
       </ViewTitle>

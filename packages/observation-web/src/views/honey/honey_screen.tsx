@@ -34,6 +34,7 @@ import { FolderPanel } from './panels/folder_panel';
 import { ReadingPane } from './panels/reading_pane';
 import { SearchPanel } from './panels/search_panel';
 import { Breadcrumbs } from './parts/breadcrumbs';
+import { ClearanceLegend } from './parts/clearance_badge';
 import { folderHref, normalisePath } from './parts/words';
 
 export function HoneyScreen(props: { path: string; item: string | null }): ReactElement {
@@ -52,7 +53,9 @@ export function HoneyScreen(props: { path: string; item: string | null }): React
     <>
       {/* At the root the path is a lone slash, which says nothing beside the title; the
           crumbs name the folder, so the subject is only shown once there is one */}
-      <ViewTitle title="Honey" subject={path === '/' ? undefined : path} hint={VIEW_HINTS.honey} />
+      <ViewTitle title="Honey" subject={path === '/' ? undefined : path} hint={VIEW_HINTS.honey}>
+        <ClearanceLegend />
+      </ViewTitle>
       <Breadcrumbs path={path} parent={folder?.parent ?? null} />
       {error ? (
         <>

@@ -176,7 +176,7 @@ describe('the Queen', () => {
     expect(await screen.findByText(/Rebuilt from durable state/)).toBeTruthy();
     expect(screen.getByText('severity high')).toBeTruthy();
     expect(screen.getByText('9.5')).toBeTruthy();
-    expect(screen.getByText('QUESTION')).toBeTruthy();
+    expect(screen.getByText('question')).toBeTruthy();
   });
 
   it('interleaves autopilot decisions with episodes in time order, drawn apart', async () => {

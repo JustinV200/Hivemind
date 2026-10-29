@@ -183,13 +183,13 @@ describe('the lists', () => {
     const items = inbox.getAllByRole('listitem').filter((li) => li.className === 'att-entry');
     expect(items).toHaveLength(3);
     expect(items[0]!.textContent).toContain('1');
-    expect(items[0]!.textContent).toContain('alarm');
+    expect(items[0]!.textContent).toContain('Alarm');
     expect(items[0]!.textContent).toContain('CRITICAL');
     expect(items[0]!.textContent).toContain('score 91.25');
     expect(items[0]!.textContent).toContain('task task_2');
     expect(items[1]!.textContent).toContain('question');
     expect(within(items[1]!).getByText('blocks task_4')).toBeTruthy();
-    expect(items[2]!.textContent).toContain('human message');
+    expect(items[2]!.textContent).toContain('message from you');
     expect(inbox.queryByText(/Rebuilt from durable state/)).toBeNull();
   });
 

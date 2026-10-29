@@ -2,7 +2,8 @@
  * `AlarmForm`: acknowledge an Alarm that reached the human.
  *
  * An Alarm the Queen could not settle on her own comes to the human as a chat line. This shows what
- * the inbox knows of it (severity and kind, in words) and one Acknowledge button that posts to
+ * the inbox knows of it (severity, and the kind as a plain phrase with the code in its `title`)
+ * and one Acknowledge button that posts to
  * `POST /v1/inbox/alarms/{id}/acknowledge`. On success the slice drops the Alarm, so the form
  * disappears. A refusal is shown here, in place.
  *
@@ -19,7 +20,7 @@
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { ErrorNotice } from '../../../components';
+import { alarmKindWords, ErrorNotice } from '../../../components';
 import type { AlarmView } from '../slice';
 import type { ChatActions } from '../writes/use_actions';
 
@@ -44,7 +45,7 @@ export function AlarmForm(props: { alarm: AlarmView; actions: ChatActions }): Re
     <div className="chat-form">
       <p className="chat-alarm-facts">
         <span className="tag tag--status tag--alarm">{alarm.severity}</span>{' '}
-        <code>{alarm.kind}</code>
+        <span title={alarm.kind}>{alarmKindWords(alarm.kind)}</span>
       </p>
       <div className="chat-row">
         <button type="button" className="button" disabled={busy} onClick={() => void acknowledge()}>

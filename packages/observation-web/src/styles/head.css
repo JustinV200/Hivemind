@@ -73,8 +73,9 @@
   white-space: nowrap;
 }
 
+/* The listener is a phrase (`on the Hive Stand`, `remote`), not a code, so it keeps the sans */
 .topbar-listener {
-  font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 /* Controls in the bar are outlined on the chrome, not on the surface */

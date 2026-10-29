@@ -181,7 +181,7 @@ describe('the trail re-read', () => {
     // Not before the window closes.
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect(opened.pageReads()).toBe(1);
-    expect(await screen.findByText('GRANT_EXCEEDED', {}, { timeout: 2500 })).toBeTruthy();
+    expect(await screen.findByText('spent past its grant', {}, { timeout: 2500 })).toBeTruthy();
     expect(opened.pageReads()).toBe(2);
     // The three frames cost one read: nothing else follows.
     await new Promise((resolve) => setTimeout(resolve, 1250));
@@ -301,7 +301,8 @@ describe('the panels', () => {
     });
     const alarms = within(await screen.findByRole('region', { name: 'Alarms' }));
     expect(alarms.getByText('CRITICAL')).toBeTruthy();
-    expect(alarms.getByText('WORKER_CRASHED')).toBeTruthy();
+    // The kind as a plain phrase, with the schema's code kept on the phrase's title.
+    expect(alarms.getByText('a Worker crashed').getAttribute('title')).toBe('WORKER_CRASHED');
     expect(alarms.getByText('reached the human')).toBeTruthy();
   });
 

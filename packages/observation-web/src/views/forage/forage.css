@@ -349,7 +349,7 @@
   }
 
   .forage-table td[data-label='Expires'],
-  .forage-table td[data-label='Falls back to'] {
+  .forage-table td[data-label='If it fails, use'] {
     white-space: normal;
   }
 }

@@ -1,8 +1,8 @@
 /**
  * `EpisodeCard`: one episode record as a card, with its context in sections that expand inline.
  *
- * An episode is one decision: what triggered it (its kind as a tag in the header, its summary as
- * the first line), what was decided and what was done, with the provider's reasoning summary when
+ * An episode is one decision: what triggered it (its kind as a plain phrase in a header tag, its
+ * summary as the first line), what was decided and what was done, with the provider's reasoning summary when
  * it gave one. What a record carries beyond that is grouped into
  * sections (the assembled prompt it refers to, the trigger's detail, the usage), each collapsed
  * until the reader opens it, one at a time, in place. A section appears only when the record
@@ -24,8 +24,33 @@
  */
 import { useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { IdToken, TimeStamp } from '../../components';
+import {
+  CLEARANCE_MEANINGS,
+  clearanceWords,
+  IdToken,
+  plainCode,
+  TimeStamp,
+} from '../../components';
 import type { EpisodeView } from './slice';
+
+// What woke the bee, as a person would say it; a kind not listed reads as sent, in plain case.
+const TRIGGER_WORDS: Readonly<Record<string, string>> = {
+  tick: 'a timer tick',
+  message: 'a message',
+  alarm: 'an Alarm',
+  question: 'a question',
+  result: 'a task result',
+  heartbeat: 'a heartbeat',
+  watch: 'a watch observation',
+};
+
+const triggerWords = (kind: string): string => TRIGGER_WORDS[kind] ?? plainCode(kind);
+
+// Why a tainted or cleared thought is marked, as the tag's `title`.
+const TAINT_MEANING = {
+  tainted: 'This thought read text that may have carried instructions; the source is named.',
+  cleared: 'A judge cleared text that could have carried instructions; the source is named.',
+} as const;
 
 // A disclosure built on a button, so it works the same in every browser and is plainly labelled.
 function Section(props: { title: string; children: ReactNode }): ReactElement {
@@ -77,10 +102,14 @@ function Usage(props: { episode: EpisodeView }): ReactElement {
 // history is kept; the word carries the meaning. Null renders nothing.
 function TaintTag({ episode }: { episode: EpisodeView }): ReactElement | null {
   if (episode.taint === null) return null;
-  const source = episode.taint_source !== null ? ` (${episode.taint_source})` : '';
+  const source = episode.taint_source !== null ? ` (${plainCode(episode.taint_source)})` : '';
+  const tainted = episode.taint === 'tainted';
   return (
-    <span className={`tag tag--status tag--${episode.taint === 'tainted' ? 'alarm' : 'warn'}`}>
-      {episode.taint === 'tainted' ? 'TAINTED' : 'CLEARED'}
+    <span
+      className={`tag tag--status tag--${tainted ? 'alarm' : 'warn'}`}
+      title={tainted ? TAINT_MEANING.tainted : TAINT_MEANING.cleared}
+    >
+      {tainted ? 'TAINTED' : 'CLEARED'}
       {source}
     </span>
   );
@@ -96,12 +125,19 @@ export function EpisodeCard(props: { episode: EpisodeView }): ReactElement {
       <header className="thought-head">
         <TimeStamp at={e.at} />
         <IdToken id={e.id} />
-        <span className="tag">{e.is_autopilot ? 'Autopilot' : 'Awake'}</span>
-        <span className="tag">{e.clearance}</span>
+        <span
+          className="tag"
+          title={e.is_autopilot ? 'decided by rule, no model' : 'decided with a model'}
+        >
+          {e.is_autopilot ? 'Autopilot' : 'Awake'}
+        </span>
+        <span className="tag" title={CLEARANCE_MEANINGS[e.clearance]}>
+          {clearanceWords(e.clearance)}
+        </span>
         <TaintTag episode={e} />
-        <span className="tag">
-          <span className="thought-label">trigger</span>
-          <span className="mono">{e.trigger_kind}</span>
+        <span className="tag" title={e.trigger_kind}>
+          <span className="thought-label">woken by</span>
+          {triggerWords(e.trigger_kind)}
         </span>
       </header>
       <p className="thought-trigger">{e.trigger_summary}</p>

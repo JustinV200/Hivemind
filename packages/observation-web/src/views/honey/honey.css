@@ -56,6 +56,44 @@
   align-content: start;
 }
 
+/* The clearance legend: a full-width strip in the title row, after the gloss, like the Fleet's */
+.honey-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+  flex-basis: 100%;
+  order: 1;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+
+.honey-legend h2 {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.honey-legend ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.honey-legend li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
 /* Breadcrumbs */
 .honey-crumbs {
   display: flex;

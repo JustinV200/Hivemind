@@ -3,8 +3,9 @@
  * human.
  *
  * An Alarm is what a bee raises when something went wrong (`WORKER_CRASHED`, `GRANT_EXCEEDED`).
- * Each row shows its severity in words, its kind, its id, the task it concerns and when it was
- * raised, and says so when it has escalated to the human.
+ * Each row shows its severity in words, its kind as a plain phrase (the code in its `title`),
+ * its id, the task it concerns and when it was raised, and says so when it has escalated to the
+ * human.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/panels/`. Rendered by `cell.tsx` from the page; the
@@ -17,7 +18,7 @@
  *   - docs/observation/design.md section 5.2.
  */
 import type { ReactElement } from 'react';
-import { IdToken, TimeStamp } from '../../../components';
+import { alarmKindWords, IdToken, TimeStamp } from '../../../components';
 import type { CellPage } from '../slice';
 import { Panel, Tag } from './panel';
 import type { TagTone } from './panel';
@@ -39,7 +40,7 @@ export function AlarmsPanel(props: { page: CellPage }): ReactElement {
         {alarms.map((alarm) => (
           <li key={alarm.id} className="cell-row">
             <Tag tone={SEVERITY_TONE[alarm.severity]}>{alarm.severity}</Tag>
-            <span>{alarm.kind}</span>
+            <span title={alarm.kind}>{alarmKindWords(alarm.kind)}</span>
             <IdToken id={alarm.id} />
             {alarm.task_id ? (
               <span>

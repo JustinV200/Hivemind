@@ -34,8 +34,16 @@ const order = (table: HTMLElement) =>
     .slice(1)
     .map((row) => row.querySelector('td code')?.getAttribute('title'));
 const rowOf = (id: string) => queue().getByLabelText(id).closest('tr') as HTMLElement;
-const chip = (group: string, name: RegExp) =>
-  within(screen.getByRole('group', { name: group })).getByRole('button', { name });
+const chip = (group: string, name: RegExp | string) =>
+  within(screen.getByRole('group', { name: group })).getByRole('button', {
+    // A chip's name is its words then its count, so a string names it by its start.
+    name: typeof name === 'string' ? new RegExp(`^${name}`) : name,
+  });
+
+// The three tiers of the busy view, as the strip and the chips name them (their plain phrases).
+const SCRATCH = 'writes inside its scratch folder';
+const EGRESS = 'talks to the network';
+const IRREVERSIBLE = 'cannot be undone';
 
 // The page's width as it hears it: every min-width query matches until `phone` is set, and the
 // listeners a hook registered are told when it changes.
@@ -72,21 +80,27 @@ describe('the rates strip', () => {
   it('shows one card per tier, least dangerous first, with the figures the schema gives', async () => {
     await mount();
     const strip = region('Rates per tier');
-    const tiers = strip.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
-    expect(tiers).toEqual(['SCRATCH WRITE', 'NETWORK EGRESS', 'IRREVERSIBLE']);
+    // A tier is named by what the action does, with the gate's code on the heading's title.
+    const headings = strip.getAllByRole('heading', { level: 3 });
+    expect(headings.map((h) => h.textContent)).toEqual([SCRATCH, EGRESS, IRREVERSIBLE]);
+    expect(headings.map((h) => h.getAttribute('title'))).toEqual([
+      'SCRATCH WRITE',
+      'NETWORK EGRESS',
+      'IRREVERSIBLE',
+    ]);
     const figure = (tier: string, label: string) => {
       const card = strip.getByRole('heading', { name: tier }).closest('li') as HTMLElement;
       return within(card).getByText(label).nextElementSibling?.textContent;
     };
-    expect(figure('SCRATCH WRITE', 'Waiting')).toBe('1');
-    expect(figure('NETWORK EGRESS', 'Refused')).toBe('1');
-    expect(figure('NETWORK EGRESS', 'Approved')).toBe('0');
-    expect(figure('IRREVERSIBLE', 'Approved')).toBe('1');
-    expect(figure('IRREVERSIBLE', 'Rolled back')).toBe('1');
-    expect(figure('IRREVERSIBLE', 'Audited')).toBe('1 of 1 (100%)');
-    expect(figure('IRREVERSIBLE', 'Findings')).toBe('1 (100% of scored)');
+    expect(figure(SCRATCH, 'Waiting')).toBe('1');
+    expect(figure(EGRESS, 'Refused')).toBe('1');
+    expect(figure(EGRESS, 'Approved')).toBe('0');
+    expect(figure(IRREVERSIBLE, 'Approved')).toBe('1');
+    expect(figure(IRREVERSIBLE, 'Rolled back')).toBe('1');
+    expect(figure(IRREVERSIBLE, 'Audited')).toBe('1 of 1 (100%)');
+    expect(figure(IRREVERSIBLE, 'Findings')).toBe('1 (100% of scored)');
     // A tier nothing was audited for says so with the hyphen, not a made-up zero percent.
-    expect(figure('SCRATCH WRITE', 'Audited')).toBe('0 of 0 (-)');
+    expect(figure(SCRATCH, 'Audited')).toBe('0 of 0 (-)');
   });
 });
 
@@ -126,12 +140,12 @@ describe('the filter chips', () => {
     // Each chip counts the rows it would keep.
     expect(chip('Show tier', /^All 3$/).getAttribute('aria-pressed')).toBe('true');
     expect(chip('Show state', /^REJECTED 1$/)).toBeTruthy();
-    fireEvent.click(chip('Show tier', /^NETWORK EGRESS/));
+    fireEvent.click(chip('Show tier', EGRESS));
     expect(order(table())).toEqual(['prop_rej']);
-    expect(chip('Show tier', /^NETWORK EGRESS/).getAttribute('aria-pressed')).toBe('true');
+    expect(chip('Show tier', EGRESS).getAttribute('aria-pressed')).toBe('true');
     expect(chip('Show tier', /^All/).getAttribute('aria-pressed')).toBe('false');
     // Two tiers are a union; a state narrows both.
-    fireEvent.click(chip('Show tier', /^IRREVERSIBLE/));
+    fireEvent.click(chip('Show tier', IRREVERSIBLE));
     expect(order(table())).toEqual(['prop_roll', 'prop_rej']);
     fireEvent.click(chip('Show state', /^ROLLED BACK/));
     expect(order(table())).toEqual(['prop_roll']);
@@ -142,7 +156,7 @@ describe('the filter chips', () => {
 
   it('say so when nothing matches, and the chips stay put', async () => {
     await mount();
-    fireEvent.click(chip('Show tier', /^SCRATCH WRITE/));
+    fireEvent.click(chip('Show tier', SCRATCH));
     fireEvent.click(chip('Show state', /^REJECTED/));
     expect(queue().getByText('No proposals match these filters.')).toBeTruthy();
     expect(queue().queryByRole('table')).toBeNull();
@@ -172,9 +186,9 @@ describe('the filter selects on a phone', () => {
     expect(screen.queryByRole('group', { name: 'Show tier' })).toBeNull();
     expect([...tier.options].map((o) => o.textContent)).toEqual([
       'All (3)',
-      'SCRATCH WRITE (1)',
-      'NETWORK EGRESS (1)',
-      'IRREVERSIBLE (1)',
+      `${SCRATCH} (1)`,
+      `${EGRESS} (1)`,
+      `${IRREVERSIBLE} (1)`,
     ]);
     fireEvent.change(tier, { target: { value: 'NETWORK_EGRESS' } });
     expect(order(table())).toEqual(['prop_rej']);
@@ -190,8 +204,8 @@ describe('the filter selects on a phone', () => {
   it('collapse several chips to the first when the window narrows', async () => {
     fakeWidth();
     await mount();
-    fireEvent.click(chip('Show tier', /^NETWORK EGRESS/));
-    fireEvent.click(chip('Show tier', /^IRREVERSIBLE/));
+    fireEvent.click(chip('Show tier', EGRESS));
+    fireEvent.click(chip('Show tier', IRREVERSIBLE));
     expect(order(queue().getByRole('table'))).toEqual(['prop_roll', 'prop_rej']);
     act(() => shrink());
     const tier = screen.getByLabelText('Show tier') as HTMLSelectElement;

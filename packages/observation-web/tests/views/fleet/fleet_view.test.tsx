@@ -87,7 +87,9 @@ describe('rows', () => {
   it('shows the kind, source, status and mode, access, task and role, Alarms, Wax and lease', async () => {
     await openFleet({ rows: [real] });
     const row = (await screen.findAllByRole('row'))[1]!;
-    for (const text of ['ACTIVE', 'active', 'full', 'guard bee', 'caution']) {
+    // The status and the mode both read `active`, in plain words rather than the schema's code.
+    expect(within(row).getAllByText('active')).toHaveLength(2);
+    for (const text of ['full', 'guard bee', 'caution']) {
       expect(within(row).getAllByText(text).length).toBeGreaterThan(0);
     }
     // The kind, the source and the lease age share one muted line under the name.

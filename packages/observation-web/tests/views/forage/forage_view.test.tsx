@@ -229,11 +229,9 @@ describe('the Forage map', () => {
     const map = await screen.findByRole('table', { name: /Forage map/ });
     const header = within(map).getByRole('columnheader', { name: /Model/ });
     expect(header.getAttribute('aria-sort')).toBe('none');
-    expect(
-      within(map)
-        .getByRole('columnheader', { name: /Binding/ })
-        .getAttribute('aria-sort'),
-    ).toBe('ascending');
+    expect(within(map).getByRole('columnheader', { name: /^Slot/ }).getAttribute('aria-sort')).toBe(
+      'ascending',
+    );
     fireEvent.click(within(header).getByRole('button'));
     expect(header.getAttribute('aria-sort')).toBe('ascending');
     expect(modelOrder()).toEqual(['big-1', 'small-1']);
