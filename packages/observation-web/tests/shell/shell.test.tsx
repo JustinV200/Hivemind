@@ -174,19 +174,20 @@ describe('summary strip', () => {
     expect(screen.queryByText(/stale since/)).toBeNull();
   });
 
-  it('dims and says stale since when a stream drops, and the bar says reconnecting', async () => {
+  it('says stale since when a stream drops, and the bar says reconnecting', async () => {
     const fake = await openShell();
     await live(fake);
     // The Entrance accepted every hello: the deadline passed with the sockets still open.
     act(() => fake.advance(5000));
     expect(screen.getByText('live')).toBeTruthy();
     act(() => fake.sockets[0]!.serverClose(1006));
-    // The strip's note, and the view's own under its title, which dims the main area with it.
+    // The strip's note, and the view's own under its title; the main area is not dimmed, since
+    // that would drop its captions and links under 4.5:1.
     expect(screen.getAllByText(/stale since \d\d:\d\d:\d\d/)).toHaveLength(2);
     expect(screen.getByText(/^stale since \d\d:\d\d:\d\d, reconnecting$/).className).toBe(
       'view-stale',
     );
-    expect(screen.getByRole('main').className).toContain('shell-main--stale');
+    expect(screen.getByRole('main').className).toBe('shell-main');
     expect(screen.getByText('reconnecting')).toBeTruthy();
     const strip = screen.getAllByRole('status').find((el) => el.classList.contains('strip'))!;
     expect(strip.className).toContain('strip--stale');

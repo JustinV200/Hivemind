@@ -215,16 +215,11 @@
   color: var(--text-muted);
 }
 
+/* The note is the main area's one mark of a dropped stream: dimming the view as the strip does
+   would put every caption, link and status word under 4.5:1 (design.md section 7) */
 .view-stale {
   color: var(--warn);
   font-weight: 600;
-}
-
-/* While a stream has dropped, everything but the title row dims, as the strip does; 0.7 rather
-   than the strip's 0.55 because body text at 0.55 on the page would fall under 4.5:1 */
-.shell-main--stale > :not(.view-title, .cell-header, .att-header, .notice),
-.shell-main--stale :is(.chat, .enrol, .devices) > :not(.view-title, .notice) {
-  opacity: 0.7;
 }
 
 @media (min-width: 720px) {

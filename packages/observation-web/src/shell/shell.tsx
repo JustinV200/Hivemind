@@ -14,8 +14,8 @@
  * Key invariants:
  *   - The skip link focuses `<main>` in place; it must not change the hash, which is the router.
  *   - Feeds start once per mount and their cleanup closes every socket.
- *   - `shell-main--stale` is set from the connection slice alone, by the same rule as the title
- *     row's stale note, so the dimming and the words never disagree.
+ *   - A dropped stream is said in words (the strip's note, the title row's note), never by
+ *     dimming the main area, which would put its captions and links under 4.5:1.
  *
  * See Also:
  *   - docs/observation/design.md sections 2 and 7.
@@ -23,7 +23,7 @@
  */
 import { useEffect, useRef } from 'react';
 import type { MouseEvent, ReactElement } from 'react';
-import { startFeeds, useHive, useSlice, viewStaleSince } from '../store';
+import { startFeeds, useHive } from '../store';
 import { NoticeBar, StepUpBanner, SummaryStrip, TopBar } from './head';
 import { Nav } from './nav';
 import { Outlet } from './outlet';
@@ -39,9 +39,6 @@ export function Shell(): ReactElement {
   const { client, store } = useHive();
   const shell = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLElement>(null);
-  // While a stream has dropped the view's rows are the last frames, so the main area dims the
-  // way the strip does and the title row says since when (design.md section 8).
-  const stale = viewStaleSince(useSlice('connection')) !== null;
 
   useEffect(() => startFeeds({ client, store, nowMs: () => Date.now() }), [client, store]);
   // The rail and the sticky parts of a view sit under the head, whose height the banner and the
@@ -60,11 +57,7 @@ export function Shell(): ReactElement {
         <NoticeBar />
       </header>
       <Nav />
-      <main
-        id="main"
-        className={stale ? 'shell-main shell-main--stale' : 'shell-main'}
-        tabIndex={-1}
-      >
+      <main id="main" className="shell-main" tabIndex={-1}>
         <Outlet />
       </main>
     </div>
