@@ -131,7 +131,12 @@ async def test_an_exoskeleton_task_is_equipped_before_its_role_and_unequipped_wh
 ):
     seen: dict[str, ExoskeletonHandle | None] = {}
     ctx, clock = await _context(seen)
-    assignment = make_assignment(clock=clock, exoskeleton=ExoskeletonNeed(audio=True))
+    # ADR-0069: audio only ever reaches a Warden with the owner's approval on the assignment.
+    assignment = make_assignment(
+        clock=clock,
+        exoskeleton=ExoskeletonNeed(audio=True),
+        owner_approved=("exoskeleton:audio",),
+    )
 
     sub_bee = await spawn_sub_bee(ctx, assignment, _grant(clock, assignment.grant_id))
     await _settle(seen)

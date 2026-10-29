@@ -131,6 +131,8 @@ class AssignmentTerms:
             building the `TaskAssign`, the one place in this module that awaits it.
         review_findings: What the Nurse Bee's last review asked to change (ADR-0061), for the
             fresh Worker that fixes forward; set only by a Nurse retry, empty otherwise.
+        owner_approved: The scopes that watch the owner which the owner approved for this task
+            on this Cell (ADR-0069); filled in by `send_grant_and_assign`, like `recon`.
     """
 
     attempt: int
@@ -138,6 +140,7 @@ class AssignmentTerms:
     handoff: HandoffDocument | None = None
     recon: tuple[ScoutReport, ...] = ()
     review_findings: tuple[NurseFinding, ...] = ()
+    owner_approved: tuple[str, ...] = ()
 
 
 async def send_grant_and_assign(
@@ -174,14 +177,14 @@ async def send_grant_and_assign(
         return None
     await _book_grant(deps, cell_id, sized, fresh_grant)
     # Roadmap step 6.10: every SUCCEEDED Scout this task directly depends on, newest first, so a
-    # Forager's brief carries what recon already found. Recomputed on every send (fresh dispatch,
-    # redispatch or resume) since a dependency the task was placed against never changes once
-    # terminal, so recomputing costs a few cheap chamber reads and never disagrees with itself.
-    recon = await _recon_for(deps, task)
+    # Forager's brief carries what recon already found; recomputed on every send, cheaply, since a
+    # terminal dependency never changes. ADR-0069: and what the owner approved on this very Cell.
+    approved = deps.dispatch.watch.approved_scopes(task.id, cell_id)
+    terms = replace(terms, recon=await _recon_for(deps, task), owner_approved=approved)
     # Roadmap 7.9/7.9a: what the Hive already knows about this task and Cell; never raises, and
     # bounded by its own timeout, so the assignment always goes out.
     honey = await consult_for_assignment(deps, task, link)
-    assign = _task_assign(task, cell_id, fresh_grant.id, replace(terms, recon=recon), honey=honey)
+    assign = _task_assign(task, cell_id, fresh_grant.id, terms, honey=honey)
     # A Handoff that travels inline must still leave the assignment inside one frame (ADR-0052).
     assign = await fit_in_frame(deps, link, task, assign)
     message = await forage_grants.grant_message(deps, fresh_grant)
@@ -365,6 +368,8 @@ def _task_assign(
         # review past it whatever kind of retry came between; findings only on a Nurse retry.
         review_round=task.nurse_rounds,
         review_findings=terms.review_findings,
+        # ADR-0069: the Warden gives its Worker the running screen or audio only if named here.
+        owner_approved=terms.owner_approved,
         reason=reason,
     )
 

@@ -29,6 +29,7 @@ from hivemind.entrance.routes.entrance import (
     ENROLMENT_ROUTES,
     HELD_ROUTES,
     OPERATOR_ROUTES,
+    WATCH_ROUTES,
 )
 from hivemind.entrance.routes.hive import (
     CELL_ROUTES,
@@ -65,6 +66,7 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     ENROLMENT_ROUTES,
     HELD_ROUTES,
     OPERATOR_ROUTES,
+    WATCH_ROUTES,  # ADR-0069: the owner's yes or no to the running screen or audio.
     devices.ROUTES,
     goals.ROUTES,
     chat.ROUTES,

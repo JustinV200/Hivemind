@@ -451,7 +451,11 @@ with an invite. Read: `/v1/devices`, `/v1/devices/me`. Stream: entrance (securit
 pending list, approve (name, capabilities, spend cap, expiry), deny, unlock, revoke, and the
 Entrance Reducer with its reopen flow. A remote session that opens `#/enrol` sees a plain
 "not found" page. This is a convenience; the remote listener 404s the routes (8.15). Read:
-`/v1/entrance/pending`, `/v1/entrance/invites`, `/v1/entrance/mode`.
+`/v1/entrance/pending`, `/v1/entrance/invites`, `/v1/entrance/mode`, `/v1/entrance/watch`. Below
+the pending list, "Waiting to use your screen or sound" lists the tasks held for the owner's yes to
+drive the running screen or audio (ADR-0069), each with what it asks for, the machine, the task and
+the bee, and when it is refused unanswered; Allow and Refuse post the loopback-only, stand-key
+`/v1/entrance/watch/{request_id}/approve` and `/deny`.
 
 The join screen is the one place outside the chat where the app writes beyond the Entrance's own device and door routes: it posts `POST /v1/enrol/passkey-options` and `POST /v1/enrol/passkey` to redeem an invite, so the client's write guard allows `/v1/enrol/passkey*` and nothing else under `/v1/enrol/`.
 
@@ -470,7 +474,7 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   "DejaVu Sans Mono", monospace`.
 - **Headings:** weight 600 with 0.01 em tracking. One rhythm in every view: a panel's heading
   and every top-level section heading (the Forage's, the Cost's and the Capping's sections, the
-  Devices' Entrance panel, the Enrol's two sections, the Queen's inbox on the Thoughts view, the
+  Devices' Entrance panel, the Enrol's three sections, the Queen's inbox on the Thoughts view, the
   Honey lists, the chat's waiting section) is `.section-heading`, 18 px with a hairline under it;
   a sub-heading inside a panel (an `h3`) carries none.
 - **Sizes (token, px):** `--fs-xs` 12 (badges, captions), `--fs-sm` 13 (tables), `--fs-md` 15

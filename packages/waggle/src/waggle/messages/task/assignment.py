@@ -17,7 +17,9 @@ name) and an optional Handoff (the document a bee writes before its context is r
 from, referenced by ``resume_from`` and, when the receiving Warden cannot read the sender's memory
 store (a Warden migrating onto a colonized device, PROTOCOL_MINOR 13, roadmap phase 11), carried
 inline as a ``HandoffDocument``; and, once a Nurse Bee (ADR-0061: a fresh-context reviewer) has
-sent the task back, the review round so far and the findings to fix (PROTOCOL_MINOR 15).
+sent the task back, the review round so far and the findings to fix (PROTOCOL_MINOR 15); and the
+Exoskeleton scopes that watch the owner which the owner approved for this task on this Cell at the
+Hive Stand (PROTOCOL_MINOR 17, ADR-0069: the running screen and audio, never granted without it).
 ``TaskCancel``, ``TaskPause`` and ``TaskResume`` are the orders
 on a task in flight. The
 reports that travel back up (``TaskProgress``, ``TaskResult``) live in
@@ -61,7 +63,7 @@ See Also:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
 
@@ -96,6 +98,9 @@ MAX_CAPABILITY_CHARS = 1_024  # One capability string: a family and a scope, a p
 MIN_ATTEMPT = 1  # The first try is attempt 1, so 0 can never pass for a real attempt.
 MIN_GRACE_S = 0.0  # A grace period is never negative; exactly 0 kills at once (Sting Cut).
 MIN_REVIEW_ROUND = 0  # Nurse rounds already spent: 0 until the first review sends the task back.
+# The Exoskeleton scopes that watch the owner (ADR-0069): their running screen and the sound
+# server. A Worker is given one only when the owner approved it for this task at the Hive Stand.
+OWNER_APPROVED_SCOPES = ("exoskeleton:real_display", "exoskeleton:audio")
 
 __all__ = [
     "MAX_ACCEPTANCE_CHARS",
@@ -110,6 +115,7 @@ __all__ = [
     "MIN_GRACE_S",
     "MIN_OBJECTIVE_CHARS",
     "MIN_REVIEW_ROUND",
+    "OWNER_APPROVED_SCOPES",
     "TaskAssign",
     "TaskCancel",
     "TaskPause",
@@ -138,6 +144,8 @@ _Slot = Annotated[str, Field(max_length=MAX_SLOT_CHARS, pattern=SLOT_PATTERN)]
 # One capability string (`family` or `family:scope`, ADR-0039): opaque text on the wire, bounded
 # here and parsed by the receiving Warden's Guard, which refuses one it cannot read.
 _Capability = Annotated[str, Field(min_length=1, max_length=MAX_CAPABILITY_CHARS)]
+# One of OWNER_APPROVED_SCOPES, exactly: nothing else can ride on the owner's approval.
+_OwnerApproved = Literal["exoskeleton:real_display", "exoskeleton:audio"]
 
 
 class TaskAssign(WaggleMessage):
@@ -257,6 +265,13 @@ class TaskAssign(WaggleMessage):
         description="What the last Nurse review asked to change, for the fresh Worker that fixes "
         "forward on the same Cell; untrusted model prose. Set only when review_round is at least 1 "
         "(validator). Empty by default (PROTOCOL_MINOR 15).",
+    )
+    owner_approved: tuple[_OwnerApproved, ...] = Field(
+        default=(),
+        max_length=len(OWNER_APPROVED_SCOPES),
+        description="The Exoskeleton scopes that watch the owner (the running screen, audio) "
+        "which the owner approved for this task on this Cell from the Hive Stand (ADR-0069); the "
+        "Warden gives its Worker neither without it. Empty by default (PROTOCOL_MINOR 17).",
     )
     reason: _Reason = Field(
         description="Why this task was placed here, on this role and slot, now."

@@ -23,12 +23,17 @@ that call), so a raise from it can only mean this function's own filtering has a
 invariant rather than relying on it. Roadmap step 7.8's two Honey Store tools (`tool:recall`,
 `tool:remember`) are named in the Drone's role default beside `tool:*`, so they survive a Warden
 ceiling that one day lists tools by name instead of `tool:*`
-(`hivemind.workers.tools.registry.build_registry` offers each only when it is allowed).
+(`hivemind.workers.tools.registry.build_registry` offers each only when it is allowed). Last,
+ADR-0069: `owner_approved_only` then drops the two Exoskeleton scopes that watch the owner
+(`exoskeleton:real_display`, the operator's running screen, and `exoskeleton:audio`) unless the
+owner approved them for this task from the Hive Stand (`TaskAssign.owner_approved`), whatever the
+Warden, the role default or the goal allow; a wildcard `exoskeleton:*` keeps its other scopes.
 
 Fits into the Hive:
     Layer 4 (roles that do the work). Called by `hivemind.wardens.spawn` (roadmap step 3.19) when
     it spawns a sub-bee, to attenuate its own `CapabilitySet` down to the new Worker's. Calls into
-    `hivemind.cell` (TaskNeeds) and `hivemind.guard` (CapabilitySet) only.
+    `hivemind.cell` (TaskNeeds), `hivemind.guard` (CapabilitySet) and waggle
+    (OWNER_APPROVED_SCOPES) only.
 
 Key invariants:
     - The result is never wider than `goal` either, when one is given: a candidate the goal's
@@ -42,6 +47,8 @@ Key invariants:
     - Every role-default entry the Warden holds is present, regardless of `needs`.
     - A `net`/`device` capability beyond the role default is present only when `needs` asks for
       it (`network_scopes`, `exoskeleton`) AND `warden_caps` already grants it.
+    - `owner_approved_only`'s result never allows `exoskeleton:real_display` or
+      `exoskeleton:audio` unless the owner approved it (ADR-0069): no planner or goal set can.
 
 See Also:
     - .claude/codingrules.md section 15 for "Capabilities and Forage only attenuate down the
@@ -60,9 +67,20 @@ from __future__ import annotations
 from pathlib import Path
 
 from hivemind.cell import TaskNeeds
-from hivemind.guard import DIAGNOSTIC_EXEC, CapabilitySet, glob_literal
+from hivemind.guard import (
+    DIAGNOSTIC_EXEC,
+    EXOSKELETON_SCOPES,
+    Capability,
+    CapabilityFamily,
+    CapabilitySet,
+    glob_literal,
+)
+from waggle.messages.task import OWNER_APPROVED_SCOPES
 
-__all__ = ["worker_capabilities"]
+# What only the owner's approval grants (ADR-0069), parsed once from the wire's own list.
+_OWNER_APPROVED = tuple(Capability.parse(spec) for spec in OWNER_APPROVED_SCOPES)
+
+__all__ = ["owner_approved_only", "worker_capabilities"]
 
 
 def worker_capabilities(
@@ -115,6 +133,39 @@ def worker_capabilities(
     # Proves the slice invariant rather than relying on the filtering above alone (module
     # docstring): raises only if this function's own filtering let something wider through.
     return warden_caps.attenuate(granted)
+
+
+def owner_approved_only(granted: CapabilitySet, owner_approved: tuple[str, ...]) -> CapabilitySet:
+    """Drop every scope that watches the owner which the owner did not approve (ADR-0069).
+
+    The Warden runs this on `worker_capabilities`' slice with its assignment's
+    `TaskAssign.owner_approved`, so neither the role default, the Warden's own set nor a goal set
+    a planner wrote can hand a Worker the running screen or audio alone. A grant naming one such
+    scope outright is dropped; a wildcard (`exoskeleton:*`) is replaced by each peripheral it
+    covers that is still allowed, so the virtual display and the browser stay.
+
+    Args:
+        granted: A Worker's slice, as `worker_capabilities` computed it.
+        owner_approved: Which of `OWNER_APPROVED_SCOPES` the owner approved for this task on
+            this Cell; every other one is dropped.
+
+    Returns:
+        `granted`, narrowed; never wider.
+    """
+    refused = [cap for cap in _OWNER_APPROVED if str(cap) not in owner_approved]
+    if not refused:
+        return granted
+    kept: set[Capability] = set()
+    for capability in granted:
+        if not any(capability.matches(cap) for cap in refused):
+            kept.add(capability)
+            continue
+        # Only an `exoskeleton` grant can cover these; keep what else it covers, named one by one.
+        for scope in sorted(EXOSKELETON_SCOPES):
+            named = Capability(family=CapabilityFamily.EXOSKELETON, scope=scope)
+            if capability.matches(named) and named not in refused:
+                kept.add(named)
+    return CapabilitySet(capabilities=frozenset(kept))
 
 
 def _write_root_specs(roots: tuple[Path, ...]) -> list[str]:

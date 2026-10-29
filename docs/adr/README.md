@@ -344,3 +344,10 @@ ADRs that exist today, in numeric order:
   Hive Stand holds (the serve record, read by `hive entrance`; the printed `/stand#key=` link's
   fragment, kept in the browser tab's `sessionStorage`), sent only as `X-Hive-Stand`, never a
   cookie; a stand-key holder gets its own rate bucket; amends ADR-0041.
+- `0069-the-owner-approves-the-running-screen-and-audio-at-the-hive-stand.md`: a Worker holds
+  `exoskeleton:real_display` or `exoskeleton:audio` only for a task the owner approved on that Cell
+  from the Hive Stand (the manifest opt-in stays a prerequisite); the dispatcher holds the task
+  PENDING behind a watch request, answered only through loopback-only, stand-key rows
+  (`/v1/entrance/watch/{request_id}/approve|deny`), denied or unanswered in fifteen minutes it is
+  cancelled; `TaskAssign.owner_approved` (Waggle 1.17) carries the approval and the Warden drops
+  either scope without it; amends ADR-0031.

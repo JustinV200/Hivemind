@@ -325,6 +325,15 @@ every assignment goes to a Warden, over Waggle.
   path, the Hive Stand's fallback of quarantine orders plus a `PlacementHold` placement reads as a
   block for the held goals, a quarantine order, or nothing); stamps the row. A
   `[guard.sting_cut] dire_patterns` report (or an awake `STING_CUT`) isolates and then Sting Cuts.
+- `queen.peripherals` (ADR-0069): the owner's yes to a task that would drive the running screen
+  or audio. `gate.hold_for_owner`, called by the dispatcher once a Cell is chosen, files a
+  `WatchRequest` in `DispatchBook.watch` (`WatchBook`, in memory) and keeps the task PENDING; an
+  APPROVED request lets it through with `TaskAssign.owner_approved`, a DENIED or EXPIRED one
+  cancels it. A retry or resume with no approval on record for its Cell (a restarted or
+  superseding Queen's book is empty) goes back to PENDING through `gate.hand_back_unapproved`, so
+  the owner is asked again. `WatchDoor` (`pending_watch_requests`, `answer_watch_request`) is how the Entrance's
+  loopback-only, stand-key rows answer. `queen.holds` also keeps the zero-grant waits
+  (`GrantWaits`), moved there out of `queen.deps`.
 - `queen.sting_cut` (roadmap step 13.4a, `docs/guard/sting-cut.md`): the one Sting Cut path.
   `sting_cut_cell(site, order)` checks `EnforcementPoint.STING_CUT` (`authority`: the Queen is
   refused the Hive Stand's own lease and past `max_autonomous_sting_cuts_per_hour`), makes the cut

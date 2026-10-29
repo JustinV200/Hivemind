@@ -1,6 +1,6 @@
 # Waggle protocol specification
 
-Protocol version `1.16`. This document is the source of truth for every message the Hive's bees
+Protocol version `1.17`. This document is the source of truth for every message the Hive's bees
 exchange; the pydantic models in `packages/waggle/src/waggle/` implement it and a drift test
 (section 11) keeps the two in step. Every bee term is defined in plain English where it first
 appears; the README's terminology table is the longer reference.
@@ -46,7 +46,7 @@ fields appear in this order.
 | `sender` | `str` | A bee address (below) |
 | `recipient` | `str` | A bee address (below) |
 | `kind` | `str` | `<family>.<snake_name>`, a registered kind matching the payload's class |
-| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.16"` |
+| `version` | `str` | `"<major>.<minor>"`, pattern `^\d+\.\d+$`, default `"1.17"` |
 | `sent_at` | `datetime` | Timezone-aware UTC; a naive datetime is rejected |
 | `node_id` | `NodeId` | `node_<ULID>` of the process that sent it; signing keys are per node |
 | `payload` | `SerializeAsAny[WaggleMessage]` | The typed message; the subclass is serialised in full |
@@ -70,8 +70,8 @@ Validation rules:
 - **Correlation.** A model validator looks up `spec_for(kind).shape`: `REQUEST` requires
   `correlation_id` None, `REPLY` requires it set, `EVENT` accepts either. A decoded frame that
   breaks the rule is `waggle.codec.invalid_payload`.
-- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.16"`, `PROTOCOL_MAJOR = 1` and
-  `PROTOCOL_MINOR = 16` are constants in `waggle/envelope.py`.
+- **Version.** `version` follows section 4; `PROTOCOL_VERSION = "1.17"`, `PROTOCOL_MAJOR = 1` and
+  `PROTOCOL_MINOR = 17` are constants in `waggle/envelope.py`.
 - **Time.** `sent_at` is stamped from the injected `Clock` by `wrap()`; it is transported as an
   ISO 8601 string with an explicit offset. An aware datetime with a non-zero offset is
   normalised to UTC on validation (canonical bytes are computed over the raw wire dict, so
@@ -278,6 +278,11 @@ validates every message a newer one sends it, as long as the sender honours the 
   device pins the new Hive Stand's certificate from the signed notice. It defaults to None, so a
   `ws://` notice validates at every minor; a Queen sends a `wss://` notice only to a peer that has
   advertised minor 16.
+- **1.17** (additive): the owner's approval for what watches them (ADR-0069).
+  `TaskAssign.owner_approved` names which of `exoskeleton:real_display` and `exoskeleton:audio`
+  the owner approved for this task on this Cell from the Hive Stand; a Warden gives its Worker
+  neither without it. It defaults to empty, so a peer below minor 17 validates every assignment
+  that asks for neither.
 
 ## 5. Wire format and size limit
 
@@ -803,6 +808,10 @@ Cell, which re-issues it to the Worker it spawns.
 - `review_findings` (`tuple[NurseFinding, ...]`, `PROTOCOL_MINOR` 15): what the last Nurse review
   asked to change, for the fresh Worker that fixes forward on the same Cell; untrusted model
   prose. Max 8; set only when `review_round` is at least 1 (validator); default empty.
+- `owner_approved` (`tuple[str, ...]`, `PROTOCOL_MINOR` 17): which of `exoskeleton:real_display`
+  and `exoskeleton:audio` (nothing else validates) the owner approved for this task on this Cell
+  from the Hive Stand (ADR-0069). The Warden gives its Worker neither scope unless it is named
+  here, whatever its own set and the goal's allow. Max 2; default empty.
 - `reason` (`str`): why this task was placed here, on this role and slot, now.
 
 #### TaskProgress

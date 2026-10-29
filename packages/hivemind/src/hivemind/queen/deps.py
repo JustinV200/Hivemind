@@ -31,18 +31,19 @@ a revocation from the Entrance and her own intake never move one request from a 
 Roadmap step 10.6 adds the Guard Bee (the Hive's security watcher) she runs on her own tick beside
 the House Bee's sweep (`guard_bee`): the composition root builds one for every Hive it composes
 (`hivemind.cli.compose.guard`), and a test that needs none leaves it None.
-The zero-grant fix adds her book of fresh tasks waiting for a grant (a `GrantWaits` holding
-`[forage] zero_grant_patience_s`), and to `WardenLink` the reader of its Cell's capacity as it
-stands right now (`live_capacity`, a `LiveCapacity`: the Hive Stand re-reads its load and free
-memory on every call; a Virtual Cell, whose resources its spec fixes, has none). The dispatcher
-lifecycle fix adds her Virtual Cells being acquired beside her tick (`ProvisionLane`, a bounded
-set of `ProvisionJob`s, so a slow provision never stalls her loop), and gathers the dispatcher's
-own runtime bookkeeping -- its lock, those waits and that lane -- into one `DispatchBook`
-(`dispatch`), kept here beside `housekeeping` for the same reason and so `QueenDeps` stays inside
-codingrules 5.1's class size. The backend backoff adds to that book the Virtual backends whose
-provisions keep failing, each held back for a while (`ProvisionBackoff`, one `BackendHold` per
-backend), its floor and cap her own defaults rather than manifest settings. The release fix adds
-her Virtual Cells being released beside her tick (`ReleaseLane`), bounded the same way.
+The zero-grant fix adds her book of fresh tasks waiting for a grant (a `GrantWaits`, kept in
+`hivemind.queen.holds`, holding `[forage] zero_grant_patience_s`), and to `WardenLink` the reader of
+its Cell's capacity as it stands right now (`live_capacity`, a `LiveCapacity`: the Hive Stand
+re-reads its load and free memory on every call; a Virtual Cell, whose resources its spec fixes, has
+none). The dispatcher lifecycle fix adds her Virtual Cells being acquired beside her tick
+(`ProvisionLane`, a bounded set of `ProvisionJob`s, so a slow provision never stalls her loop), and
+gathers the dispatcher's own runtime bookkeeping -- its lock, those waits and that lane -- into one
+`DispatchBook` (`dispatch`), kept here beside `housekeeping` for the same reason and so `QueenDeps`
+stays inside codingrules 5.1's class size. The backend backoff adds to that book the Virtual
+backends whose provisions keep failing, each held back for a while (`ProvisionBackoff`, one
+`BackendHold` per backend), its floor and cap her own defaults rather than manifest settings. The
+release fix adds her Virtual Cells being released beside her tick (`ReleaseLane`), bounded the same
+way.
 Roadmap step 10.6a adds `guard`: her durable Guard requests, the dire patterns she
 decides by rule, and what isolating a Cell needs (`hivemind.queen.guard_requests.GuardDeps`).
 
@@ -106,7 +107,6 @@ from hivemind.forage import (
     ForageCapacity,
     ForageMap,
     GoalBudgets,
-    GrantBound,
     ModelSlot,
     RoleFootprint,
     RoyalReserve,
@@ -125,8 +125,9 @@ from hivemind.queen.cluster.health import HealthPoller
 from hivemind.queen.cluster.orders import InMemoryOrderStore, OrderStore
 from hivemind.queen.forage.ledger import ForageLedger
 from hivemind.queen.guard_requests import GuardDeps
-from hivemind.queen.holds import HeldCells, ResumeHints
+from hivemind.queen.holds import GrantWaits, HeldCells, ResumeHints
 from hivemind.queen.intake import GoalRequestStore
+from hivemind.queen.peripherals import WatchBook
 from hivemind.queen.placement import (
     DormantCandidate,
     Placement,
@@ -176,7 +177,6 @@ _DEFAULT_SWEEP_INTERVAL_S = 3_600.0  # One hour.
 _DEFAULT_HOT_WINDOW_S = 4.0 * 3600.0  # Four hours.
 # Matches the manifest's own [forage] zero_grant_patience_s default, so a QueenDeps built without
 # naming it (every test that never waits) bounds a wait exactly as a default manifest does.
-_DEFAULT_ZERO_GRANT_PATIENCE_S = 300.0
 # The most Virtual Cells acquired beside the tick at once: as many as a default manifest's
 # [virtual_cells] max_cells lets exist, so the bound never starves a default Hive, while a Hive
 # configured for many more Cells still starts no more than this many containers or VMs together.
@@ -203,8 +203,6 @@ __all__ = [
     "BackendHold",
     "DispatchBook",
     "DormantCellSource",
-    "GrantWait",
-    "GrantWaits",
     "Housekeeping",
     "LiveCapacity",
     "MemoryBudget",
@@ -543,45 +541,6 @@ class PlanningLane:
 
 
 @dataclass(frozen=True, slots=True)
-class GrantWait:
-    """One fresh task's wait for a grant: the limit it waits on, and since when.
-
-    Attributes:
-        bound: The limit that left its grant with no sub-bee when this wait began
-            (`hivemind.forage.GrantBound`).
-        since: When this wait began; a wait on the Cell's live figures keeps its clock whichever
-            of them is tightest from pass to pass, and a wait on the goal's allowance runs its own.
-    """
-
-    bound: GrantBound
-    since: datetime
-
-
-@dataclass(slots=True)
-class GrantWaits:
-    """The Queen's book of fresh tasks waiting for a grant, and how long such a wait may last.
-
-    A fresh task whose grant a passing shortfall zeroes stays PENDING and is tried again on every
-    later dispatch pass (`hivemind.queen.dispatcher.zero_grant`); this is where each such wait's
-    start is kept, so the first pass records the one `forage.denied` that says so, later passes
-    record nothing, and a wait on a passing figure (the Cell's live load or free memory, or busy
-    model seats) past `patience_s` fails the task with the figures instead of waiting for ever.
-    Held in `DispatchBook`, for the same reason `Housekeeping` is held on `QueenDeps`. Owns its own
-    mutable state in place (codingrules section 8.5): `waits` changes on every dispatch pass that
-    starts, changes or ends a wait. In memory only: a restarted Queen starts each wait afresh (and
-    says so on the trail) rather than trusting a clock it did not keep.
-
-    Attributes:
-        patience_s: `[forage] zero_grant_patience_s`: the longest a task waits on its Cell's live
-            figures or on busy seats, in seconds.
-        waits: Every fresh task waiting for a grant right now, by task id.
-    """
-
-    patience_s: float = _DEFAULT_ZERO_GRANT_PATIENCE_S
-    waits: dict[TaskId, GrantWait] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
 class ProvisionJob:
     """One Virtual Cell being acquired for one ready task, beside the Queen's tick.
 
@@ -680,8 +639,8 @@ class ProvisionBackoff:
     `hivemind.queen.dispatcher.backoff` keeps its run of failed rounds here: placement skips it
     for `floor_s` after one, twice as long after each further round in a row, at most `cap_s`,
     and a provision on it that succeeds ends the run. Held in `DispatchBook`, for the same reason
-    `GrantWaits` is. Owns its own mutable state in place (codingrules section 8.5), in memory
-    only: a restarted Queen tries every backend afresh.
+    `GrantWaits` (`hivemind.queen.holds`) is. Owns its own mutable state in place (codingrules
+    section 8.5), in memory only: a restarted Queen tries every backend afresh.
 
     Attributes:
         floor_s: The hold after one failed round, in seconds.
@@ -725,6 +684,8 @@ class DispatchBook:
         returned: The Wardens back from a cut whose first settled Heartbeat she has not read
             yet: that one says whether the Warden clustered fully while it was away, and so
             holds tasks only she can start again (`hivemind.queen.cluster.returned`).
+        watch: The watch requests (ADR-0069): a task that would drive the running screen or
+            audio waits here for the owner's answer from the Hive Stand (`WatchBook`).
     """
 
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -737,6 +698,7 @@ class DispatchBook:
     resumes: ResumeHints = field(default_factory=ResumeHints)
     placed_on: set[WardenId] = field(default_factory=set)
     returned: set[WardenId] = field(default_factory=set)
+    watch: WatchBook = field(default_factory=WatchBook)
 
 
 def _set_event() -> asyncio.Event:

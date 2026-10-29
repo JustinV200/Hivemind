@@ -7473,6 +7473,104 @@
         "title": "WardenView",
         "type": "object"
       },
+      "WatchRequestList": {
+        "description": "Every watch request still waiting for the owner, oldest first.",
+        "properties": {
+          "requests": {
+            "description": "The waiting requests.",
+            "items": {
+              "$ref": "#/components/schemas/WatchRequestView"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "title": "WatchRequestList",
+        "type": "object"
+      },
+      "WatchRequestView": {
+        "description": "One task's ask to watch the owner on one Cell, as the owner decides on it.",
+        "properties": {
+          "cell_id": {
+            "description": "The Cell that would be watched.",
+            "title": "Cell Id",
+            "type": "string"
+          },
+          "cell_name": {
+            "description": "That Cell's name.",
+            "title": "Cell Name",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "When an unanswered request refuses the task.",
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "description": "The request.",
+            "title": "Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "description": "When the task asked.",
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "role": {
+            "description": "The Worker role it would spawn (DRONE, FORAGER, ...).",
+            "title": "Role",
+            "type": "string"
+          },
+          "scopes": {
+            "description": "exoskeleton:real_display and/or exoskeleton:audio.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Scopes",
+            "type": "array"
+          },
+          "status": {
+            "description": "PENDING, APPROVED, DENIED or EXPIRED.",
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "description": "The task that would hold the scopes.",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "The task's one-line title, as the planner wrote it.",
+            "title": "Title",
+            "type": "string"
+          },
+          "warden_id": {
+            "description": "The Warden that would spawn the Worker.",
+            "title": "Warden Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "task_id",
+          "title",
+          "cell_id",
+          "cell_name",
+          "warden_id",
+          "role",
+          "scopes",
+          "requested_at",
+          "expires_at",
+          "status"
+        ],
+        "title": "WatchRequestView",
+        "type": "object"
+      },
       "WaxEntryView": {
         "description": "One Cell Wax note, without its text (observe).",
         "properties": {
@@ -12305,6 +12403,311 @@
           "remote"
         ],
         "x-hive-switch": "steward_devices"
+      }
+    },
+    "/v1/entrance/watch": {
+      "get": {
+        "operationId": "list_waiting_v1_entrance_watch_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchRequestList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "List the tasks waiting for the owner's yes to drive the running screen or audio (C2).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": true,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "read",
+        "x-hive-listeners": [
+          "loopback",
+          "remote"
+        ]
+      }
+    },
+    "/v1/entrance/watch/{request_id}/approve": {
+      "post": {
+        "operationId": "approve_v1_entrance_watch__request_id__approve_post",
+        "parameters": [
+          {
+            "description": "The watch request.",
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "description": "The watch request.",
+              "pattern": "^watch_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchRequestView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Approve one task's use of the running screen or audio on one Cell (loopback only, with the stand key).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
+      }
+    },
+    "/v1/entrance/watch/{request_id}/deny": {
+      "post": {
+        "operationId": "deny_v1_entrance_watch__request_id__deny_post",
+        "parameters": [
+          {
+            "description": "The watch request.",
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "description": "The watch request.",
+              "pattern": "^watch_[0-9A-HJKMNP-TV-Z]{26}$",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WatchRequestView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Authentication failed: log in again with the device key and password."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Refused: a capability, a step-up (step_up_required) or the device's standing."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not found (or not served on this listener)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "The item moved on meanwhile."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "A body or parameter is not valid."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Too many requests from this device or address."
+          }
+        },
+        "security": [
+          {
+            "HiveSession": []
+          }
+        ],
+        "summary": "Deny one task's use of the running screen or audio; the task is cancelled (loopback only, with the stand key).",
+        "tags": [
+          "entrance"
+        ],
+        "x-hive-c2": false,
+        "x-hive-capability": "entrance:steward",
+        "x-hive-effect": "door",
+        "x-hive-listeners": [
+          "loopback"
+        ]
       }
     },
     "/v1/episodes": {

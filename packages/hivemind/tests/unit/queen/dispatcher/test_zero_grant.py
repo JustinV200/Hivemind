@@ -25,9 +25,9 @@ from hivemind.cell import HoneyClearance
 from hivemind.forage import GrantBound, SubBeeLimits
 from hivemind.llm import FakeLLMProvider
 from hivemind.pheromone import TrailQuery
-from hivemind.queen.deps import GrantWait
 from hivemind.queen.dispatcher.sizing import size_for_capacity
 from hivemind.queen.dispatcher.zero_grant import deny_zero_grant, forget_waits, waits_on
+from hivemind.queen.holds import GrantWait
 from hivemind.queen.queen import Queen
 
 _MARGIN = 0.9  # The default 10% headroom margin.

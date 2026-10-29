@@ -2,7 +2,8 @@
  * `useEnrolActions()`: every write the Enrol view makes, as one set of functions.
  *
  * The writes are mint an invite, withdraw it, approve a pending device (name, capabilities, spend
- * cap, expiry) and deny one. Each runs through `guarded`, so a step-up is asked for and the call
+ * cap, expiry), deny one, and answer a task asking to use the running screen or audio (ADR-0069:
+ * allow or refuse, `answerWatch`). Each runs through `guarded`, so a step-up is asked for and the call
  * retried once, and each folds its result into the slice at once. A failure is kept in `error`
  * (shown through `ErrorNotice`) and a success leaves one plain sentence in `notice`. When the Hive
  * runs its own certificate authority an approval can answer with a sealed certificate bundle; it is
@@ -10,8 +11,8 @@
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/enrol/`. Called by `enrol_screen.tsx`, which hands the set
- *   to the invite panel and the pending list. All four routes are loopback-only: the screen that
- *   calls them is drawn only on the Hive Stand.
+ *   to the invite panel, the pending list and the watch list. Every route is loopback-only: the
+ *   screen that calls them is drawn only on the Hive Stand.
  *
  * Key invariants:
  *   - These are the only requests the view makes besides its read; a test lists them.
@@ -51,6 +52,7 @@ export interface EnrolActions {
   withdraw(deviceId: string): Promise<boolean>;
   approve(deviceId: string, body: ApprovalBody): Promise<boolean>;
   deny(deviceId: string, reason: string): Promise<boolean>;
+  answerWatch(requestId: string, approve: boolean, title: string): Promise<boolean>;
 }
 
 // What every write needs: the client, a way to fold an event into the slice, and `run`.
@@ -108,7 +110,24 @@ function writesOf(env: Env): Writes {
           return `Denied ${denied.name}.`;
         },
       ),
+    answerWatch: watchAnswerOf(env),
   };
+}
+
+// ADR-0069: allow or refuse one task's use of the running screen or audio; the Queen settles it.
+function watchAnswerOf(env: Env): Writes['answerWatch'] {
+  return (requestId, approve, title) =>
+    env.run(
+      () =>
+        env.http.call(
+          'post',
+          approve
+            ? '/v1/entrance/watch/{request_id}/approve'
+            : '/v1/entrance/watch/{request_id}/deny',
+          { params: { request_id: requestId } },
+        ),
+      () => (approve ? `Allowed ${title}.` : `Refused ${title}; it will not run.`),
+    );
 }
 
 export function useEnrolActions(step: StepUp): EnrolActions {

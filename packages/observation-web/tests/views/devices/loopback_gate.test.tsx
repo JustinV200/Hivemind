@@ -32,7 +32,7 @@ import { HiveProvider } from '../../../src/store';
 import { DevicesScreen } from '../../../src/views/devices';
 import { EnrolScreen } from '../../../src/views/enrol';
 import { flush } from '../../support/fake_browser';
-import { deviceView, modeView, openHive } from './support';
+import { deviceView, modeView, openHive, watchView } from './support';
 import type { OpenedHive } from './support';
 
 type Operation = { 'x-hive-listeners'?: string[] };
@@ -61,6 +61,9 @@ const CONTROLS: Record<string, RegExp | null> = {
   'POST /v1/entrance/open': /^Reopen the Entrance$/,
   'POST /v1/entrance/pending/{device_id}/approve': /^Approve /,
   'POST /v1/entrance/pending/{device_id}/deny': /^Deny /,
+  // ADR-0069: a task's use of the running screen or audio, answered on the Hive Stand only.
+  'POST /v1/entrance/watch/{request_id}/approve': /^Allow /,
+  'POST /v1/entrance/watch/{request_id}/deny': /^Refuse /,
   // Added from the command line (`hive entrance operator add`, a program's own registration).
   'POST /v1/entrance/operators': null,
   'POST /v1/entrance/register': null,
@@ -94,6 +97,7 @@ const stand = (): Promise<OpenedHive> =>
     ],
     mode: modeView({ mode: 'REDUCED', remote_listening: false }),
     pending: [waitingDevice()],
+    watch: [watchView()],
   });
 
 async function mountBoth(opened: OpenedHive, sockets: number): Promise<void> {

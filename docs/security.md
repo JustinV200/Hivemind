@@ -126,6 +126,10 @@ The Exoskeleton gives a bee a display, input, audio and a browser (ADR-0031, ADR
 - A display is private to the lease. The Warden starts its own Xvfb and window manager in scratch
   and stops them when the task ends. Driving the display already running on a Real Cell needs the
   operator's own opt-in, `real_display_allowed`, and a separate capability.
+- The running display and audio also need the owner's yes for each task (ADR-0069). The Queen holds
+  such a task until the owner allows it on that Cell from the Hive Stand's browser, through
+  loopback-only rows that need the stand key; a no, or no answer in fifteen minutes, cancels it.
+  The Warden gives its Worker neither scope unless the assignment carries that approval.
 - Every GUI action goes through the Capping gate as typed steps, declares its tier from what it
   reaches, and is rolled back by checkpoint when a declared postcondition fails.
 - The flight recorder keeps evidence, not a story, and redacts where the evidence is made.

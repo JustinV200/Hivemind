@@ -40,7 +40,9 @@ the runtime every role shares; step 3.16 adds the first role (the Drone) and its
   every terminal `WorkerState` transition and right before `run()` returns, so a rollback noted on
   a role's very last tool call is never left queued once the attempt itself is over.
 - `capabilities.py` -- `worker_capabilities(warden_caps, needs, scratch_root)`: a Worker's strict
-  `CapabilitySet` slice, never wider than its Warden's.
+  `CapabilitySet` slice, never wider than its Warden's; `owner_approved_only(granted,
+  owner_approved)` then drops the running screen and audio unless the owner approved them for the
+  task at the Hive Stand (ADR-0069, `TaskAssign.owner_approved`).
 - `errors.py` -- `WorkerError` (root), `InvalidWorkerTransitionError`, `WorkerCancelledError`.
 - `runtime/` -- `WorkerRuntime`, the `waggle.loop.TickLoop` that receives `TaskAssign`, runs the
   role, sends `Heartbeat`/`TaskProgress`/`TaskResult`, honours `TaskCancel`/`TaskPause`/

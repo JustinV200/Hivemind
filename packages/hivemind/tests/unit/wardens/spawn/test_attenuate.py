@@ -15,14 +15,15 @@ from __future__ import annotations
 
 from pathlib import PurePosixPath
 
+import pytest
 from builders.wardens import make_warden_deps
 from builders.workers import make_assignment
 
 from hivemind.cell import AccessLevel
-from hivemind.guard import CapabilitySet, warden_set
+from hivemind.guard import Capability, CapabilitySet, warden_set
 from hivemind.wardens.deps import WardenDeps
 from hivemind.wardens.spawn.attenuate import sub_bee_capabilities
-from waggle.messages.task import TaskAssign
+from waggle.messages.task import OWNER_APPROVED_SCOPES, ExoskeletonNeed, TaskAssign
 
 _SCRATCH = PurePosixPath("/hive/scratch/lease-1")
 
@@ -93,3 +94,29 @@ def test_an_unreadable_network_scope_is_skipped_not_raised() -> None:
 
     assert "net:api.example.com" in strings
     assert not any("exa mple" in text for text in strings)
+
+
+@pytest.mark.parametrize(
+    "approved",
+    [(), ("exoskeleton:audio",), ("exoskeleton:real_display",), OWNER_APPROVED_SCOPES],
+)
+def test_the_screen_and_audio_reach_the_worker_only_as_far_as_the_owner_approved(
+    approved: tuple[str, ...],
+) -> None:
+    # ADR-0069, the worst case: a planner-written goal set granting every peripheral, on a Cell
+    # whose operator lent its display, under a Warden that holds both. Only the owner's yes counts.
+    deps, _queen_end, _warden_id = make_warden_deps()
+    assignment = make_assignment(
+        exoskeleton=ExoskeletonNeed(audio=True),
+        capabilities=("exoskeleton:*",),
+        owner_approved=approved,
+    )
+    ceiling = warden_set(deps.guard, AccessLevel.FULL, _SCRATCH, real_display=True)
+
+    capabilities, _roots = sub_bee_capabilities(deps, ceiling, _SCRATCH, assignment)
+
+    held = tuple(s for s in OWNER_APPROVED_SCOPES if capabilities.allows(Capability.parse(s)))
+    assert held == tuple(s for s in OWNER_APPROVED_SCOPES if s in approved)
+    # The virtual display and the browser are unchanged either way.
+    assert capabilities.allows(Capability.parse("exoskeleton:display"))
+    assert capabilities.allows(Capability.parse("exoskeleton:browser"))

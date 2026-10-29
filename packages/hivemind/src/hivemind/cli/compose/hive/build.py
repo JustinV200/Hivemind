@@ -24,7 +24,8 @@ Fits into the Hive:
     (the Hive's persisted signing key, for the Virtual side and the Basket), `hivemind.entrance`
     (the relay and telemetry board `hive serve` binds), `hivemind.forage` (ForageCapacity),
     `hivemind.guard`, `hivemind.honey_store`, `hivemind.llm`, `hivemind.manifest`,
-    `hivemind.queen` (and `hivemind.queen.deps` for DispatchBook, GrantWaits and LiveCapacity),
+    `hivemind.queen` (and `hivemind.queen.deps` for DispatchBook and LiveCapacity,
+    `hivemind.queen.holds` for GrantWaits),
     `hivemind.wardens`, `hivemind.workers.roles.house_bee` and waggle only.
 
 Key invariants:
@@ -82,7 +83,8 @@ from hivemind.honey_store import HoneyAccess
 from hivemind.llm import Fanner, ProviderRegistry, Responder
 from hivemind.manifest import HiveManifest
 from hivemind.queen import ForageLedger, Queen, QueenDeps, WardenLink
-from hivemind.queen.deps import DispatchBook, GrantWaits, LiveCapacity
+from hivemind.queen.deps import DispatchBook, LiveCapacity
+from hivemind.queen.holds import GrantWaits
 from hivemind.royal_jelly import RoyalJellyAccess
 from hivemind.wardens import Warden, WardenDeps
 from hivemind.workers.roles.house_bee import HouseBeeRipening

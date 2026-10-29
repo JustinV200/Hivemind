@@ -3,12 +3,13 @@
 ``/v1/entrance`` is the door itself (ADR-0041), split by responsibility: ``door`` (the mode,
 reducing, and reopening from loopback after step-up), ``enrolments`` (invites, the devices asking
 to join, approval and denial on loopback, and the steward route), ``held`` (the requests held for
-a person's confirmation) and ``operators`` (operator add, loopback only, refused while the Hive
-keeps one operator). Every row declares its listeners: the loopback-only ones are never
-mounted on the remote listener.
+a person's confirmation), ``operators`` (operator add, loopback only, refused while the Hive
+keeps one operator) and ``watch`` (the owner's yes or no to a task that would drive the running
+screen or audio, loopback only, ADR-0069). Every row declares its listeners: the loopback-only
+ones are never mounted on the remote listener.
 
 Fits into the Hive:
-    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes``. Its four row
+    Layer 7 (edges: HTTP, terminal, dashboard), inside ``hivemind.entrance.routes``. Its five row
     groups join the route table through ``hivemind.entrance.routes.registry``. Calls into the
     Reducer, enrolment and the confirmation flow.
 
@@ -24,11 +25,13 @@ Public API:
       (enrolments).
     - HELD_ROUTES: the held requests' rows (held).
     - OPERATOR_ROUTES: operator add (operators).
+    - WATCH_ROUTES: the watch requests' rows (watch).
 """
 
 from hivemind.entrance.routes.entrance.door import ROUTES as DOOR_ROUTES
 from hivemind.entrance.routes.entrance.enrolments import ROUTES as ENROLMENT_ROUTES
 from hivemind.entrance.routes.entrance.held import ROUTES as HELD_ROUTES
 from hivemind.entrance.routes.entrance.operators import ROUTES as OPERATOR_ROUTES
+from hivemind.entrance.routes.entrance.watch import ROUTES as WATCH_ROUTES
 
-__all__ = ["DOOR_ROUTES", "ENROLMENT_ROUTES", "HELD_ROUTES", "OPERATOR_ROUTES"]
+__all__ = ["DOOR_ROUTES", "ENROLMENT_ROUTES", "HELD_ROUTES", "OPERATOR_ROUTES", "WATCH_ROUTES"]

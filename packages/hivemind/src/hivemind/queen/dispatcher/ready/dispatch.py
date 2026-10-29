@@ -22,7 +22,10 @@ its commands, whose device was lost or whose Hive stopped, never a retry, so a r
 through it the way a fresh dispatch goes through `chamber.assign`. It resends a fresh grant and
 assignment straight to the Cell and Warden the task is already placed on (no placement decision at
 all), leaving the chamber's own `Task.status` at RUNNING throughout -- the same way a Warden's own
-internal RETRY/REBIND never tells the Brood Chamber anything happened at all.
+internal RETRY/REBIND never tells the Brood Chamber anything happened at all. The one exception
+(ADR-0069): a retry or resume that would offer the owner's running screen or audio with no
+approval on record for its Cell goes back to PENDING instead
+(`hivemind.queen.peripherals.gate.hand_back_unapproved`), so its fresh placement asks the owner.
 
 A grant that runs no bee is never sent (`hivemind.queen.dispatcher.ready.assign`'s own docstring has
 the rule); what this half decides is when: the Hive Stand's own capacity is re-read on every
@@ -184,6 +187,7 @@ from hivemind.queen.dispatcher.zero_grant import (
 from hivemind.queen.forage import grants as forage_grants
 from hivemind.queen.forage import redeliver_owed
 from hivemind.queen.holds import HeldRetry
+from hivemind.queen.peripherals.gate import hand_back_unapproved, hold_for_owner
 from hivemind.queen.placement import (
     Placement,
     PlacementError,
@@ -234,6 +238,8 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
         # A task that has ended gives its grants back first, so this very pass sees their room.
         ended = {task.id for task in tasks if is_terminal(task.status)}
         await forage_grants.release_finished(deps.ledger, deps, ended)
+        # ADR-0069: an ended task's watch requests are never acted on again.
+        deps.dispatch.watch.forget(ended)
         ready = ready_tasks(tasks)
         # A task that left PENDING some other way (its goal cancelled, say) waits no longer, and a
         # Cell acquired for it is released rather than left behind.
@@ -294,6 +300,8 @@ async def redispatch(
     link = _placed_link(deps, wardens, task)
     if link is None:
         return  # Not placed, held, or its Warden is gone: there is nothing to resend to.
+    if await hand_back_unapproved(deps, task, link, None):
+        return  # ADR-0069: no approval on record for its screen or audio; placed afresh to ask.
     sized = await size_grant(deps, link, task, read_live=False)
     terms = AssignmentTerms(attempt=attempt, review_findings=review_findings)
     fresh_grant = await send_grant_and_assign(deps, link, task, terms, sized)
@@ -353,11 +361,12 @@ async def resume_paused(
         # Not placed, held (it stays paused until the hold ends), its Warden gone, or a
         # Supersedure holding her (ADR-0065): it stays PAUSED.
         return
+    if await hand_back_unapproved(deps, task, link, resume_from):
+        return  # ADR-0069: no approval on record for its screen or audio; placed afresh to ask.
     await deps.chamber.resume(task_id, reason)
-    # A fresh bee (TaskAssign.resume_from's own field docstring: "a fresh one for a fresh bee");
-    # the Queen owns the attempt number on every Queen-to-Warden hop. A Warden that cannot read
-    # her memory store is sent the Handoff itself (`.handoff`) when she holds it, and the
-    # reference alone otherwise, for it to read from its own.
+    # A fresh bee (TaskAssign.resume_from: "a fresh one for a fresh bee"); the Queen owns the
+    # attempt number. A Warden that cannot read her memory store is sent the Handoff itself
+    # (`.handoff`) when she holds it, and the reference alone otherwise.
     plan = await resume_plan(deps, link, task, resume_from)
     terms = AssignmentTerms(
         attempt=task.attempt + 1, resume_from=plan.resume_from, handoff=plan.handoff
@@ -403,6 +412,10 @@ async def _dispatch_one(deps: QueenDeps, wardens: Sequence[WardenLink], task: Ta
     if placed is None:
         return  # A Cell is being acquired for it beside the tick (or will be): still PENDING.
     link, placement = placed
+    # ADR-0069: the running screen or audio waits for the owner's yes at the Hive Stand; a no or
+    # no answer cancels it. Either way nothing is sized or sent; a Cell acquired for it stays.
+    if await hold_for_owner(deps, task, link):
+        return
     sized = await settle_wait(deps, task, await size_grant(deps, link, task))
     if sized is None:
         return  # Waiting for room: still PENDING, nothing sent; a Cell acquired for it stays.

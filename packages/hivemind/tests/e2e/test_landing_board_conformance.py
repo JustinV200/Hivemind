@@ -78,6 +78,7 @@ CLIENT_IMPORTS = frozenset({"httpx", "websockets", "cryptography", "e2e"}) | fro
 STALE_S = 3600  # A timestamp an hour old: far outside any request_skew_s.
 AUTH_FAILED = "hivemind.entrance.authentication_failed"  # Every session refusal's one code.
 _NODE = "node_01ARZ3NDEKTSV4RRFFQ69G5FAV"  # A well-formed node id, for a {node_id} path parameter.
+_WATCH = "watch_01ARZ3NDEKTSV4RRFFQ69G5FAV"  # A well-formed watch request id (ADR-0069).
 
 # Approves a pending device at the Hive Stand, given its id.
 type Approve = Callable[[str], Awaitable[None]]
@@ -340,8 +341,9 @@ def _names(template: str) -> list[str]:
 
 
 def _ids(template: str, device: _Device) -> dict[str, str]:
-    """A well-formed id for each path parameter: a node's for `node_id`, the device's otherwise."""
-    return {name: _NODE if name == "node_id" else device.device_id for name in _names(template)}
+    """A well-formed id for each path parameter: a node's, a watch request's, else the device's."""
+    fixed = {"node_id": _NODE, "request_id": _WATCH}
+    return {name: fixed.get(name, device.device_id) for name in _names(template)}
 
 
 async def test_a_webhook_notice_verifies_under_the_hive_key_and_carries_its_event_id() -> None:

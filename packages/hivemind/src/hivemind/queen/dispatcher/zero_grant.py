@@ -32,7 +32,8 @@ Fits into the Hive:
     sub-package. Called by `hivemind.queen.dispatcher.ready` on every dispatch pass. Calls into
     `hivemind.brood_chamber` (Task, TaskFilter, TaskOutcome, TaskStatus), `hivemind.forage`
     (GrantBound, RoyalReserve, SubBeeLimits, goal_limit, seat_limit), `hivemind.queen.deps`
-    (GrantWait, QueenDeps), `hivemind.queen.dispatcher.sizing` (SizedGrant, size_for_capacity),
+    (QueenDeps), `hivemind.queen.holds` (GrantWait), `hivemind.queen.dispatcher.sizing`
+    (SizedGrant, size_for_capacity),
     `hivemind.queen.intake` (goal_budgets), `hivemind.queen.placement` (Placement,
     ProvisionVirtual), `hivemind.queen.trail` (record_forage_event) and waggle only.
 
@@ -53,7 +54,7 @@ Key invariants:
 See Also:
     - .claude/phase-4-handoff.md section 4.2 item 1 for the silent park the denial still prevents.
     - hivemind.forage.allocate for SubBeeLimits, the limits every decision here reads.
-    - hivemind.queen.deps for GrantWaits, the book of waits this module keeps.
+    - hivemind.queen.holds for GrantWaits, the book of waits this module keeps.
     - hivemind.queen.dispatcher.ready for the dispatch pass that calls every function here.
 """
 
@@ -66,8 +67,9 @@ from pydantic import JsonValue
 
 from hivemind.brood_chamber import Task, TaskFilter, TaskOutcome, TaskStatus
 from hivemind.forage import GrantBound, RoyalReserve, SubBeeLimits, goal_limit, seat_limit
-from hivemind.queen.deps import GrantWait, QueenDeps
+from hivemind.queen.deps import QueenDeps
 from hivemind.queen.dispatcher.sizing import SizedGrant, size_for_capacity
+from hivemind.queen.holds import GrantWait
 from hivemind.queen.intake import goal_budgets
 from hivemind.queen.placement import Placement, ProvisionVirtual
 from hivemind.queen.trail import record_forage_event

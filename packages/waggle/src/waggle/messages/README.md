@@ -61,6 +61,8 @@ truth; `registry.py` is the only place in code where the list of kinds lives, an
   `NURSE_UNRESOLVED`.
 - Waggle 1.16 (ADR-0065, Supersedure): `control.queen_moved` gains `new_tls_pin_sha256`, the new
   listener certificate's SHA-256, set exactly when `new_address` is `wss://`.
+- Waggle 1.17 (ADR-0069): `task.assign` gains `owner_approved`, the running screen and audio
+  the owner approved for this task on this Cell from the Hive Stand.
 - One package per family, `messages/<family>/`, split by responsibility into modules, with an
   `__init__.py` that re-exports the family's messages, enums and value models so a caller writes
   `from waggle.messages.forage import SourceRef` without knowing the split (codingrules section

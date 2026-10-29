@@ -77,6 +77,26 @@ export function heldView(
   };
 }
 
+// One task waiting for the owner's yes to use the running screen and audio (ADR-0069).
+export function watchView(
+  over: Partial<Schemas['WatchRequestView']> = {},
+): Schemas['WatchRequestView'] {
+  return {
+    cell_id: 'cell_stand',
+    cell_name: 'hive-stand',
+    expires_at: '2026-01-02T00:15:00Z',
+    id: 'watch_1',
+    requested_at: '2026-01-02T00:00:00Z',
+    role: 'DRONE',
+    scopes: ['exoskeleton:audio', 'exoskeleton:real_display'],
+    status: 'PENDING',
+    task_id: 'task_1',
+    title: 'Take notes from the call',
+    warden_id: 'warden_1',
+    ...over,
+  };
+}
+
 // One Entrance security event, as `/v1/entrance/stream` carries it.
 export function securityFrame(kind = 'guard.entrance_locked'): Schemas['SecurityFrame'] {
   return {
@@ -99,6 +119,7 @@ export interface Setup {
   mode?: Schemas['ModeView'];
   held?: Schemas['ConfirmationView'][];
   pending?: Device[];
+  watch?: Schemas['WatchRequestView'][];
 }
 
 export interface OpenedHive {
@@ -123,6 +144,7 @@ export async function openHive(setup: Setup = {}): Promise<OpenedHive> {
   fake.respond('GET /v1/entrance/mode', 200, setup.mode ?? modeView());
   fake.respond('GET /v1/entrance/confirmations', 200, { confirmations: setup.held ?? [] });
   fake.respond('GET /v1/entrance/pending', 200, { devices: setup.pending ?? [] });
+  fake.respond('GET /v1/entrance/watch', 200, { requests: setup.watch ?? [] });
   const client = createLandingBoard({ browser: fake.browser, onSessionLost: () => {} });
   const session = await client.session.restore();
   const store = createHiveStore({ ...APP_SLICES, devices: devicesSlice, enrol: enrolSlice });

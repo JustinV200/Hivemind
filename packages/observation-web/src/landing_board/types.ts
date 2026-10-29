@@ -736,6 +736,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/entrance/watch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the tasks waiting for the owner's yes to drive the running screen or audio (C2). */
+        get: operations["list_waiting_v1_entrance_watch_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/entrance/watch/{request_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve one task's use of the running screen or audio on one Cell (loopback only, with the stand key). */
+        post: operations["approve_v1_entrance_watch__request_id__approve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/entrance/watch/{request_id}/deny": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deny one task's use of the running screen or audio; the task is cancelled (loopback only, with the stand key). */
+        post: operations["deny_v1_entrance_watch__request_id__deny_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/episodes": {
         parameters: {
             query?: never;
@@ -5694,6 +5745,80 @@ export interface components {
             sub_bees: number;
         };
         /**
+         * WatchRequestList
+         * @description Every watch request still waiting for the owner, oldest first.
+         */
+        WatchRequestList: {
+            /**
+             * Requests
+             * @description The waiting requests.
+             */
+            requests: components["schemas"]["WatchRequestView"][];
+        };
+        /**
+         * WatchRequestView
+         * @description One task's ask to watch the owner on one Cell, as the owner decides on it.
+         */
+        WatchRequestView: {
+            /**
+             * Cell Id
+             * @description The Cell that would be watched.
+             */
+            cell_id: string;
+            /**
+             * Cell Name
+             * @description That Cell's name.
+             */
+            cell_name: string;
+            /**
+             * Expires At
+             * Format: date-time
+             * @description When an unanswered request refuses the task.
+             */
+            expires_at: string;
+            /**
+             * Id
+             * @description The request.
+             */
+            id: string;
+            /**
+             * Requested At
+             * Format: date-time
+             * @description When the task asked.
+             */
+            requested_at: string;
+            /**
+             * Role
+             * @description The Worker role it would spawn (DRONE, FORAGER, ...).
+             */
+            role: string;
+            /**
+             * Scopes
+             * @description exoskeleton:real_display and/or exoskeleton:audio.
+             */
+            scopes: string[];
+            /**
+             * Status
+             * @description PENDING, APPROVED, DENIED or EXPIRED.
+             */
+            status: string;
+            /**
+             * Task Id
+             * @description The task that would hold the scopes.
+             */
+            task_id: string;
+            /**
+             * Title
+             * @description The task's one-line title, as the planner wrote it.
+             */
+            title: string;
+            /**
+             * Warden Id
+             * @description The Warden that would spawn the Worker.
+             */
+            warden_id: string;
+        };
+        /**
          * WaxEntryView
          * @description One Cell Wax note, without its text (observe).
          */
@@ -9179,6 +9304,234 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeviceView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_waiting_v1_entrance_watch_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchRequestList"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    approve_v1_entrance_watch__request_id__approve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The watch request. */
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchRequestView"];
+                };
+            };
+            /** @description Authentication failed: log in again with the device key and password. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Refused: a capability, a step-up (step_up_required) or the device's standing. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Not found (or not served on this listener). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The item moved on meanwhile. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A body or parameter is not valid. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Too many requests from this device or address. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deny_v1_entrance_watch__request_id__deny_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The watch request. */
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchRequestView"];
                 };
             };
             /** @description Authentication failed: log in again with the device key and password. */

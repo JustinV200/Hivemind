@@ -48,7 +48,7 @@ from hivemind.guard import (
 )
 from hivemind.supervision.capping.leave import declared_leaving_root
 from hivemind.wardens.deps import WardenDeps
-from hivemind.workers import worker_capabilities
+from hivemind.workers import owner_approved_only, worker_capabilities
 from waggle.messages.task import TaskAssign
 
 _LOG = get_logger(__name__)
@@ -80,7 +80,8 @@ def sub_bee_capabilities(
         extra_write_roots=write_roots,
         goal=_goal_set(assignment),
     )
-    return capabilities, write_roots
+    # ADR-0069: the running screen and audio only where the owner approved them for this task.
+    return owner_approved_only(capabilities, assignment.owner_approved), write_roots
 
 
 def declared_write_roots(deps: WardenDeps, assignment: TaskAssign) -> tuple[Path, ...]:

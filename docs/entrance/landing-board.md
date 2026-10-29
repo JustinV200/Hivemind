@@ -67,7 +67,9 @@ Every operation in the document names its listeners in `x-hive-listeners`, as `[
 exists. On the remote listener it was never mounted, so it answers `404` (see section 10), never
 `403`. The routes that admit or empower a device are loopback-only. That covers minting invites,
 approving, denying, unlocking, changing a device's capabilities, revoking and reopening a reduced
-Entrance. A remote session, however it was obtained, cannot reach any of them.
+Entrance. So is the owner's answer to a task asking to drive the running screen or audio
+(`POST /v1/entrance/watch/{request_id}/approve` and `/deny`, ADR-0069). A remote session, however
+it was obtained, cannot reach any of them.
 
 A client is always a **device**: it holds its own key, it is enrolled with an invite and approved
 by the operator at the Hive Stand, and it logs in with its key plus the operator's password. There

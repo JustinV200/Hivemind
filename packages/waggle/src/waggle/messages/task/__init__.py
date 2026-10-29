@@ -31,7 +31,8 @@ See Also:
       for the definitions.
 
 Public API:
-    - Assignment (assignment): TaskAssign, TaskCancel, TaskPause, TaskResume, WorkerRole.
+    - Assignment (assignment): TaskAssign, TaskCancel, TaskPause, TaskResume, WorkerRole,
+      OWNER_APPROVED_SCOPES (the scopes only the owner's approval grants, ADR-0069).
     - Reports (reports): ArtifactRef, ResultCause, TaskOutcome, TaskProgress, TaskResult,
       TaskStage.
     - Needs (needs): ExoskeletonNeed, NetworkScope.
@@ -41,6 +42,7 @@ Public API:
 """
 
 from waggle.messages.task.assignment import (
+    OWNER_APPROVED_SCOPES,
     TaskAssign,
     TaskCancel,
     TaskPause,
@@ -67,6 +69,7 @@ from waggle.messages.task.review import (
 )
 
 __all__ = [
+    "OWNER_APPROVED_SCOPES",
     "SCOUT_REPORT_FILE",
     "ArtifactRef",
     "ExoskeletonNeed",

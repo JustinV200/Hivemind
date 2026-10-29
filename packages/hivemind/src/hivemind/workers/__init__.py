@@ -51,13 +51,15 @@ Public API (roadmap 3.15):
       (hivemind.workers.nectar, roadmap 7.8).
     - TelemetryTracker: the mutable per-Worker telemetry a role writes (hivemind.workers.telemetry).
     - worker_capabilities: a Worker's strict CapabilitySet slice (hivemind.workers.capabilities).
+    - owner_approved_only: that slice without the running screen or audio the owner did not
+      approve (ADR-0069; hivemind.workers.capabilities).
     - WorkerError, InvalidWorkerTransitionError, WorkerCancelledError, WorkerRuntimeError,
       GuardBeeError, GuardRulesError: this subsystem's error tree (hivemind.workers.errors).
     - RuntimeDeps, WorkerRuntime: the Worker runtime itself (hivemind.workers.runtime).
 """
 
 from hivemind.workers.base import Worker, WorkerOutcome
-from hivemind.workers.capabilities import worker_capabilities
+from hivemind.workers.capabilities import owner_approved_only, worker_capabilities
 from hivemind.workers.context import GrantSlice, HoneyChannel, QuestionChannel, WorkerContext
 from hivemind.workers.errors import (
     GuardBeeError,
@@ -100,6 +102,7 @@ __all__ = [
     "assert_transition",
     "can_transition",
     "is_terminal",
+    "owner_approved_only",
     "split_deposit",
     "worker_capabilities",
 ]

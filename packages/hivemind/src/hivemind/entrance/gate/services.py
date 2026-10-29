@@ -53,6 +53,7 @@ from hivemind.entrance.reducer import EntranceReducer
 from hivemind.guard import Enforcer
 from hivemind.queen import GoalRequest, HumanInbox
 from hivemind.queen.isolation import IsolationOutcome, LiftOutcome
+from hivemind.queen.peripherals import WatchRequest
 from hivemind.queen.sting_cut import StingCutOutcome
 from hivemind.queen.supersedure import PreflightReport, SupersedureStarted
 from hivemind.supervision import Alarm
@@ -161,6 +162,16 @@ class QueenDoor(Protocol):
 
     async def supersede(self, node_id: str, device_id: DeviceId) -> SupersedureStarted:
         """Move the Hive Stand on the human's order (13.2a); see ``Queen.supersede``."""
+        ...
+
+    def pending_watch_requests(self) -> tuple[WatchRequest, ...]:
+        """The tasks waiting for the owner's yes to watch them (ADR-0069)."""
+        ...
+
+    async def answer_watch_request(
+        self, request_id: str, approved: bool, device_id: DeviceId
+    ) -> WatchRequest:
+        """Settle a watch request on the owner's word; see ``Queen.answer_watch_request``."""
         ...
 
 
