@@ -541,7 +541,8 @@ never the only signal, and moves to the top, under the head, while the element s
 half of the viewport, so it never covers what it is talking about. A
 step on another screen opens its route first; a step whose element is not on the page is skipped
 the way the tour was moving. Finishing is remembered per browser in `localStorage` (every read and
-write guarded); skipping is not. Reads nothing from the Hive.
+write guarded); skipping is not, and a log out or a lost session mid-tour closes it, so the next
+session never opens on an old step. Reads nothing from the Hive.
 
 ## 6. Typography and density
 

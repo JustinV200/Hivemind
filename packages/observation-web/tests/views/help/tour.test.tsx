@@ -12,13 +12,14 @@
  *
  * Key invariants:
  *   - Each test starts the tour itself; it never opens on its own.
- *   - The tour's position is module state, so every test ends with it closed.
+ *   - The tour's position is module state; unmounting the panel (the cleanup after each test)
+ *     closes it, so every test starts closed.
  *
  * See Also:
  *   - tests/shell/shell.test.tsx for the tour inside the real shell.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { startTour, Tour } from '../../../src/views/help/tour';
 import type { TourStep } from '../../../src/views/help/tour';
 
@@ -28,8 +29,8 @@ const STEPS: readonly TourStep[] = [
   { target: 'b', route: '#/forage', title: 'Last', text: 'The last thing.' },
 ];
 
-function mount(steps: readonly TourStep[] = STEPS): void {
-  render(
+function mount(steps: readonly TourStep[] = STEPS): () => void {
+  const { unmount } = render(
     <>
       <div data-tour="a">a</div>
       <div data-tour="b">b</div>
@@ -38,17 +39,12 @@ function mount(steps: readonly TourStep[] = STEPS): void {
     </>,
   );
   act(() => startTour());
+  return unmount;
 }
 
 beforeEach(() => {
   window.localStorage.clear();
   window.location.hash = '';
-});
-
-afterEach(() => {
-  // Escape closes the panel if a test left it open, so the next one starts closed.
-  const open = screen.queryByRole('dialog');
-  if (open) fireEvent.keyDown(open, { key: 'Escape' });
 });
 
 describe('Tour', () => {
@@ -91,6 +87,15 @@ describe('Tour', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Skip tour' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(window.localStorage.getItem('hive.tour')).toBeNull();
+  });
+
+  it('closes when the shell unmounts it, so the next session never opens mid-tour', async () => {
+    const unmount = mount();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'ArrowRight' });
+    expect(await screen.findByText('Step 3 of 3', {}, { timeout: 3000 })).toBeTruthy();
+    unmount();
+    render(<Tour steps={STEPS} />);
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('answers the arrow keys and Escape on the panel', async () => {

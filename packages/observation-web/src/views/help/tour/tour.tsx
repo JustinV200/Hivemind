@@ -18,7 +18,8 @@
  *   it outlives the route changes its steps make; opened by `tour_card.tsx` on the Help screen.
  *
  * Key invariants:
- *   - Draws nothing while the tour is closed, and never opens on its own.
+ *   - Draws nothing while the tour is closed, and never opens on its own: unmounting (a log out
+ *     or a lost session mid-tour) closes it, so the next session never opens on an old step.
  *   - The steps are a prop with the real table as its default, so a test can render its own.
  *   - Reads the tour's position from `state.ts` only; the route is changed by `use_target.ts`.
  *
@@ -170,6 +171,10 @@ function Panel(props: { index: number; steps: readonly TourStep[] }): ReactEleme
 export function Tour(props: { steps?: readonly TourStep[] }): ReactElement | null {
   const { step } = useTour();
   const steps = props.steps ?? TOUR_STEPS;
+
+  // The position is module state, so it outlives the shell: a log out or a lost session mid-tour
+  // must not reopen the panel, and move the route, when the next session mounts the shell.
+  useEffect(() => closeTour, []);
   if (step === null || step >= steps.length) return null;
   return <Panel index={step} steps={steps} />;
 }
