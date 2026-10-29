@@ -1,9 +1,10 @@
 /**
  * `TasksPanel`: the Cell's current tasks, grouped by goal, with links to the bees behind them.
  *
- * Each goal is a heading and its tasks a list: the task id, its status in words, the attempt, the
- * Worker's own progress estimate, the tier it is bound to and the question it waits on while
- * blocked. A task a bee is working on links to that bee's thoughts. Below the list, the Warden's
+ * Each goal is a heading (with a link to the chat when the goal was asked for there, since the
+ * page carries no goal title) and its tasks a list: the task id, its status in words, the attempt,
+ * the Worker's own progress estimate, the shield level it is bound to and the question it waits on
+ * while blocked. A task a bee is working on links to that bee's thoughts. Below the list, the Warden's
  * Attendant view and every bee whose thoughts can be opened. A task id the Cell frame names but the
  * page does not list yet (a placement that landed since the last read) shows as a bare id.
  *
@@ -51,12 +52,12 @@ function TaskRow(props: { task: Task; bee: string | null }): ReactElement {
   return (
     <li className="cell-row">
       <IdToken id={task.id} />
-      <Tag tone={STATUS_TONE[task.status]}>{task.status}</Tag>
+      <Tag tone={STATUS_TONE[task.status]}>{task.status.toLowerCase()}</Tag>
       {task.attempt > 1 ? <span>{`attempt ${task.attempt}`}</span> : null}
       {task.fraction_done !== null ? (
         <span>{`${Math.round(task.fraction_done * 100)}% done`}</span>
       ) : null}
-      {task.bound_tier ? <span>{`bound to ${task.bound_tier.replace('_', ' ')}`}</span> : null}
+      {task.bound_tier ? <span>{`shield level ${task.bound_tier.replace('_', ' ')}`}</span> : null}
       {task.blocked_on ? <span>{`waiting on: ${task.blocked_on}`}</span> : null}
       {bee ? <a href={hrefFor({ name: 'thoughts', bee })}>{`thoughts of ${bee}`}</a> : null}
     </li>
@@ -79,6 +80,16 @@ export function TasksPanel(props: { page: CellPage }): ReactElement {
           <h3>
             Goal <IdToken id={goal} />
           </h3>
+          {/* A goal has no title on the page; the chat holds the words it was asked in. */}
+          {tasks[0]?.goal_request_id ? (
+            <a
+              className="cell-muted"
+              href={hrefFor({ name: 'chat' })}
+              title={`Planned from request ${tasks[0].goal_request_id}`}
+            >
+              asked in the chat
+            </a>
+          ) : null}
           <ul className="cell-list">
             {tasks.map((task) => (
               <TaskRow key={task.id} task={task} bee={beeOf(task.id)} />

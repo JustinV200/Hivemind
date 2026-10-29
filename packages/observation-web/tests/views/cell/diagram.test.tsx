@@ -278,7 +278,12 @@ describe('the drawing', () => {
     const { container } = draw({
       bees: [
         wardenRow(),
-        beeRow({ id: 'w_1', context_tokens_used: 90000, context_window: 100000 }),
+        beeRow({
+          id: 'w_1',
+          context_tokens_used: 90000,
+          context_window: 100000,
+          context_fraction: 0.9,
+        }),
         beeRow({
           id: 'w_2',
           context_tokens_used: null,
@@ -290,6 +295,8 @@ describe('the drawing', () => {
     const meter = container.querySelector('[data-bee="w_1"] [role="meter"]')!;
     expect(meter.getAttribute('aria-valuenow')).toBe('90000');
     expect(meter.getAttribute('aria-valuemax')).toBe('100000');
+    // The percent is drawn beside the bar, not left to the fill or a hover.
+    expect(meter.textContent).toContain('90%');
     expect(container.querySelector('[data-bee="w_2"] [role="meter"]')).toBeNull();
     expect(container.querySelector('[data-bee="w_2"]')!.getAttribute('aria-label')).toContain(
       'context not reported',
@@ -313,6 +320,8 @@ describe('the drawing', () => {
     expect(outline('w_1')).toBe('var(--alarm)');
     expect(container.querySelector('[data-bee="w_1"]')!.textContent).toContain('Alarm');
     expect(outline('w_2')).toBe('var(--accent)');
+    expect(container.querySelector('[data-bee="w_2"] .dg-awake')!.textContent).toBe('awake');
+    expect(container.querySelector('[data-bee="w_1"] .dg-awake')).toBeNull();
     expect(outline('warden_1')).toBe('var(--border)');
   });
 

@@ -4,8 +4,9 @@
  *
  * An Alarm is what a bee raises when something went wrong (`WORKER_CRASHED`, `GRANT_EXCEEDED`).
  * Each row shows its severity in words, its kind as a plain phrase (the code in its `title`),
- * its id, the task it concerns and when it was raised, and says so when it has escalated to the
- * human.
+ * its id, the task it concerns and when it was raised, and when it has escalated to the human it
+ * links to the chat, where the Alarm's detail is and where it is acknowledged (the page's row
+ * carries no detail of its own).
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cell/panels/`. Rendered by `cell.tsx` from the page; the
@@ -50,7 +51,11 @@ export function AlarmsPanel(props: { page: CellPage }): ReactElement {
             <span>
               raised <TimeStamp at={alarm.raised_at} />
             </span>
-            {alarm.escalated ? <Tag tone="warn">reached the human</Tag> : null}
+            {alarm.escalated ? (
+              <a href="#/chat" title="It is waiting in the chat for you to acknowledge.">
+                reached you: see the chat
+              </a>
+            ) : null}
           </li>
         ))}
       </ul>

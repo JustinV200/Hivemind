@@ -4,8 +4,10 @@
  * A node is a link to the bee's page (a sub-bee's thoughts, the Warden's Attendant view), drawn
  * as a wide flat-top hexagon, the shape of a cell in the comb. It carries the role glyph inside a
  * small hexagon with the role word beside it, the id, what the bee is doing (or where the Warden
- * runs), a status dot with its word, and a context gauge along the bottom edge. A bee in an awake
- * episode has a 2 unit outline in the accent colour, one with an open Alarm on its task has it
+ * runs), a status dot with its word, and a context gauge along the bottom edge with its percent
+ * beside it. A bee in an awake
+ * episode has a 2 unit outline in the accent colour and the word `awake` in its top right corner,
+ * one with an open Alarm on its task has the outline
  * in the alarm colour and says `Alarm`; the rest have the plain 1 unit border. The Warden's
  * outline is dashed while where it runs is not tracked, so a guess never looks like a fact.
  *
@@ -39,6 +41,7 @@ export const TONE_VAR: Readonly<Record<Tone, string>> = {
 
 export const NODE_CUT = 8; // How far the hexagon's points stand in from the rectangle's sides.
 const INSET = 12; // Where the text starts, inside the slanted left edge.
+const PERCENT_W = 34; // Room at the gauge's right end for its percent, `100%` at 12 unit text.
 
 // The Gauge component's thresholds (design.md 4.2): ok to 70 percent, warn to 90, alarm above.
 export function gaugeTone(fraction: number): Tone {
@@ -54,8 +57,10 @@ function outlineOf(node: BeeNode): { stroke: string; width: number } {
 
 function ContextGauge(props: { placed: Placed<BeeNode> }): ReactElement {
   const { x, y, w, h, item } = props.placed;
-  const trackW = w - 2 * INSET;
+  const trackW = w - 2 * INSET - PERCENT_W;
   const clamped = item.fraction === null ? 0 : Math.min(1, Math.max(0, item.fraction));
+  // The number beside the bar, so the gauge is never read by its fill alone (design.md 4.2).
+  const percent = item.fraction === null ? '-' : `${Math.round(clamped * 100)}%`;
   const track = (
     <>
       <rect x={x + INSET} y={y + h - 12} width={trackW} height={6} fill="var(--border-soft)" />
@@ -66,6 +71,9 @@ function ContextGauge(props: { placed: Placed<BeeNode> }): ReactElement {
         height={6}
         fill={TONE_VAR[gaugeTone(clamped)]}
       />
+      <text className="dg-line" x={x + w - INSET} y={y + h - 5} textAnchor="end">
+        {percent}
+      </text>
     </>
   );
   // An unreported context is not a meter: no value to announce.
@@ -118,6 +126,12 @@ export function BeeNodeView(props: {
       <text className="dg-role" x={x + INSET + 26} y={y + 19}>
         {item.roleLabel}
       </text>
+      {/* The accent outline alone would be colour-only; the word says it (design.md 7). */}
+      {item.awake ? (
+        <text className="dg-awake" x={x + w - INSET} y={y + 19} textAnchor="end">
+          awake
+        </text>
+      ) : null}
       <text className="dg-id" x={x + INSET} y={y + 38}>
         {cut(item.id, ID_CUT)}
       </text>

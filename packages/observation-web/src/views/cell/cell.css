@@ -113,6 +113,12 @@
   font-weight: 700;
 }
 
+/* The word beside the accent outline of a bee deciding with a model */
+.dg .dg-awake {
+  fill: var(--accent);
+  font-weight: 600;
+}
+
 .dg-node .dg-shape {
   transition: fill var(--motion);
 }

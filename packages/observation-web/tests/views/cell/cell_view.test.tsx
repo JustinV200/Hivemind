@@ -291,6 +291,10 @@ describe('the panels', () => {
     expect(within(rows[1]!).getByText('NOTE')).toBeTruthy();
     expect(within(rows[1]!).getByText('by HUMAN')).toBeTruthy();
     expect(within(rows[1]!).getByText('standing')).toBeTruthy();
+    // The row has no title or text; the note itself is read in the Honey browser.
+    expect(within(rows[1]!).getByRole('link', { name: 'read the note' }).getAttribute('href')).toBe(
+      '#/honey/cells/cell_1/wax?item=wax_b',
+    );
   });
 
   it('list open Alarms, and say when none are open', async () => {
@@ -303,7 +307,10 @@ describe('the panels', () => {
     expect(alarms.getByText('CRITICAL')).toBeTruthy();
     // The kind as a plain phrase, with the schema's code kept on the phrase's title.
     expect(alarms.getByText('a Worker crashed').getAttribute('title')).toBe('WORKER_CRASHED');
-    expect(alarms.getByText('reached the human')).toBeTruthy();
+    // An escalated Alarm is acknowledged in the chat, so the row leads there.
+    expect(
+      alarms.getByRole('link', { name: 'reached you: see the chat' }).getAttribute('href'),
+    ).toBe('#/chat');
   });
 
   it('say there are no Alarms, Wax or tasks when the lists are empty', async () => {
