@@ -27,6 +27,8 @@ in-memory Nectar seam (the Honey Store's own intake does not take audio yet). Th
 (roadmap step 12.12) is always wired, over that same seam and a per-device byte budget. The Honey
 browser (roadmap step 12.9) is built over the Hive's own Honey Store, retriever and memory store,
 and handed to the Entrance as its read side only (`HoneyReads`: no method that proposes a note).
+The help's Ask (ADR-0069) is built by `hivemind.cli.compose.help` from the `help/` pages the
+served build carries, over the Hive's own registry and Fanner; without a build there is no Ask.
 
 Fits into the Hive:
     Layer 7 (edges: HTTP, terminal, dashboard). Called by `hivemind.cli.serve` and by the
@@ -56,6 +58,7 @@ from pathlib import Path
 
 import httpx
 
+from hivemind.cli.compose.help import build_help_services
 from hivemind.cli.compose.hive import Hive, build_hive, run_hive
 from hivemind.cli.entrance.serving import (
     SERVE_HOLDER,
@@ -235,8 +238,9 @@ async def _serve_held(served: ServedHive) -> AsyncIterator[HiveEntrance]:
                 trust_env=False, timeout=PUSH_HTTP_TIMEOUT_S, transport=served.push_transport
             )
         )
+        settings = _settings(served, plan)
         parts = EntranceParts(
-            settings=_settings(served, plan),
+            settings=settings,
             tables=tables,
             hive=_entrance_hive(hive),
             keys=keys,
@@ -246,6 +250,8 @@ async def _serve_held(served: ServedHive) -> AsyncIterator[HiveEntrance]:
             own_addresses=await _own_addresses(served, plan),
             resolver=served.resolver,
             voice=voice,
+            # The Ask answers from the pages the served build carries (ADR-0069); none, no Ask.
+            help=build_help_services(hive, settings.web_root),
         )
         built = build_entrance(parts, loopback)
         # From here on the Queen's calls reach the human's devices.
