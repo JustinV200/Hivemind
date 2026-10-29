@@ -91,6 +91,7 @@ class PromptName(Enum):
     )
     PATROL = "patrol"  # wardens/awake/patrol: one idle Cell's hourly review, four outcomes (11.10).
     NURSE_REVIEW = "nurse_review"  # wardens.nurse: a fresh-context review of an attempt (ADR-0061).
+    HELP_ANSWER = "help_answer"  # entrance.help: one answer from the help pages alone (ADR-0069).
 
 
 class SectionLabel(Enum):

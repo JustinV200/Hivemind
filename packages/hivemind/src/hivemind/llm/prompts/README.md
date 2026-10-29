@@ -77,7 +77,11 @@ text can always tell durable state and retrieved content apart from an instructi
   `hivemind.wardens.nurse.ModelNurseReviewer`'s one structured call on an eligible `JUDGE` link:
   a fresh-context review of an attempt that passed its machine checks, the Warden-built evidence
   shown only as untrusted RETRIEVED data with each touched file in its own block, never the
-  Worker's transcript, Handoff or own account).
+  Worker's transcript, Handoff or own account; `HELP_ANSWER` -- ADR-0069,
+  `hivemind.entrance.help.HelpAnswerer`'s one plain-text call on the cheapest chat binding: an
+  answer to a person's question from the Help screen's own pages, the passages shown as numbered
+  RETRIEVED data and the question as USER data, no tools, "I don't know" when they do not cover
+  it).
 - **`SectionLabel`**: `PINS`, `HOT_STATE`, `RETRIEVED`, `USER`, `EVENT` — the five kinds of durable
   state a section may carry.
 - **`load_prompt(name)`**: read one prompt's markdown body, via `importlib.resources` so it works
