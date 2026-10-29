@@ -19,6 +19,9 @@
 import type { ReactElement } from 'react';
 import { startTour, tourDone, useTour } from './state';
 
+// The button's id, so the panel can hand focus back to it when the tour ends on this screen.
+export const TOUR_START_ID = 'help-tour-start';
+
 export function TourCard(): ReactElement {
   // Subscribed so the card redraws when the tour closes, which is when the mark can change.
   useTour();
@@ -32,7 +35,7 @@ export function TourCard(): ReactElement {
           : 'A step-by-step walk through the shell and the main screens, each part outlined ' +
             'on the page.'}
       </p>
-      <button type="button" className="button" onClick={startTour}>
+      <button type="button" id={TOUR_START_ID} className="button" onClick={startTour}>
         {done ? 'Take the tour again' : 'Take the tour'}
       </button>
     </section>

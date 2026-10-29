@@ -10,8 +10,9 @@
  * the ring is never the only signal. When the element sits in the lower half of the viewport the
  * panel moves to the top, under the head, so it never covers what it is talking about.
  * Focus moves to the panel on each step, so a keyboard reader hears the step and reaches its
- * buttons by Tab; the arrow keys move and Escape skips. A step whose element is absent is skipped
- * the way the tour was moving.
+ * buttons by Tab; the arrow keys move and Escape skips. When the tour ends, focus goes back to
+ * the Help card's button if that card is on the page, so a keyboard user is not dropped on the
+ * body. A step whose element is absent is skipped the way the tour was moving.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/help/tour/`. Mounted once by `src/shell/shell.tsx`, so
@@ -32,6 +33,7 @@ import { closeTour, moveTour, skipTour, useTour } from './state';
 import { TOUR_STEPS } from './steps';
 import type { TourStep } from './steps';
 import './tour.css';
+import { TOUR_START_ID } from './tour_card';
 import { useTarget } from './use_target';
 
 // Space between the element's box and the ring, so the ring never covers its edge.
@@ -134,6 +136,10 @@ function Panel(props: { index: number; steps: readonly TourStep[] }): ReactEleme
     panel.current?.focus({ preventScroll: true });
   }, [index]);
 
+  // The tour ended (Finish, Skip or Escape): hand focus back to the card's button when the Help
+  // screen is open, so a keyboard user is placed where the tour began.
+  useEffect(() => () => document.getElementById(TOUR_START_ID)?.focus(), []);
+
   // Nothing to outline on this screen: move on the way the tour was going.
   useEffect(() => {
     if (target.absent) skipTour(count);
@@ -154,12 +160,12 @@ function Panel(props: { index: number; steps: readonly TourStep[] }): ReactEleme
         className={`tour comb-cell comb-cell--strong${isLow(rect) ? ' tour--top' : ''}`}
         role="dialog"
         aria-labelledby="tour-title"
-        aria-describedby="tour-text"
+        aria-describedby="tour-progress tour-text"
         tabIndex={-1}
         ref={panel}
         onKeyDown={onKey}
       >
-        <p className="tour-progress">{`Step ${index + 1} of ${count}`}</p>
+        <p id="tour-progress" className="tour-progress">{`Step ${index + 1} of ${count}`}</p>
         <h2 id="tour-title">{step.title}</h2>
         <p id="tour-text">{step.text}</p>
         <Buttons index={index} count={count} />
