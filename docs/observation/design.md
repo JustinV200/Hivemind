@@ -573,19 +573,23 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   cores, memory, model seats and spend, and who holds it`). The nav item carries the same
   sentence as its `title`.
 - **A code is shown as a phrase.** The schema's enums (`CONTEXT_PRESSURE`, `SCRATCH_WRITE`,
-  `entrance:submit`, an inbox kind, a clearance, a proposal's state) are drawn through one words
-  table per enum in `src/components/words/enums.ts` (`context nearly full`, `writes inside its
-  scratch folder`, `may send goals and messages (entrance:submit)`, `Approved` for `CAPPED`),
-  with the code kept on the element's `title` for the operator; a code the table does not know
-  is shown as sent, in lower case with spaces (`plainCode`), which is also how a code with no
-  table of its own (an episode's action, an autopilot decision's action and reason, an access
-  level, a grant's state, a Forage request's kind, a provider's health, an effort, a rollback's
-  method, a lease state, a Virtual Cell's status) is drawn, with the code on `title`. The Entrance
-  sends every such code in upper case (`FULL`, `HEALTHY`, `SNAPSHOT`), so a page writes it the
-  same way wherever it stands: the Fleet row and the Cell page header both say `read only`, the
-  Grants table and the Cell's Forage panel both say `active`. No view keeps a formatter of its
-  own for this; a fixture carries the wire's upper case so a test proves the rule where the data
-  arrives. An id the Landing Board carries without a title (a task, a wax note, an Alarm on the
+  `entrance:submit`, an inbox kind, a clearance, a proposal's state, an OS family) are drawn
+  through one words table per enum in `src/components/words/enums.ts` (`context nearly full`,
+  `writes inside its scratch folder`, `may send goals and messages (entrance:submit)`, `Approved`
+  for `CAPPED`, `macOS` for `MACOS`), with the code kept on the element's `title` for the
+  operator; a code the table does not know is shown as sent, in lower case with spaces
+  (`plainCode`), which is also how a code with no table of its own (an episode's action, an
+  autopilot decision's action and reason, an access level, a grant's state, a Forage request's
+  kind, a provider's health, an effort, a rollback's method, a lease state, a Virtual Cell's
+  status, a task's status, a wax note's or an Alarm's severity, a wax note's state) is drawn,
+  with the code on `title` where the element is a table cell, a tag or a line of text. A
+  diagram's node or box keeps its whole sentence in its `<title>` (4.8), so the Cell diagram's
+  lease and Virtual Cell boxes carry the words there, not the code. The Entrance sends every
+  such code in upper case (`FULL`, `HEALTHY`, `SNAPSHOT`), so a page writes it the same way
+  wherever it stands: the Fleet row and the Cell page header both say `read only`, the Grants
+  table and the Cell's Forage panel both say `active`, the Cell page's Cell Wax panel and the
+  Fleet's wax mark both say `block`. No view keeps a formatter of its own for this; a fixture
+  carries the wire's upper case so a test proves the rule where the data arrives. An id the Landing Board carries without a title (a task, a wax note, an Alarm on the
   Cell page) links to where its words are (the chat, the Honey item), and never invents a title.
   A model slot arrives as its `ModelSlot` code (`QUEEN`, `JUDGE`) and is written in lower case
   wherever it appears (the Cost tables, the Forage map, the Cell diagram's hosting box, an
