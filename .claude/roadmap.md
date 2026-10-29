@@ -2569,6 +2569,13 @@ in this phase adds a new write path.
   elements by `data-tour`, opens a step's route, skips an absent target, answers the keyboard, and
   remembers finishing per browser; a test proves every nav label, strip word, badge word and
   clearance name has a glossary entry (design.md section 5.12).
+  **Ask (2026-10-29, ADR-0069):** an Ask page on the Help screen (`src/views/help/ask/`) that
+  sends a question to `GET /v1/help/ask` (`hivemind.entrance.help`) and shows the answer with the
+  sections it cites as links into the pages, example questions, a note that it is an AI helper,
+  and its loading, refused and links-only states; the Entrance answers from the `help/<page>.md`
+  the build copies beside itself (a Vite plugin), retrieved by BM25 or the `EMBEDDER` slot, on
+  the chat binding the Forage map prices lowest (`cheapest_chat_binding`), with no tools, each
+  session held to a few questions a minute, every call priced through the Fanner.
 - [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
