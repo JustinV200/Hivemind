@@ -362,7 +362,7 @@ describe('refusals', () => {
       body: { error: 'hivemind.entrance.cell_not_found', detail: 'no such Cell' },
     });
     expect(await screen.findByText('That Cell is not known to the Hive.')).toBeTruthy();
-    expect(screen.getByText('hivemind.entrance.cell_not_found')).toBeTruthy();
+    expect(document.querySelector('[data-code="hivemind.entrance.cell_not_found"]')).toBeTruthy();
     expect(document.querySelector('svg.dg')).toBeNull();
     expect(screen.queryByText('Reading the Cell')).toBeNull();
   });

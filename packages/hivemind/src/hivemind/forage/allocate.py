@@ -516,7 +516,7 @@ def _bound_by_memory(free_bytes: int, inputs: GrantInputs) -> int:
     """Return how many footprints fit in `free_bytes` once the Royal Reserve's memory is held.
 
     The reserve scales with the Cell (`RoyalReserve.memory_for`): a flat 512 MiB would hold back
-    half of a 1 GiB Virtual Cell and deny it every sub-bee.
+    half of a small 1 GiB Virtual Cell (the default is 2 GiB) and deny it every sub-bee.
     """
     held = inputs.reserve.memory_for(inputs.cell_capacity.host.memory_bytes)
     after_reserve = max(0, free_bytes - held)

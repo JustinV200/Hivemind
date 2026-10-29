@@ -7,7 +7,7 @@
  * and the accent (the fill), so it works on the dark chrome and on a cream card alike.
  *
  * Fits into the Hive:
- *   Layer 7 (observation-web), `src/components/comb/`. Used by the top bar and the login card; the
+ *   Layer 7 (observation-web), `src/components/comb/`. Used by the top bar and `BrandHeader`; the
  *   same two hexagons are the PWA icon under `public/icons/`.
  *
  * Key invariants:

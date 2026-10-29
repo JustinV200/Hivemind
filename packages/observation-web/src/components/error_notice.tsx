@@ -1,9 +1,10 @@
 /**
- * `ErrorNotice`: a refusal shown the way the design says: the code, a sentence, what to do.
+ * `ErrorNotice`: a refusal shown the way the design says: a sentence, then what to do.
  *
- * Any view that shows an error uses this one component, so the code always appears in monospace
- * (so it can be quoted to the operator), the sentence always comes from the client's fixed table
- * and the next step always follows. An error the table does not know shows the Entrance's own
+ * Any view that shows an error uses this one component, so the sentence always comes from the
+ * client's fixed table and the next step always follows. The raw code is not shown to the human;
+ * it rides on the alert as `data-code` (and the thrown error's message), so devtools and logs
+ * still have it. An error the table does not know shows the Entrance's own
  * one-sentence detail and no invented advice.
  *
  * Fits into the Hive:
@@ -25,8 +26,7 @@ import { describeError } from '../landing_board/client';
 export function ErrorNotice(props: { error: unknown }): ReactElement {
   const { code, sentence, action } = describeError(props.error);
   return (
-    <div className="notice notice--alarm" role="alert">
-      <code>{code}</code>
+    <div className="notice notice--alarm" role="alert" data-code={code}>
       <p>{sentence}</p>
       {action ? <p>{action}</p> : null}
     </div>

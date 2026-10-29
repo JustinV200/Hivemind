@@ -228,7 +228,7 @@ describe('the empty and refused states', () => {
     expect(
       await screen.findByText('That does not exist, or this listener does not serve it.'),
     ).toBeTruthy();
-    expect(screen.getByText('hivemind.entrance.not_found')).toBeTruthy();
+    expect(document.querySelector('[data-code="hivemind.entrance.not_found"]')).toBeTruthy();
     expect(screen.queryByText('Task graph')).toBeNull();
   });
 

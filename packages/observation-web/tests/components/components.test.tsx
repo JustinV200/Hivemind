@@ -28,8 +28,7 @@ import {
   ViewBoundary,
 } from '../../src/components';
 import { relativeText } from '../../src/components/time';
-import { clientError } from '../../src/landing_board/client/errors';
-import { LandingBoardError } from '../../src/landing_board/client';
+import { CLIENT_CODES, clientError } from '../../src/landing_board/client/errors';
 
 describe('TierBadge', () => {
   it.each([
@@ -136,15 +135,13 @@ describe('IdToken', () => {
 });
 
 describe('ErrorNotice', () => {
-  it('shows the code, the table sentence and what to do', () => {
-    const error = new LandingBoardError(403, {
-      error: 'hivemind.entrance.step_up_required',
-      detail: 'x',
-    });
-    render(<ErrorNotice error={error} />);
-    expect(screen.getByRole('alert').textContent).toContain('hivemind.entrance.step_up_required');
-    expect(screen.getByText('This needs you to confirm again.')).toBeTruthy();
-    expect(screen.getByText('Enter your password and use your device key.')).toBeTruthy();
+  it('shows the table sentence and what to do, keeping the raw code off the screen', () => {
+    // Regression: a stand-key refusal on device approval showed its raw code above the sentence.
+    render(<ErrorNotice error={clientError(CLIENT_CODES.standKeyRequired, 'x')} />);
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).not.toContain(CLIENT_CODES.standKeyRequired);
+    expect(alert.dataset.code).toBe(CLIENT_CODES.standKeyRequired);
+    expect(screen.getByText('Only the Hive Stand browser link can do that.')).toBeTruthy();
   });
 
   it('falls back to the Entrance detail for an unknown code, with no advice', () => {
@@ -188,7 +185,7 @@ describe('ViewBoundary', () => {
         <Broken />
       </ViewBoundary>,
     );
-    expect(screen.getByRole('alert').textContent).toContain('hivemind.client.view_failed');
+    expect(screen.getByRole('alert').dataset.code).toBe('hivemind.client.view_failed');
     expect(screen.getByText(/could not be drawn/)).toBeTruthy();
     expect(screen.queryByText('malformed answer')).toBeNull();
     quiet.mockRestore();

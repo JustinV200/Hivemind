@@ -2,7 +2,7 @@
  * `LandingBoardError` and the fixed table that turns an error code into words for the human.
  *
  * The Landing Board refuses with an `ErrorBody` (`error` code, `detail` sentence). The UI shows
- * the code in monospace, then one human sentence, then what to do (design.md section 8). The
+ * one human sentence, then what to do (design.md section 8); the code stays off screen. The
  * sentence comes from the table here, keyed by code, so wording is one reviewed place and never
  * improvised per view; a code not in the table falls back to the Entrance's own `detail`, which
  * it writes as one sentence and never fills with a credential.

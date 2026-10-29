@@ -99,7 +99,9 @@ describe('seed', () => {
       body: { error: 'hivemind.entrance.capability_denied', detail: 'x' },
     });
     expect(await screen.findByText('This device is not allowed to see or do that.')).toBeTruthy();
-    expect(screen.getByText('hivemind.entrance.capability_denied')).toBeTruthy();
+    expect(
+      document.querySelector('[data-code="hivemind.entrance.capability_denied"]'),
+    ).toBeTruthy();
     expect(screen.queryByRole('img')).toBeNull();
   });
 });

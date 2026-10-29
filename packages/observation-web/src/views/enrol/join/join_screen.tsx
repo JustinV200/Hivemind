@@ -13,6 +13,7 @@
  *   address carries an invite and this browser has no enrolled device yet; works on any listener.
  *
  * Key invariants:
+ *   - Every card opens with the same `BrandHeader` as the login card.
  *   - No request is made until the human taps Make passkey, and none repeats without a tap.
  *   - A refusal is the error table's sentence through `ErrorNotice`; a redeemed, expired or unknown
  *     invite all read alike, because the Entrance says nothing more.
@@ -23,7 +24,7 @@
  */
 import { useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
-import { ErrorNotice } from '../../../components';
+import { BrandHeader, ErrorNotice } from '../../../components';
 import './join.css';
 import { useJoin } from './use_join';
 import type { Join } from './use_join';
@@ -37,6 +38,7 @@ function NameForm(props: { join: Join }): ReactElement {
   };
   return (
     <form className="login-card comb-cell" onSubmit={submit}>
+      <BrandHeader />
       <h1>Join the Observation Hive</h1>
       <p>
         You have an invite. Name this device and make a passkey for it; the operator then approves
@@ -70,6 +72,7 @@ function Waiting(props: { join: Join }): ReactElement {
   const { join } = props;
   return (
     <section className="login-card comb-cell" aria-label="Waiting for the operator">
+      <BrandHeader />
       <h1>Waiting for the operator</h1>
       <p>Read this fingerprint to the operator so they approve the right device:</p>
       <p className="join-fingerprint" aria-label="Key fingerprint">
@@ -101,6 +104,7 @@ export function JoinScreen(props: {
   if (join.phase === 'approved') {
     return (
       <section className="login-card comb-cell" aria-label="Approved">
+        <BrandHeader />
         <h1>Approved</h1>
         <p>
           The operator approved this device. Log in with your password and this device's passkey.

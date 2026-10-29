@@ -2,8 +2,8 @@
  * The components' face: the shared pieces every view draws with.
  *
  * Importers take badges, the status dot, the gauge, the error notice, the view boundary, the
- * title row, the sort control, the empty state, the brand mark, the comb pattern and the two
- * width hooks (a breakpoint, a measured pane) from here.
+ * title row, the sort control, the empty state, the brand mark and header, the comb pattern and
+ * the two width hooks (a breakpoint, a measured pane) from here.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/components/`. Imported by `src/shell/` and `src/views/`.
@@ -16,7 +16,7 @@
  */
 export { MaskBadge, TierBadge } from './badges';
 export type { CombShieldLevel, MaskState } from './badges';
-export { EmptyState, HexPattern, HEXAGON, Mark } from './comb';
+export { BrandHeader, EmptyState, HexPattern, HEXAGON, Mark } from './comb';
 export { ErrorNotice } from './error_notice';
 export { Gauge } from './gauge';
 export { IdToken } from './id_token';

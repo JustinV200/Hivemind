@@ -322,7 +322,11 @@ describe('refusals and the whole screen', () => {
 
   it('shows the Entrance’s sentence for a path that names no folder', async () => {
     await mount('nowhere', ({ fake }) => scriptTree(fake, {}));
-    expect(await screen.findByText('hivemind.entrance.honey_item_not_found')).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-code="hivemind.entrance.honey_item_not_found"]'),
+      ).toBeTruthy(),
+    );
   });
 
   it('only reads: every request is a GET, and the one stream is the trail', async () => {

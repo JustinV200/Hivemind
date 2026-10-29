@@ -42,19 +42,6 @@
   background: var(--surface);
 }
 
-.login-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-weight: 600;
-  font-size: var(--fs-lg);
-}
-
-.login-brand .mark {
-  width: 32px;
-  height: 32px;
-}
-
 .login-card h1 {
   font-size: var(--fs-lg);
 }

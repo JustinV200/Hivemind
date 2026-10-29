@@ -105,7 +105,7 @@ describe('login screen', () => {
     fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pw' } });
     fireEvent.click(screen.getByRole('button', { name: 'Log in' }));
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('hivemind.entrance.authentication_failed');
+    expect(alert.dataset.code).toBe('hivemind.entrance.authentication_failed');
     expect(alert.textContent).toContain('The Hive did not accept this login.');
     expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('');
   });

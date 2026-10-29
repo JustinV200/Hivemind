@@ -304,6 +304,20 @@
   flex: 0 0 auto;
 }
 
+/* The brand header opens each card shown before any shell (login, join) */
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 600;
+  font-size: var(--fs-lg);
+}
+
+.brand-header .mark {
+  width: 32px;
+  height: 32px;
+}
+
 /* The comb pattern is structure behind the login card, an empty state, the rail's empty half and
    the bar's empty middle: strong enough to read at 1x, never behind an item or a word */
 .hex-pattern {

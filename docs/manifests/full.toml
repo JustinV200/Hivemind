@@ -629,7 +629,8 @@ disk_bytes = 8589934592
 # carry for each role's footprint, so raising this alone never overcommits a Cell.
 max_sub_bees = 4
 # The default outbound network shape: "none", "egress_only" or "allowlist". Never "vpn_tor": that
-# profile is Night Veil's own forced default, not a configurable one.
+# profile is Night Veil's own forced default, not a configurable one. "none" needs control_subnet
+# in this section: on Docker without it the manifest is refused (no route to the Queen).
 network_policy = "egress_only"
 # Whether a Virtual Cell's root filesystem is mounted read-only, leaving only its scratch volume
 # and /tmp writable. false (the default) gives the bee the whole filesystem: a Virtual Cell is

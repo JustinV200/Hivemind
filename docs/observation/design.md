@@ -522,12 +522,13 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   state.
 - Labels are nouns (`Context`, `Grant`); buttons are verbs (`Answer`, `Acknowledge`, `Follow`).
   Sentences are short and plain.
-- **Errors** show the Landing Board's `ErrorBody.error` code in monospace, then one human sentence,
-  then what to do. Example: `hivemind.entrance.step_up_required` then "This needs you to confirm
-  again. Enter your password and use your device key." The sentence comes from a fixed table in
-  the client keyed by code; an unknown code shows `ErrorBody.detail`, which the Entrance writes
-  as one sentence and never fills with a credential. A `401` takes the human to login with "Your
-  session ended. Log in again." (the Entrance never says why, and neither does the UI).
+- **Errors** show one human sentence, then what to do. Example: `hivemind.entrance.step_up_required`
+  shows "This needs you to confirm again. Enter your password and use your device key." The raw
+  code is kept off screen, on the alert's `data-code` for devtools. The sentence comes from a
+  fixed table in the client keyed by code; an unknown code shows `ErrorBody.detail`, which the
+  Entrance writes as one sentence and never fills with a credential. A `401` takes the human to
+  login with "Your session ended. Log in again." (the Entrance never says why, and neither does
+  the UI).
 - **Empty states** say what would fill the view (`No Cells yet. A Cell appears here when the Queen
   provisions or borrows one.`), always as `EmptyState` (the sentence on the faint comb, in a comb
   cell) wherever a view or a section has nothing to list; a sentence inside a panel (`No open

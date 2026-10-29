@@ -2,8 +2,9 @@
  * `ViewBoundary`: catches a view that throws while drawing, so the shell survives it.
  *
  * One malformed field in one answer must not blank the whole app. Each view is drawn inside this
- * boundary; when it throws, the boundary shows the error notice in the view's place (the code
- * `hivemind.client.view_failed`, a sentence and what to do) and the top bar, strip and nav stay.
+ * boundary; when it throws, the boundary shows the error notice in the view's place (a sentence
+ * and what to do, with the code `hivemind.client.view_failed` on `data-code`) and the top bar,
+ * strip and nav stay.
  * The boundary is keyed by the route in the outlet, so moving to another view, or back, draws
  * afresh rather than staying stuck on the notice.
  *

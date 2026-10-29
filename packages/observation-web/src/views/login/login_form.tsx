@@ -20,7 +20,7 @@
  *   - src/views/login/login.tsx for the state around it.
  */
 import type { FormEvent, ReactElement } from 'react';
-import { ErrorNotice, Mark } from '../../components';
+import { BrandHeader, ErrorNotice } from '../../components';
 
 export interface Fields {
   deviceId: string;
@@ -39,10 +39,7 @@ export function LoginForm(props: {
   const { fields, setFields } = props;
   return (
     <form className="login-card comb-cell" onSubmit={props.onSubmit}>
-      <span className="login-brand">
-        <Mark />
-        HiveMind
-      </span>
+      <BrandHeader />
       <h1>Log in to the Observation Hive</h1>
       <p className="login-hint">
         The device you enrolled, the operator's password, then your passkey.

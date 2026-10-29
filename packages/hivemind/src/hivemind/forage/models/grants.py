@@ -79,10 +79,10 @@ DEFAULT_RESERVE_MEMORY_BYTES = 512 * 1024 * 1024  # 512 MiB: the Attendant and H
 DEFAULT_RESERVE_HEADROOM_FRACTION = 0.1  # A 10% margin absorbs measurement drift between reports.
 # The most of a Cell's total memory the reserve's memory may hold back. The 512 MiB default is
 # sized for a Hive Stand running the Queen, the Attendant and the House Bees; on a small Cell a
-# flat 512 MiB is half of a 1 GiB Virtual Cell (the default size), and a Cell that also runs its
-# own Warden is then denied every sub-bee. An eighth keeps 128 MiB on a 1 GiB Cell, half a default
-# 256 MiB footprint, as margin for drift, and reaches the full 512 MiB from 4 GiB up, so every
-# Hive Stand big enough to run the Queen in comfort keeps exactly the reserve it had.
+# flat 512 MiB is half of a 1 GiB Virtual Cell (the default size is 2 GiB), and a Cell that also
+# runs its own Warden is then denied every sub-bee. An eighth keeps 128 MiB on a 1 GiB Cell, half
+# a default 256 MiB footprint, as margin for drift, and reaches the full 512 MiB from 4 GiB up, so
+# every Hive Stand big enough to run the Queen in comfort keeps exactly the reserve it had.
 RESERVE_MEMORY_MAX_FRACTION = 0.125
 
 __all__ = [

@@ -258,7 +258,9 @@ describe('revoke', () => {
     });
     fireEvent.click(within(form).getByRole('button', { name: 'Revoke device' }));
     expect(await screen.findByText('The Hive Stand console cannot be revoked.')).toBeTruthy();
-    expect(screen.getByText('hivemind.entrance.console_protected')).toBeTruthy();
+    expect(
+      document.querySelector('[data-code="hivemind.entrance.console_protected"]'),
+    ).toBeTruthy();
   });
 });
 
@@ -310,7 +312,11 @@ describe('step-up', () => {
     const prompt = await screen.findByRole('form', { name: 'Confirm again' });
     fireEvent.change(within(prompt).getByLabelText('Password'), { target: { value: 'pw' } });
     fireEvent.click(within(prompt).getByRole('button', { name: 'Confirm' }));
-    expect(await screen.findByText('hivemind.entrance.step_up_required')).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-code="hivemind.entrance.step_up_required"]'),
+      ).toBeTruthy(),
+    );
     expect(opened.sent('POST /v1/devices/dev_phone/lock')).toHaveLength(2);
     expect(opened.sent('POST /v1/auth/step-up')).toHaveLength(1);
     expect(screen.queryByRole('form', { name: 'Confirm again' })).toBeNull();
