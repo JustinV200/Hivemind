@@ -60,15 +60,21 @@ export function useChatActions(): { actions: ChatActions; stepUp: StepUp } {
     const dispatch = store.dispatch;
     const now = (): string => new Date().toISOString();
 
-    // Runs a write that may find its target already gone, and tidies the slice either way.
-    async function settleItem(write: () => Promise<unknown>, done: () => void): Promise<void> {
+    // Runs a write that may find its target already gone, and tidies the slice either way; `done`
+    // hears whether this device's own write landed (false when someone else got there first).
+    async function settleItem(
+      write: () => Promise<unknown>,
+      done: (mine: boolean) => void,
+    ): Promise<void> {
+      let mine = true;
       try {
         await guarded(write);
       } catch (error) {
         if (!isConflict(error)) throw error;
+        mine = false;
         dispatch({ slice: 'chat', event: { type: 'notice', text: ALREADY_DONE } });
       }
-      done();
+      done(mine);
     }
 
     return {
@@ -90,7 +96,11 @@ export function useChatActions(): { actions: ChatActions; stepUp: StepUp } {
               params: { question_id: question.id },
               body: option === null ? { text } : { text, chosen_option: option },
             }),
-          () => dispatch({ slice: 'chat', event: { type: 'answered', questionId: question.id } }),
+          (mine) =>
+            dispatch({
+              slice: 'chat',
+              event: { type: 'answered', questionId: question.id, ...(mine ? { text } : {}) },
+            }),
         ),
       acknowledge: (alarmId) =>
         settleItem(
@@ -98,7 +108,8 @@ export function useChatActions(): { actions: ChatActions; stepUp: StepUp } {
             http.call('post', '/v1/inbox/alarms/{alarm_id}/acknowledge', {
               params: { alarm_id: alarmId },
             }),
-          () => dispatch({ slice: 'chat', event: { type: 'acknowledged', alarmId } }),
+          (mine) =>
+            dispatch({ slice: 'chat', event: { type: 'acknowledged', alarmId, byYou: mine } }),
         ),
       async decide(requestId, verdict) {
         const params = { request_id: requestId };

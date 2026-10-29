@@ -7,7 +7,9 @@
  * path is unlike every navigation control. Beside it is the hold-to-talk button, which sends a
  * clip instead. A chat message never starts a task by itself: "Request as a goal" (off by default)
  * turns the same box into a goal request, the button then reads "Request goal", and the words go
- * to `POST /v1/goals` through `useGoal`. The box keeps its words until the request is accepted.
+ * to `POST /v1/goals` through `useGoal`; a line under the switch says that difference on screen,
+ * since a first-timer who types "build me X" and presses Send would otherwise wait for nothing.
+ * The box keeps its words until the request is accepted.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/chat/composer/`. Drawn by `chat_screen.tsx` in the dock
@@ -107,6 +109,10 @@ export function Composer(props: {
         />
         <span>Request as a goal</span>
       </label>
+      <p className="chat-hint">
+        A message only talks to the Queen. A goal asks her to plan and run work; she may ask you to
+        confirm first.
+      </p>
       {asGoal && goal.error ? <ErrorNotice error={goal.error} /> : null}
       <div className="chat-row">
         <button type="submit" className="chat-send" disabled={words === '' || goal.busy}>

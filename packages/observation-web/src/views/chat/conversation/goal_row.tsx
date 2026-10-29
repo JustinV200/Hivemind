@@ -39,7 +39,7 @@ export function GoalRow(props: {
       <article aria-label="You, requested a goal">
         <header className="chat-line-head">
           <strong>You</strong>
-          <span className="tag">Goal request</span>
+          <span className="tag">Sent as a goal</span>
           <TimeStamp at={asked.at} />
         </header>
         <p className="chat-text">{asked.text}</p>

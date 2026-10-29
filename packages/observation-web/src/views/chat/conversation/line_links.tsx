@@ -2,7 +2,9 @@
  * `LineLinks`: the links from one chat line to what it produced or concerns.
  *
  * The schema ties a chat line to a task by `task_id`, so a line that names one links to the
- * Queen's Attendant view, where the task graph and its placement are. A message the human wrote
+ * Queen's Attendant view, where the task graph and its placement are; the link says so in words
+ * ("See task ... in the Attendant"), since no task page exists yet, and carries the message the
+ * line answers as its `title`, because a task has no title of its own. A message the human wrote
  * is what the Queen reads in her next episode, so it also links to her thoughts, where that
  * episode is recorded. The Landing Board does not name the episodes a line produced, so the link
  * goes to the list and not to one record.
@@ -26,14 +28,18 @@ import { hrefFor } from '../../../router';
 export function LineLinks(props: {
   taskId: string | null;
   fromHuman: boolean;
+  // The words of the message the line answers, when the slice knows them.
+  about?: string | null;
 }): ReactElement | null {
-  const { taskId, fromHuman } = props;
+  const { taskId, fromHuman, about } = props;
   if (taskId === null && !fromHuman) return null;
+  // The Landing Board names a task by id only, so the message it came from is the best title.
+  const title = about ? `About: ${about}` : undefined;
   return (
     <p className="chat-links">
       {taskId !== null ? (
-        <a href={hrefFor({ name: 'attendant', principal: 'queen' })}>
-          Task <IdToken id={taskId} />
+        <a href={hrefFor({ name: 'attendant', principal: 'queen' })} title={title}>
+          See task <IdToken id={taskId} /> in the Attendant
         </a>
       ) : null}
       {fromHuman ? (

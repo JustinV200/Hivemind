@@ -23,7 +23,15 @@ import type { ChatEvent, ChatState } from './state';
 export const chatSlice: Slice<ChatState, ChatEvent> = { initial: initialChat, reduce: reduceChat };
 
 export { reduceChat } from './reduce';
-export { alarmFor, goalById, isResolved, questionFor, unmatchedInbox } from './select';
+export {
+  alarmFor,
+  goalById,
+  isResolved,
+  originOf,
+  questionFor,
+  resolvedWords,
+  unmatchedInbox,
+} from './select';
 export { initialChat, MAX_GOALS, MAX_LINES, MAX_PENDING } from './state';
 export type {
   AlarmView,

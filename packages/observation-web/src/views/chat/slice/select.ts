@@ -2,9 +2,10 @@
  * Selectors over the Chat slice: which inbox item a line stands for, and what is still waiting.
  *
  * A question or Alarm line carries the id to answer or acknowledge in `ref`; the inbox carries the
- * item itself (its options, its severity). These pure functions join the two, and find the inbox
- * items no line points at, which the view still shows so a waiting question is never hidden just
- * because its line has not arrived.
+ * item itself (its options, its severity). These pure functions join the two, say what a settled
+ * line should read (the answer this device gave, kept in the slice), find the message a reply
+ * answers, and find the inbox items no line points at, which the view still shows so a waiting
+ * question is never hidden just because its line has not arrived.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/chat/slice/`. Called by the conversation components and
@@ -35,6 +36,22 @@ export function isResolved(state: ChatState, line: ChatLine): boolean {
   if (line.kind === 'question') return questionFor(state, line) === null;
   if (line.kind === 'alarm') return alarmFor(state, line) === null;
   return false;
+}
+
+// What a settled line says: the answer this device gave, its acknowledgement, or only that the
+// item is no longer waiting (settled elsewhere); null while the line still waits.
+export function resolvedWords(state: ChatState, line: ChatLine): string | null {
+  if (!isResolved(state, line)) return null;
+  const answer = state.answered.find((held) => held.id === line.ref);
+  if (answer) return `You answered: ${answer.text}`;
+  if (line.ref !== null && state.acknowledged.includes(line.ref)) return 'Acknowledged by you.';
+  return 'No longer waiting.';
+}
+
+// The words of the line a reply answers, for the reply's links to carry as their `title`.
+export function originOf(state: ChatState, line: ChatLine): string | null {
+  if (line.kind !== 'reply' || line.ref === null) return null;
+  return state.lines.find((held) => held.id === line.ref)?.text ?? null;
 }
 
 export interface Unmatched {

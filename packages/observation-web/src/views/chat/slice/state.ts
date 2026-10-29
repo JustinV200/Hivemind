@@ -14,8 +14,8 @@
  *   results of the human's own actions).
  *
  * Key invariants:
- *   - Every list is bounded here: `MAX_LINES`, `MAX_PENDING` and `MAX_GOALS` (which also bounds
- *     the goals asked for).
+ *   - Every list is bounded here: `MAX_LINES`, `MAX_PENDING` (which also bounds what this device
+ *     answered and acknowledged) and `MAX_GOALS` (which also bounds the goals asked for).
  *   - Events carry their own times and keys, so the reducer stays pure.
  *
  * See Also:
@@ -69,6 +69,12 @@ export interface SpokenState {
   at: string;
 }
 
+// A question this device answered, with the words it sent, so the line can keep saying so.
+export interface AnsweredQuestion {
+  id: string;
+  text: string;
+}
+
 export interface ChatState {
   seeded: boolean;
   lines: readonly ChatLine[];
@@ -87,6 +93,10 @@ export interface ChatState {
   spoken: SpokenState | null;
   // One sentence about something that changed under the human, such as an answer given elsewhere.
   notice: string | null;
+  // What this device itself answered and acknowledged, newest last, so a settled line keeps
+  // saying what the viewer said rather than only that it is no longer waiting.
+  answered: readonly AnsweredQuestion[];
+  acknowledged: readonly string[];
 }
 
 export type ChatEvent =
@@ -99,8 +109,10 @@ export type ChatEvent =
   | { type: 'sent'; key: string; id: string }
   | { type: 'send_failed'; key: string; error: unknown }
   | { type: 'dismiss_pending'; key: string }
-  | { type: 'answered'; questionId: string }
-  | { type: 'acknowledged'; alarmId: string }
+  // `text` is the answer this device sent; absent when someone else answered first.
+  | { type: 'answered'; questionId: string; text?: string }
+  // `byYou` marks an acknowledgement this device made, not one found already done.
+  | { type: 'acknowledged'; alarmId: string; byYou?: boolean }
   | { type: 'goal'; goal: GoalView }
   | { type: 'goal_asked'; goal: GoalView; text: string; at: string }
   | { type: 'spoken'; result: VoiceAccepted; at: string }
@@ -121,4 +133,6 @@ export const initialChat: ChatState = {
   asked: [],
   spoken: null,
   notice: null,
+  answered: [],
+  acknowledged: [],
 };

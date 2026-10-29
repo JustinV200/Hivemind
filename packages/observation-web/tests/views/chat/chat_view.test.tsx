@@ -215,7 +215,8 @@ describe('answering and acknowledging', () => {
       text: 'spring',
       chosen_option: 1,
     });
-    expect(screen.getAllByText('No longer waiting.')).toHaveLength(1);
+    // The line keeps what the viewer said, rather than only that it is no longer waiting.
+    expect(screen.getAllByText('You answered: spring')).toHaveLength(1);
   });
 
   it('answers a free-text question with the typed words', async () => {
@@ -243,6 +244,7 @@ describe('answering and acknowledging', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Acknowledge' }));
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Acknowledge' })).toBeNull());
     expect(chat.paths()).toContain('POST /v1/inbox/alarms/alarm_1/acknowledge');
+    expect(screen.getByText('Acknowledged by you.')).toBeTruthy();
   });
 
   it('removes a question someone else answered first and says so', async () => {
@@ -254,6 +256,8 @@ describe('answering and acknowledging', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'winter' }));
     expect(await screen.findByText(/already dealt with on another device/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'winter' })).toBeNull();
+    // Someone else's answer is not claimed as this device's.
+    expect(screen.getByText('No longer waiting.')).toBeTruthy();
   });
 
   it('keeps the form and shows the refusal when the answer is refused', async () => {

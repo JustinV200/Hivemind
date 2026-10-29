@@ -85,8 +85,13 @@ function spoken(state: ChatState, event: Extract<ChatEvent, { type: 'spoken' }>)
   const { result, at } = event;
   let next: ChatState = { ...state, spoken: { result, at } };
   if (result.goal) next = withGoal(next, result.goal);
+  // A spoken answer is this device's own, in the words the Entrance heard.
   if (result.answered)
-    next = reduceChat(next, { type: 'answered', questionId: result.answered.question_id });
+    next = reduceChat(next, {
+      type: 'answered',
+      questionId: result.answered.question_id,
+      text: result.transcript,
+    });
   if (result.chat) {
     // A spoken chat line is a sent message: its transcript shows until its line arrives.
     const entry = {
@@ -98,6 +103,23 @@ function spoken(state: ChatState, event: Extract<ChatEvent, { type: 'spoken' }>)
     next = withPending(next, { ...entry, lineId: result.chat.id, error: null });
   }
   return next;
+}
+
+// What this device itself said is kept (bounded like the pending list), so the settled line can
+// show it; an answer given elsewhere carries no text and leaves the record alone.
+function answered(state: ChatState, event: Extract<ChatEvent, { type: 'answered' }>): ChatState {
+  if (event.text === undefined) return state;
+  const rest = state.answered.filter((held) => held.id !== event.questionId);
+  const entry = { id: event.questionId, text: event.text };
+  return { ...state, answered: [...rest, entry].slice(-MAX_PENDING) };
+}
+
+function acknowledged(
+  state: ChatState,
+  event: Extract<ChatEvent, { type: 'acknowledged' }>,
+): ChatState {
+  if (!event.byYou || state.acknowledged.includes(event.alarmId)) return state;
+  return { ...state, acknowledged: [...state.acknowledged, event.alarmId].slice(-MAX_PENDING) };
 }
 
 function withoutInboxItem(state: ChatState, kind: 'questions' | 'alarms', id: string): ChatState {
@@ -137,9 +159,9 @@ export function reduceChat(state: ChatState, event: ChatEvent): ChatState {
     case 'dismiss_pending':
       return { ...state, pending: state.pending.filter((entry) => entry.key !== event.key) };
     case 'answered':
-      return withoutInboxItem(state, 'questions', event.questionId);
+      return answered(withoutInboxItem(state, 'questions', event.questionId), event);
     case 'acknowledged':
-      return withoutInboxItem(state, 'alarms', event.alarmId);
+      return acknowledged(withoutInboxItem(state, 'alarms', event.alarmId), event);
     case 'goal':
       return withGoal(state, event.goal);
     case 'goal_asked':
