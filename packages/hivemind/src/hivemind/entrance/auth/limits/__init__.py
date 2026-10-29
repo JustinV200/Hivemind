@@ -20,8 +20,9 @@ See Also:
       limits, travel lock".
 
 Public API:
-    - RateLimiter, ByteBudget, MAX_TRACKED_KEYS, DEFAULT_AUDIO_S_PER_MINUTE: token buckets per
-      device, per address and per device's audio seconds, and a device's image bytes (rate).
+    - RateLimiter, ByteBudget, QuestionBudget, MAX_TRACKED_KEYS, DEFAULT_AUDIO_S_PER_MINUTE: token
+      buckets per device, per address and per device's audio seconds, a device's image bytes, and
+      a session's help questions (rate).
     - address_bucket: the per-address bucket a request is charged to, the Hive Stand's apart.
     - DenialCounter, MAX_TRACKED_DEVICES, LOCKING_ACTOR: the denial-burst lock (denials).
 """
@@ -31,6 +32,7 @@ from hivemind.entrance.auth.limits.rate import (
     DEFAULT_AUDIO_S_PER_MINUTE,
     MAX_TRACKED_KEYS,
     ByteBudget,
+    QuestionBudget,
     RateLimiter,
     address_bucket,
 )
@@ -42,6 +44,7 @@ __all__ = [
     "MAX_TRACKED_KEYS",
     "ByteBudget",
     "DenialCounter",
+    "QuestionBudget",
     "RateLimiter",
     "address_bucket",
 ]

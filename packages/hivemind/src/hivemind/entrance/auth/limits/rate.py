@@ -55,6 +55,7 @@ __all__ = [
     "DEFAULT_AUDIO_S_PER_MINUTE",
     "MAX_TRACKED_KEYS",
     "ByteBudget",
+    "QuestionBudget",
     "RateLimiter",
     "address_bucket",
 ]
@@ -185,6 +186,42 @@ class ByteBudget:
             True when the image may be kept; False when the device is over its budget.
         """
         return self._buckets.take(device_id, float(size))
+
+
+class QuestionBudget:
+    """A session's budget of help questions a minute, each a model call the Hive pays for.
+
+    The help's Ask (ADR-0069) answers through the cheapest chat binding, which still costs seats
+    and often money, so beside the per-device request rate each session is held to a few
+    questions a minute: a token bucket of ``per_minute`` questions keyed by the session, held by
+    the help's services as ``ByteBudget`` is by the image intake's.
+    """
+
+    def __init__(self, clock: Clock, per_minute: int, capacity: int = MAX_TRACKED_KEYS) -> None:
+        """Build a budget with no buckets yet.
+
+        Args:
+            clock: Its ``monotonic`` reading refills the buckets.
+            per_minute: Questions one session may ask a minute; >= 1.
+            capacity: Sessions whose buckets are kept before the least recently used goes; >= 1.
+
+        Raises:
+            ValueError: The budget or the capacity is below 1.
+        """
+        if min(per_minute, capacity) < 1:
+            raise ValueError("A question budget and its bucket capacity must be at least 1.")
+        self._buckets = _Buckets(clock, float(per_minute), capacity)
+
+    def allow(self, session_key: str) -> bool:
+        """Charge one question to ``session_key``, if its budget has one left.
+
+        Args:
+            session_key: What names the session, never its token (its hash serves).
+
+        Returns:
+            True when the question may be answered; False when the session is over its budget.
+        """
+        return self._buckets.take(session_key)
 
 
 class RateLimiter:

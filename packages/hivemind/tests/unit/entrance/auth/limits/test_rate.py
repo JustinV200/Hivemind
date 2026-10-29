@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 from hivemind.entrance.auth import RateLimiter
-from hivemind.entrance.auth.limits import ByteBudget
+from hivemind.entrance.auth.limits import ByteBudget, QuestionBudget
 from hivemind.manifest import EntranceSection
 from hivemind.manifest.schema.entrance import EntranceVoiceSection
 from waggle.clock import FakeClock
@@ -148,3 +148,18 @@ def test_the_image_budget_comes_from_the_entrance_section() -> None:
 def test_an_image_budget_below_one_byte_is_refused() -> None:
     with pytest.raises(ValueError, match="at least 1"):
         ByteBudget(FakeClock(), 0)
+
+
+def test_a_sessions_questions_are_a_budget_of_their_own_that_refills() -> None:
+    clock = FakeClock()
+    budget = QuestionBudget(clock, per_minute=2)
+
+    burst = [budget.allow("session-a") for _ in range(3)]
+    clock.advance(30)  # Half a minute refills one question.
+    refilled = budget.allow("session-a")
+
+    assert burst == [True, True, False]
+    assert refilled
+    assert budget.allow("session-b")  # Every session has its own budget.
+    with pytest.raises(ValueError, match="at least 1"):
+        QuestionBudget(clock, per_minute=0)
