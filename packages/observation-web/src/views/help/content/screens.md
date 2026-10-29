@@ -136,3 +136,9 @@ Hive works by theme, and the screens. The search box finds any word or phrase ac
 you type, headings first. Take the tour walks the shell and the main screens one step at a time;
 Next, Back and Skip tour move through it, the arrow keys and Escape do the same, and it remembers
 on this browser that you finished it.
+
+Ask, the last entry in the page list, answers a question in plain words. An AI helper reads these
+pages and nothing else, writes a few sentences, and lists the sections it read as links, marking
+the ones the answer rests on; it can be wrong, so check the section. It cannot see your Hive and
+cannot change anything. Each session may ask a few questions a minute; the answer runs on the
+cheapest model the Hive is set up with, and the Cost screen counts it.

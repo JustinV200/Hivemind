@@ -15,7 +15,8 @@ open view say `stale since` a time, in words, so old numbers are never taken for
 The Hive borrows its vocabulary from bees, and the screens use those words literally: Queen,
 Warden, Cell, Forage, Honey, Capping. Every one is explained in [Words](#/help/glossary), and each
 screen's title row carries a one-line gloss with a link into this help. The search box above finds
-any word or phrase across every help page.
+any word or phrase across every help page, and [Ask](#/help/ask) answers a question in plain words
+from these pages, with the sections it read.
 
 ## Where things are
 

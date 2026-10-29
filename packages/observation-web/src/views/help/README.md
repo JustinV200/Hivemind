@@ -12,6 +12,14 @@ the query, headings first; the screen runs it as the person types, since nothing
 Hive. `pages.ts` is the page table and `help_screen.tsx` the route component (`index.ts` exports it
 as `HelpScreen`); `help.css` the styles.
 
+`ask/` is the Ask (ADR-0069), the page list's last entry at `#/help/ask`: `ask_panel.tsx` draws
+the note that an AI helper answers from these pages and nothing else, the question box, example
+questions, and each exchange with its answer (or, in words, why there is none) and the sections it
+read as links into the pages, `(cited)` after the ones the answer rests on; `use_ask.ts` makes the
+one read, `GET /v1/help/ask?q=`, one question at a time; `ask.css` the styles. The Entrance answers
+from the same markdown: `vite.config.ts` copies `content/*.md` into the build as `help/<page>.md`,
+which `hive serve` reads, so the Ask and the pages never disagree.
+
 `tour/` is the guided tour: a step table (`steps.ts`) naming a `data-tour` attribute on a real
 element (a view's title row carries `view-title-<its screens section>`, so a step about one
 screen is never satisfied by another's) and, where the element lives on another screen, the

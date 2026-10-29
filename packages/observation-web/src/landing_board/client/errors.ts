@@ -85,6 +85,14 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
     sentence: 'Voice is switched off on this Hive.',
     action: 'Type instead.',
   },
+  [`${ENTRANCE}help_over_budget`]: {
+    sentence: 'You have asked the help as many questions as it takes for now.',
+    action: 'Wait a minute, then ask again, or use the search box.',
+  },
+  [`${ENTRANCE}help_not_served`]: {
+    sentence: 'This Hive has no help pages to answer from.',
+    action: 'Use the search box and the pages instead.',
+  },
   [`${ENTRANCE}push_registration_refused`]: {
     sentence: 'The Hive refused this notification address.',
     action: 'Try again from a browser that supports Web Push.',

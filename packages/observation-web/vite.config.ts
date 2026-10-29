@@ -15,18 +15,45 @@
 //     against; without it `document` is undefined under Node's default test environment.
 //   - `base: './'` keeps asset URLs relative, so the same build runs from the Entrance's root,
 //     behind a path prefix and from Capacitor's `file://` origin (ADR-0049).
-//   - The worker's file name is fixed (`sw.js`, no hash); every other file is content-hashed.
+//   - The worker's file name is fixed (`sw.js`, no hash); every other file is content-hashed,
+//     except the help pages, copied unhashed under `help/` for the Entrance to read by name.
 //
 // See Also:
 //   - package.json's `dev`, `build` and `test` scripts, which invoke this config.
 //   - src/pwa/ for the worker and docs/adr/0049-observation-hive-dashboard-stack.md.
 /// <reference types="vitest/config" />
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+
+// The help pages the Help screen bundles, which the build also copies beside the app.
+const HELP_CONTENT = fileURLToPath(new URL('./src/views/help/content', import.meta.url));
+
+// Copies every help page into the build as `help/<page>.md`, so the Entrance's Ask answers from
+// exactly the words the Help screen shows, from one source (ADR-0069). Build only: the dev
+// server and the tests read the pages through the `?raw` imports.
+function helpPages(): Plugin {
+  return {
+    name: 'hive-help-pages',
+    apply: 'build',
+    generateBundle() {
+      for (const name of readdirSync(HELP_CONTENT).filter((file) => file.endsWith('.md'))) {
+        this.emitFile({
+          type: 'asset',
+          fileName: `help/${name}`,
+          source: readFileSync(join(HELP_CONTENT, name)),
+        });
+      }
+    },
+  };
+}
 
 export default defineConfig({
   base: './',
-  plugins: [react()],
+  plugins: [react(), helpPages()],
   build: {
     rollupOptions: {
       input: { index: 'index.html', sw: 'src/pwa/service_worker.ts' },

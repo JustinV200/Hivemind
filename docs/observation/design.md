@@ -544,6 +544,18 @@ the way the tour was moving. Finishing is remembered per browser in `localStorag
 write guarded); skipping is not, and a log out or a lost session mid-tour closes it, so the next
 session never opens on an old step. Reads nothing from the Hive.
 
+**Ask** (`#/help/ask`, ADR-0069) is the one entry of the page list that is not a page: a panel in
+place of the text with a question box, an Ask button, a row of example questions, and one note,
+always shown, that an AI helper answers from these pages and nothing else, lists the sections it
+read, can be wrong, and cannot see or change the Hive. A question goes to `GET /v1/help/ask`, the
+screen's one read; while it is out the panel says `Asking the help` (`aria-busy`), and the answers
+stack under the box, newest last, each with the question above it, the words or the reason there
+are none (no model on this Hive, the model did not answer in time, nothing matched: a sentence,
+never a code), and its sources as links into the pages (`Words: Night Veil`, with `(cited)` after
+the ones the answer rests on, words being the only mark). A refusal is the `ErrorNotice`. The
+build copies the pages beside the app as `help/<page>.md`, which is what the Entrance answers from,
+so the Ask and the pages never disagree.
+
 ## 6. Typography and density
 
 - **Sans:** `system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,

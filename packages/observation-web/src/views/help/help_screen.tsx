@@ -7,14 +7,16 @@
  * section with its words, stand in place of the page until the box is cleared. A link into a
  * section (`?s=<heading id>`, what another screen's "More in Help" and the legends carry) lands
  * focus on that heading. Beside the pages, the tour's card starts the guided tour and says
- * whether this browser has finished it.
+ * whether this browser has finished it. The list's last entry, Ask (`#/help/ask`), draws the Ask
+ * panel in place of a page: the screen's one read (ADR-0069).
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/help/`. Chosen by the outlet in `src/shell/` when the
- *   route is `help`. Reads nothing from the Hive: every word is bundled.
+ *   route is `help`. Reads nothing from the Hive but an Ask's answer: every word is bundled.
  *
  * Key invariants:
- *   - No request is made and no slice is read; the screen is the same on every device.
+ *   - No slice is read, and no request is made but the Ask's; the pages are the same on every
+ *     device.
  *   - An unknown page id shows the page list with "not found" wording, never a blank screen.
  *   - The page's `h1` is the view title; the content's headings start at `h2`.
  *
@@ -26,18 +28,27 @@ import type { ReactElement } from 'react';
 import { EmptyState, VIEW_HINTS, ViewTitle } from '../../components';
 import { hrefFor } from '../../router';
 import './help.css';
+import './ask/ask.css';
+import { ASK_PAGE_ID, AskPanel } from './ask';
 import { HELP_PAGES, helpPage } from './pages';
 import type { HelpPage } from './pages';
 import { headingId, Markdown } from './render';
 import { searchHelp } from './search';
 import { TourCard } from './tour';
 
+// The Ask's entry in the page list: not a page, but addressed and listed like one (ADR-0069).
+const ASK_ENTRY = {
+  id: ASK_PAGE_ID,
+  title: 'Ask',
+  summary: 'Ask a question; an AI helper answers from these pages.',
+};
+
 // The page list: every page, the open one marked current in words and weight, never colour alone.
 function PageList(props: { current: string | null }): ReactElement {
   return (
     <nav className="help-pages comb-cell" aria-label="Help pages">
       <ul>
-        {HELP_PAGES.map((page) => (
+        {[...HELP_PAGES, ASK_ENTRY].map((page) => (
           <li key={page.id}>
             <a
               href={hrefFor({ name: 'help', page: page.id, section: null })}
@@ -98,6 +109,7 @@ export function HelpScreen(props: { page: string | null; section: string | null 
   const page = helpPage(props.page);
   const [query, setQuery] = useState('');
   const searching = query.trim() !== '';
+  const asking = props.page === ASK_PAGE_ID;
   useSectionFocus(page, props.section);
 
   return (
@@ -121,11 +133,13 @@ export function HelpScreen(props: { page: string | null; section: string | null 
       </ViewTitle>
       <div className="help">
         <div className="help-side">
-          <PageList current={page?.id ?? null} />
+          <PageList current={page?.id ?? (asking ? ASK_PAGE_ID : null)} />
           <TourCard />
         </div>
         {searching ? (
           <Results query={query} />
+        ) : asking ? (
+          <AskPanel />
         ) : page ? (
           <article className="help-page comb-cell" aria-labelledby="help-page-title">
             <h2 id="help-page-title" className="section-heading">
