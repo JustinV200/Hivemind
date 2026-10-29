@@ -2,7 +2,8 @@
 
 Shared components used across more than one view: the tier and mask badges, the status dot, the
 gauge, the id token, the time stamp (relative, on the one shared clock in `clock.ts`), the view
-title row with its comb glyph, the empty state, the view boundary that keeps the shell alive when
+title row with its comb glyph (and, after its gloss, the `More in Help` link into the Help's page
+on that screen when the view names its section), the empty state, the view boundary that keeps the shell alive when
 a view throws, the brand `Mark` and the `BrandHeader` (mark and name) that opens the login and
 join cards, the `HexPattern` comb drawn behind the login card and empty states (and, in its
 chrome tone, in the rail and the top bar), the `SortSelect` control every sortable table draws

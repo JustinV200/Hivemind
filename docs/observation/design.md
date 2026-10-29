@@ -54,10 +54,10 @@ From top to bottom, on every screen after login:
    push stream (`/v1/push/stream`) says something is waiting (a question, an Alarm, a reply, a
    finished goal, a security event): one line per kind with a count and a link to the view that
    holds the item; opening the chat clears the chat kinds, Dismiss clears the rest.
-3. **Nav.** Fleet, Forage, Thoughts, Attendant, Chat, Honey, Cost, Capping, Devices. `Enrol` is
-   added only when the session's `listener` is `loopback`. Each item carries its view's one-line
-   gloss (section 8) as its `title`, so a newcomer can tell Fleet (machines) from Forage
-   (capacity) from Capping (the change gate) before opening them. The nav is drawn on the chrome; the
+3. **Nav.** Fleet, Forage, Thoughts, Attendant, Chat, Honey, Cost, Capping, Devices, Help. `Enrol`
+   is added, before Help, only when the session's `listener` is `loopback`. Each item carries its
+   view's one-line gloss (section 8) as its `title`, so a newcomer can tell Fleet (machines) from
+   Forage (capacity) from Capping (the change gate) before opening them. The nav is drawn on the chrome; the
    current item is bold in the chrome accent with a 3 px rule beside it and `aria-current="page"`,
    never colour alone. As a rail it starts where the head ends, whatever the head holds: the shell
    measures the head (bar, banner, strip and notice bar) and the rail, the Cell page's sticky
@@ -507,6 +507,39 @@ The join screen is the one place outside the chat where the app writes beyond th
 
 `/v1/metrics` (added in 12.1) is the Prometheus endpoint for scrapers. The UI does not read it;
 the strip uses `/v1/summary` (added in 12.1) and the streams.
+
+### 5.12 Help (`#/help`, `#/help/<page>`)
+
+The in-app help and the guided tour, reachable from the nav on every listener. The pages are
+markdown files bundled with the app (`src/views/help/content/`), parsed by a small grammar of
+their own (`##` and `###` headings, paragraphs, lists, bold, code and links): start here, the
+words (every README term with its plain meaning, in alphabetical order), bees and Cells, Forage
+and cost, memory and Honey, Capping and guard rails (the gate, the judge, the Nurse Bee, the Guard
+Bee, approvals), devices and the Hive Stand (the Entrance, enrolment, the Pollen Packet, the stand
+key, step-up), and the screens, one section per view. The page list stands beside the text from
+1080 px, each page with a one-line summary, and above it as one wrapping row of links below; the
+open page is bold with a rule beside or under it. A search box in the title
+row searches every page as the person types, since the text is bundled: a hit is a section whose
+words hold every word of the query, headings first, drawn in place of the page with a link to its
+section. A section's address is `#/help/<page>?s=<heading id>`, which lands focus on the heading
+(kept clear of the sticky head by a scroll margin); every view's gloss carries a `More in Help`
+link to its section of the screens page, and the Fleet's and the Honey's legends link to the
+glossary entries on the Comb Shield levels and the clearances. A test proves every nav label, strip
+word, badge word and clearance name has a glossary entry, and every nav item a screens section.
+
+**The tour** starts from the Help screen's card and never on its own. It is a small dialog fixed
+at the bottom of the page (above the nav on a phone, at the lower right from 720 px), never modal
+and dimming nothing, with the step's title and words, `Step N of M` in words, and Back, Next
+(Finish on the last step) and Skip tour; the arrow keys move and Escape skips, and focus moves to
+the panel on each step. The element a step is about carries a `data-tour` attribute (the strip,
+the connection word, the nav, the theme toggle, every view's title row, the chat's composer) and
+is outlined by a ring drawn at its measured box, kept inside the viewport, and scrolled into
+view, without motion under `prefers-reduced-motion`; the panel names it in words, so the ring is
+never the only signal, and moves to the top, under the head, while the element sits in the lower
+half of the viewport, so it never covers what it is talking about. A
+step on another screen opens its route first; a step whose element is not on the page is skipped
+the way the tour was moving. Finishing is remembered per browser in `localStorage` (every read and
+write guarded); skipping is not. Reads nothing from the Hive.
 
 ## 6. Typography and density
 

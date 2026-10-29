@@ -2561,6 +2561,14 @@ in this phase adds a new write path.
   budget (the cells' label line as tight as their number's, 2 px of padding given up while
   stale); the Cell page's gauge words level with their bars (`--gauge-h`); the Capping select
   collapsing a chip set to its first member (design.md sections 2, 4.2, 4.7, 4.8, 5.9 and 6).
+  **Help (2026-10-29):** a Help item in the nav opening `src/views/help/`: bundled markdown pages
+  (every README term in plain language, how the Hive works by theme, how to read each screen)
+  parsed by a small grammar of their own, searched as the person types, with a section address
+  (`#/help/<page>?s=<id>`) that every view's gloss and the Fleet's and Honey's legends link to; a
+  guided tour started from that screen, never on its own, as a non-modal panel that outlines real
+  elements by `data-tour`, opens a step's route, skips an absent target, answers the keyboard, and
+  remembers finishing per browser; a test proves every nav label, strip word, badge word and
+  clearance name has a glossary entry (design.md section 5.12).
 - [x] **12.3 Thoughts view.** The Queen's thinking as it happens: the Attendant's current ordering
   of her inbox with scores, each autopilot decision and the rule that fired, and each awake
   episode's trigger, assembled context (by section, expandable), reasoning summary where the
