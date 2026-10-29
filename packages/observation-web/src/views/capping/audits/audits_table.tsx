@@ -21,6 +21,7 @@
  */
 import type { ReactElement } from 'react';
 import { IdToken, TimeStamp } from '../../../components';
+import { riskTierWords } from '../../../components';
 import { BeeLink } from '../queue/links';
 import { NONE } from '../queue/rows';
 import { wordsOf } from '../slice';
@@ -58,7 +59,9 @@ export function AuditsTable(props: { audits: readonly AuditRow[] }): ReactElemen
             <td data-label="Proposal">
               <IdToken id={audit.proposal_id} />
             </td>
-            <td data-label="Tier">{wordsOf(audit.tier)}</td>
+            <td data-label="Tier" title={wordsOf(audit.tier)}>
+              {riskTierWords(audit.tier)}
+            </td>
             <td data-label="Finding">
               <Finding audit={audit} />
             </td>

@@ -36,6 +36,18 @@ import { Breadcrumbs } from './parts/breadcrumbs';
 import { ClearanceLegend } from './parts/clearance_badge';
 import { folderHref, normalisePath } from './parts/words';
 
+// A folder the device may not see, or none at this address: the sentence and a way back up.
+function Refusal(props: { error: unknown }): ReactElement {
+  return (
+    <>
+      <ErrorNotice error={props.error} />
+      <p>
+        <a href={folderHref('/')}>Back to the top of the Honey</a>
+      </p>
+    </>
+  );
+}
+
 export function HoneyScreen(props: { path: string; item: string | null }): ReactElement {
   const path = normalisePath(props.path);
   const { item } = props;
@@ -56,14 +68,7 @@ export function HoneyScreen(props: { path: string; item: string | null }): React
         <ClearanceLegend />
       </ViewTitle>
       <Breadcrumbs path={path} parent={folder?.parent ?? null} />
-      {error ? (
-        <>
-          <ErrorNotice error={error} />
-          <p>
-            <a href={folderHref('/')}>Back to the top of the Honey</a>
-          </p>
-        </>
-      ) : null}
+      {error ? <Refusal error={error} /> : null}
       {!folder && !error ? <p aria-busy="true">Reading the folder</p> : null}
       {folder ? (
         <div className={openId !== null ? 'honey honey--reading' : 'honey'}>

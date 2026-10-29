@@ -128,7 +128,8 @@ function Diagrams(props: { state: ForageState; nowMs: number }): ReactElement {
   );
 }
 
-function Tables(props: { state: ForageState; nowMs: number }): ReactElement {
+// The grants and what they have spent: the two sections every width shows in full.
+function GrantSections(props: { state: ForageState; nowMs: number }): ReactElement {
   const { state, nowMs } = props;
   return (
     <>
@@ -150,6 +151,15 @@ function Tables(props: { state: ForageState; nowMs: number }): ReactElement {
       >
         <SpendGauges grants={state.grants} />
       </Section>
+    </>
+  );
+}
+
+function Tables(props: { state: ForageState; nowMs: number }): ReactElement {
+  const { state, nowMs } = props;
+  return (
+    <>
+      <GrantSections state={state} nowMs={nowMs} />
       <Section
         title="Requests"
         secondary

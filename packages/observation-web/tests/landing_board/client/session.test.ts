@@ -111,6 +111,7 @@ describe('login', () => {
       code: 'hivemind.entrance.authentication_failed',
       sentence: 'The Hive did not accept this login.',
       action: 'Check the device and the password, then log in again.',
+      href: null,
     });
     expect(await loadSession(fake.store)).toBeNull();
   });
@@ -126,6 +127,7 @@ describe('login', () => {
       code: 'hivemind.entrance.surprise',
       sentence: 'Something odd.',
       action: '',
+      href: null,
     });
   });
 

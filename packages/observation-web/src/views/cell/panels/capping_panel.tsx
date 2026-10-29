@@ -23,7 +23,7 @@
  *   - docs/observation/design.md section 5.2 (flight-recorder playback, a later addition).
  */
 import type { ReactElement } from 'react';
-import { IdToken, TimeStamp } from '../../../components';
+import { IdToken, riskTierWords, TimeStamp } from '../../../components';
 import type { CellPage } from '../slice';
 import { Panel, Tag } from './panel';
 import type { TagTone } from './panel';
@@ -54,7 +54,7 @@ function ProposalRow(props: { row: Proposal; gui: boolean }): ReactElement {
     <li className="cell-row">
       <IdToken id={row.id} />
       <Tag tone={STATE_TONE[row.state]}>{row.state.replace('_', ' ')}</Tag>
-      <span>{row.tier}</span>
+      <span title={row.tier}>{riskTierWords(row.tier)}</span>
       <span>{`by ${row.bee_id}`}</span>
       {row.action_kind ? <span>{`action ${row.action_kind}`}</span> : null}
       {row.failing_check ? <span>{`failed check ${row.failing_check}`}</span> : null}
@@ -71,7 +71,7 @@ function VerdictRow(props: { verdict: Verdict; gui: boolean }): ReactElement {
     <li className="cell-row">
       <Tag tone={verdict.verdict === 'CAPPED' ? 'ok' : 'alarm'}>{verdict.verdict}</Tag>
       <IdToken id={verdict.proposal_id} />
-      <span>{verdict.tier}</span>
+      <span title={verdict.tier}>{riskTierWords(verdict.tier)}</span>
       <span>{`${verdict.checks_run} checks run`}</span>
       {verdict.failing_check ? <span>{`failed check ${verdict.failing_check}`}</span> : null}
       {verdict.judge_error ? <span>the judge could not answer</span> : null}

@@ -34,7 +34,7 @@ import { EpisodeCard } from './episode_card';
 import { FollowToggle } from './follow_toggle';
 import { InboxPanel } from './inbox_panel';
 import { MAX_EPISODES, QUEEN } from './slice';
-import type { EpisodeFrame, ThoughtsEvent, TrailFrame } from './slice';
+import type { EpisodeFrame, ThoughtsEvent, ThoughtsState, TrailFrame } from './slice';
 import { timelineOf } from './timeline';
 import { useThoughts } from './use_thoughts';
 
@@ -53,6 +53,31 @@ function DecisionStreams(): null {
   useViewStream(DECIDED_STREAM, 'thoughts', toDecision);
   useViewStream(HANDLED_STREAM, 'thoughts', toDecision);
   return null;
+}
+
+// Under the list: the way further back, and the note that the bound has cut the oldest off.
+function Footer(props: { state: ThoughtsState; loadingOlder: boolean; loadOlder: () => void }) {
+  const { state } = props;
+  return (
+    <>
+      {state.nextCursor !== null ? (
+        <button
+          type="button"
+          className="button"
+          disabled={props.loadingOlder}
+          onClick={props.loadOlder}
+          title="Read the page before these; with Follow off the list stays where it is"
+        >
+          Older
+        </button>
+      ) : null}
+      {state.truncated ? (
+        <p className="thought-note">
+          The newest {MAX_EPISODES} are kept; open this view again to read further back.
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 export function ThoughtsView(props: { bee: string }): ReactElement {
@@ -91,22 +116,7 @@ export function ThoughtsView(props: { bee: string }): ReactElement {
           ),
         )}
       </div>
-      {state.nextCursor !== null ? (
-        <button
-          type="button"
-          className="button"
-          disabled={loadingOlder}
-          onClick={loadOlder}
-          title="Read the page before these; with Follow off the list stays where it is"
-        >
-          Older
-        </button>
-      ) : null}
-      {state.truncated ? (
-        <p className="thought-note">
-          The newest {MAX_EPISODES} are kept; open this view again to read further back.
-        </p>
-      ) : null}
+      <Footer state={state} loadingOlder={loadingOlder} loadOlder={loadOlder} />
     </>
   );
 }

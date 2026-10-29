@@ -115,6 +115,32 @@ function TaintTag({ episode }: { episode: EpisodeView }): ReactElement | null {
   );
 }
 
+// The card's header: when, which, and the tags (how it decided, its clearance, taint, trigger),
+// each with a plain phrase and the schema's code on its `title`.
+function Head(props: { episode: EpisodeView }): ReactElement {
+  const e = props.episode;
+  return (
+    <header className="thought-head">
+      <TimeStamp at={e.at} />
+      <IdToken id={e.id} />
+      <span
+        className="tag"
+        title={e.is_autopilot ? 'decided by rule, no model' : 'decided with a model'}
+      >
+        {e.is_autopilot ? 'Autopilot' : 'Awake'}
+      </span>
+      <span className="tag" title={CLEARANCE_MEANINGS[e.clearance]}>
+        {clearanceWords(e.clearance)}
+      </span>
+      <TaintTag episode={e} />
+      <span className="tag" title={e.trigger_kind}>
+        <span className="thought-label">woken by</span>
+        {triggerWords(e.trigger_kind)}
+      </span>
+    </header>
+  );
+}
+
 export function EpisodeCard(props: { episode: EpisodeView }): ReactElement {
   const e = props.episode;
   const hasUsage = !e.is_autopilot;
@@ -122,24 +148,7 @@ export function EpisodeCard(props: { episode: EpisodeView }): ReactElement {
     <article
       className={e.is_autopilot ? 'thought comb-cell thought--autopilot' : 'thought comb-cell'}
     >
-      <header className="thought-head">
-        <TimeStamp at={e.at} />
-        <IdToken id={e.id} />
-        <span
-          className="tag"
-          title={e.is_autopilot ? 'decided by rule, no model' : 'decided with a model'}
-        >
-          {e.is_autopilot ? 'Autopilot' : 'Awake'}
-        </span>
-        <span className="tag" title={CLEARANCE_MEANINGS[e.clearance]}>
-          {clearanceWords(e.clearance)}
-        </span>
-        <TaintTag episode={e} />
-        <span className="tag" title={e.trigger_kind}>
-          <span className="thought-label">woken by</span>
-          {triggerWords(e.trigger_kind)}
-        </span>
-      </header>
+      <Head episode={e} />
       <p className="thought-trigger">{e.trigger_summary}</p>
       {e.reasoning_summary ? (
         <p className="thought-reasoning">

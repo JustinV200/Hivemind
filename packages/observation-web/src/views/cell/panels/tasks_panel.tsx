@@ -64,6 +64,38 @@ function TaskRow(props: { task: Task; bee: string | null }): ReactElement {
   );
 }
 
+// One goal: its heading, where it was asked for when the chat holds that, and its tasks.
+function GoalGroup(props: {
+  goal: string;
+  tasks: readonly Task[];
+  beeOf: (taskId: string) => string | null;
+}): ReactElement {
+  const { goal, tasks } = props;
+  const request = tasks[0]?.goal_request_id ?? null;
+  return (
+    <div className="cell-goal">
+      <h3>
+        Goal <IdToken id={goal} />
+      </h3>
+      {/* A goal has no title on the page; the chat holds the words it was asked in. */}
+      {request ? (
+        <a
+          className="cell-muted"
+          href={hrefFor({ name: 'chat' })}
+          title={`Planned from request ${request}`}
+        >
+          asked in the chat
+        </a>
+      ) : null}
+      <ul className="cell-list">
+        {tasks.map((task) => (
+          <TaskRow key={task.id} task={task} bee={props.beeOf(task.id)} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function TasksPanel(props: { page: CellPage }): ReactElement {
   const { page } = props;
   const listed = new Set(page.tasks.map((task) => task.id));
@@ -76,26 +108,7 @@ export function TasksPanel(props: { page: CellPage }): ReactElement {
     <Panel id="tasks" title="Tasks and goals">
       {empty ? <p>No tasks on this Cell. One appears here when the Queen places it.</p> : null}
       {byGoal(page.tasks).map(([goal, tasks]) => (
-        <div key={goal} className="cell-goal">
-          <h3>
-            Goal <IdToken id={goal} />
-          </h3>
-          {/* A goal has no title on the page; the chat holds the words it was asked in. */}
-          {tasks[0]?.goal_request_id ? (
-            <a
-              className="cell-muted"
-              href={hrefFor({ name: 'chat' })}
-              title={`Planned from request ${tasks[0].goal_request_id}`}
-            >
-              asked in the chat
-            </a>
-          ) : null}
-          <ul className="cell-list">
-            {tasks.map((task) => (
-              <TaskRow key={task.id} task={task} bee={beeOf(task.id)} />
-            ))}
-          </ul>
-        </div>
+        <GoalGroup key={goal} goal={goal} tasks={tasks} beeOf={beeOf} />
       ))}
       {unlisted.length > 0 ? (
         <ul className="cell-list">
