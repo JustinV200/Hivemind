@@ -108,7 +108,7 @@ function QuestionForm(props: { asking: boolean; onAsk: (question: string) => voi
   const tooShort = text.trim().length < MIN_QUESTION_CHARS;
   return (
     <>
-      <form className="help-ask-form" role="search" onSubmit={submit}>
+      <form className="help-ask-form" onSubmit={submit}>
         <label htmlFor="help-ask-q">Your question</label>
         <input
           id="help-ask-q"
