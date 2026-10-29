@@ -13,7 +13,7 @@
  *
  * Key invariants:
  *   - Read-only and stateless: it draws its props.
- *   - A tier with nothing audited says "none yet" for the figures that need an audit.
+ *   - A tier with nothing finished says "Audits: none yet" in place of the three audit figures.
  *
  * See Also:
  *   - src/views/capping/rates/model.ts for the arithmetic.
@@ -45,9 +45,19 @@ function TierCard(props: { rates: TierRates }): ReactElement {
         <Figure label="Approved" value={r.approved} />
         <Figure label="Refused" value={r.refused} />
         <Figure label="Rolled back" value={r.rolledBack} />
-        <Figure label="Audited" value={`${r.audited} of ${r.finished} (${percent(r.sampled)})`} />
-        <Figure label="Findings" value={`${r.findings} (${percent(r.rejection)} of scored)`} />
-        <Figure label="Unscored" value={r.inconclusive} />
+        {r.finished === 0 ? (
+          // Nothing finished means nothing to audit: one plain line instead of `0 of 0 (-)`.
+          <Figure label="Audits" value="none yet" />
+        ) : (
+          <>
+            <Figure
+              label="Audited"
+              value={`${r.audited} of ${r.finished} (${percent(r.sampled)})`}
+            />
+            <Figure label="Findings" value={`${r.findings} (${percent(r.rejection)} of scored)`} />
+            <Figure label="Unscored" value={r.inconclusive} />
+          </>
+        )}
       </dl>
     </li>
   );

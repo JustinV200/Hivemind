@@ -169,8 +169,15 @@
   content: none;
 }
 
+/* The name leads the row; the id follows it, small and muted, since its tail is what differs */
 .fleet-name {
+  font-weight: 600;
+}
+
+.fleet-page .id-token {
   margin-left: var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
 }
 
 /* The Cell's kind, source and lease age: one muted line under its name, at every width */

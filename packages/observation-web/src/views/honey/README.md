@@ -21,8 +21,8 @@ event). The re-read asks for as many entries as the reader has paged in. Without
 no read.
 
 Nothing writes. "Propose a note" has no path into the House Bee's queue through the Landing Board
-yet, so the browser draws no propose control; each folder says that proposing a note is not
-available from the Observation Hive yet. The one write the Observation Hive has is the chat.
+yet, so the browser draws no propose control and says nothing of one. The one write the
+Observation Hive has is the chat. A legend under the title keys the three clearance labels.
 
 `slice/` is the view's slice (`state.ts`, the merges and the trail rule in `fold.ts`, the reducer);
 `hooks/` holds the three reads (`use_folder.ts` with paging, the trail stream and the throttled

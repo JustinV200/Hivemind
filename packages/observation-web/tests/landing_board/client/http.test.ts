@@ -142,7 +142,7 @@ describe('errors', () => {
     });
   });
 
-  it('maps a bare 403 to the stand key message: open the Hive Stand browser link', async () => {
+  it('maps a bare 403 to the stand key message: open the link hive serve printed', async () => {
     const { fake, http } = await signedClient();
     fake.respond('POST /v1/entrance/invites', 403);
     await expect(
@@ -150,7 +150,7 @@ describe('errors', () => {
     ).rejects.toMatchObject({
       status: 403,
       code: 'hivemind.client.stand_key_required',
-      detail: expect.stringContaining('Hive Stand browser link') as unknown,
+      detail: expect.stringContaining('link that hive serve printed') as unknown,
     });
   });
 

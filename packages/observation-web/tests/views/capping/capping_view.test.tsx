@@ -99,8 +99,11 @@ describe('the rates strip', () => {
     expect(figure(IRREVERSIBLE, 'Rolled back')).toBe('1');
     expect(figure(IRREVERSIBLE, 'Audited')).toBe('1 of 1 (100%)');
     expect(figure(IRREVERSIBLE, 'Findings')).toBe('1 (100% of scored)');
-    // A tier nothing was audited for says so with the hyphen, not a made-up zero percent.
-    expect(figure(SCRATCH, 'Audited')).toBe('0 of 0 (-)');
+    // A tier with nothing finished has nothing to audit: one plain line, not `0 of 0 (-)`.
+    expect(figure(SCRATCH, 'Audits')).toBe('none yet');
+    expect(
+      within(strip.getByRole('heading', { name: SCRATCH }).closest('li')!).queryByText('Audited'),
+    ).toBeNull();
   });
 });
 
@@ -118,9 +121,15 @@ describe('the queue', () => {
     expect(refused.getAllByText('REJECTED', { selector: '.tag' })).toHaveLength(2);
     expect(refused.getByText('failed check allowlist')).toBeTruthy();
     expect(refused.getAllByText('-').length).toBeGreaterThan(0);
-    // A proposal still waiting has no verdict, reason or rollback to show.
-    expect(within(rowOf('prop_wait')).getByText('CHECKING')).toBeTruthy();
-    expect(within(rowOf('prop_wait')).queryByText('CAPPED')).toBeNull();
+    // A proposal still waiting says so under Verdict; its empty cells are marked so a card can
+    // leave them out, while the table keeps every column.
+    const waiting = within(rowOf('prop_wait'));
+    expect(waiting.getByText('CHECKING')).toBeTruthy();
+    expect(waiting.queryByText('CAPPED')).toBeNull();
+    expect(waiting.getByText('not decided yet')).toBeTruthy();
+    expect(waiting.getAllByText('-').every((cell) => cell.className === 'capping-empty')).toBe(
+      true,
+    );
   });
 
   it('says the judge could not answer when the verdict carries that flag', async () => {

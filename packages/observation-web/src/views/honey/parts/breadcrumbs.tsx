@@ -3,7 +3,8 @@
  *
  * The crumbs come from the route's path, so they are right before the folder has been read. The
  * last crumb is the folder itself and is not a link. Once the folder is read its `parent` (null
- * only for the root) gives the "Up" link, which is the Entrance's own word on where up is.
+ * only for the root) gives the "Up" link, which is the Entrance's own word on where up is. At
+ * the root nothing is drawn: the one crumb would repeat the title.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/honey/parts/`. Used by the Honey screen under the title.
@@ -18,9 +19,11 @@
 import type { ReactElement } from 'react';
 import { crumbsOf, folderHref } from './words';
 
-export function Breadcrumbs(props: { path: string; parent: string | null }): ReactElement {
+export function Breadcrumbs(props: { path: string; parent: string | null }): ReactElement | null {
   const crumbs = crumbsOf(props.path);
   const last = crumbs.length - 1;
+  // At the root the one crumb would only repeat the title above it.
+  if (last === 0) return null;
   return (
     <nav className="honey-crumbs" aria-label="Honey folder">
       <ol>

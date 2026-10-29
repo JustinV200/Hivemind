@@ -2,7 +2,9 @@
  * `SearchPanel`: a search box for the open folder, and the ranked hits it finds.
  *
  * The box is drawn only for a folder the Entrance says can be searched. A search is explicit (a
- * button or Enter), never as-you-type, because it can cost an embedding call. Each hit shows its
+ * button or Enter), never as-you-type, because it can cost an embedding call. The hits sit under
+ * a heading that names the words and the count, in place of the folder's own list, so results and
+ * items never blur together. Each hit shows its
  * clearance, title (the link that opens it in the reading pane, at the folder's address with
  * `?item=<id>`), score, the passage that matched and provenance; the page's own note (for example
  * that the hits ran out) is shown as the Entrance wrote it.
@@ -50,11 +52,18 @@ function Hit(props: { hit: SearchHit; path: string }): ReactElement {
 
 function Results(props: { search: SearchState; controls: Search; path: string }): ReactElement {
   const { search, controls, path } = props;
+  // The count so far: another page may follow, and the heading says so.
+  const count = `${search.hits.length}${search.nextCursor !== null ? ' so far' : ''}`;
   return (
-    <section aria-label="Search results">
+    <section className="honey-group" aria-labelledby="honey-results-title">
+      <h2 id="honey-results-title" className="section-heading">
+        {`Results for "${search.q}" (${count})`}
+      </h2>
       {search.error ? <ErrorNotice error={search.error} /> : null}
       {!search.done ? <p aria-busy="true">Searching</p> : null}
-      {search.done && !search.error && search.hits.length === 0 ? <p>No matches.</p> : null}
+      {search.done && !search.error && search.hits.length === 0 ? (
+        <p>{`No matches for "${search.q}".`}</p>
+      ) : null}
       <ul className="honey-items">
         {search.hits.map((hit) => (
           <Hit key={hit.id} hit={hit} path={path} />

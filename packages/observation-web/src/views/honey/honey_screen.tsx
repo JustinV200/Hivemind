@@ -14,8 +14,7 @@
  *   route is `honey`. Built to docs/observation/design.md section 5.7.
  *
  * Key invariants:
- *   - Read-only: only GET requests are made; there is no propose control, and the screen says
- *     that proposing a note is not available from the Observation Hive yet.
+ *   - Read-only: only GET requests are made, and there is no propose control.
  *   - A folder left over from another path is never shown: it must match the route's path.
  *   - Everything drawn comes from the generated types; the route's path is normalised to the form
  *     the Entrance uses (a leading slash).
@@ -77,6 +76,7 @@ export function HoneyScreen(props: { path: string; item: string | null }): React
               truncated={state.truncated}
               loadingMore={loadingMore}
               openId={openId}
+              searching={mine && state.search !== null}
               onMore={loadMore}
             />
           </div>

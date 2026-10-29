@@ -2,8 +2,8 @@
  * One Fleet row: a Cell's cells in the table, which at phone width read as one stacked card.
  *
  * The tier badge and the mask badge are in every row, always drawn: `OFF` is drawn too, because
- * no mask is information. The Cell's id and name are the link to its page, with its kind, source
- * and lease age on a muted line under them, so the table has no column for those three. Each data
+ * no mask is information. The Cell's name, then its id, are the link to its page, with its kind,
+ * source and lease age on a muted line under them, so the table has no column for those three. Each data
  * cell carries its column's words in `data-label`, which the stylesheet shows beside the value once
  * the table has become cards, and puts the two badges first. The links are plain hash links: the
  * Warden's Attendant view, then the thoughts of the Warden and of each sub-bee, the sub-bees as
@@ -70,7 +70,14 @@ function Links(props: { row: FleetRow; cards: boolean }): ReactElement {
     <td data-label="Links" className="fleet-links">
       {warden ? <a href={href('attendant', warden)}>Attendant</a> : null}
       {first ? (
-        <span className="fleet-thoughts">
+        <span
+          className="fleet-thoughts"
+          title={
+            rest.length > 0
+              ? `Thoughts of ${first}, then of the other ${rest.length === 1 ? 'bee' : 'bees'} on this Cell, numbered`
+              : `Thoughts of ${first}`
+          }
+        >
           <a href={href('thoughts', first)} aria-label={`Thoughts of ${first}`} title={first}>
             Thoughts
           </a>
@@ -94,8 +101,9 @@ export function FleetRowView(props: { row: FleetRow; cards: boolean }): ReactEle
   return (
     <tr>
       <th scope="row" data-label={LABEL.id} className="fleet-id">
+        {/* The name leads: it is what a person scans for; the id's tail is near-identical noise. */}
         <a href={href('cells', row.id)} className="fleet-page">
-          <IdToken id={row.id} /> <span className="fleet-name">{row.name}</span>
+          <span className="fleet-name">{row.name}</span> <IdToken id={row.id} />
         </a>
         <Origin row={row} />
       </th>

@@ -152,12 +152,11 @@ describe('a folder', () => {
     expect(requestsTo(opened.fake, '/v1/honey/tree').at(-1)?.query.get('cursor')).toBe('c1');
   });
 
-  it('draws no propose control and says proposals are not available yet', async () => {
+  it('draws no propose control', async () => {
     await open();
     await screen.findByText('How the site logs in');
-    expect(
-      screen.getByText('Proposing a note is not available from the Observation Hive yet.'),
-    ).toBeTruthy();
+    // No line advertises the absent feature either.
+    expect(screen.queryByText(/proposing a note/i)).toBeNull();
     expect(screen.queryByRole('button', { name: /propos/i })).toBeNull();
     expect(screen.queryByRole('link', { name: /propos/i })).toBeNull();
     expect(screen.queryByRole('textbox', { name: /note/i })).toBeNull();
@@ -261,6 +260,9 @@ describe('search', () => {
 
     const hit = await screen.findByRole('link', { name: 'Where the passkey lives' });
     expect(hit.getAttribute('href')).toBe('#/honey/hive?item=honey_2');
+    // The hits stand under their own heading, in place of the folder's items.
+    expect(screen.getByRole('heading', { name: 'Results for "passkey" (1 so far)' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Items' })).toBeNull();
     const row = within(hit.closest('li') as HTMLElement);
     expect(row.getByText('C1 Apiary')).toBeTruthy();
     expect(row.getByText('Score 0.83')).toBeTruthy();
@@ -291,9 +293,11 @@ describe('search', () => {
       target: { value: 'nothing' },
     });
     fireEvent.submit(screen.getByRole('search'));
-    expect(await screen.findByText('No matches.')).toBeTruthy();
+    expect(await screen.findByText('No matches for "nothing".')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
-    expect(screen.queryByText('No matches.')).toBeNull();
+    expect(screen.queryByText(/No matches/)).toBeNull();
+    // The folder's own items are back once the search is cleared.
+    expect(screen.getByRole('heading', { name: 'Items' })).toBeTruthy();
   });
 
   it('shows a search refusal through the error notice', async () => {

@@ -141,7 +141,13 @@ describe('ErrorNotice', () => {
     const alert = screen.getByRole('alert');
     expect(alert.textContent).not.toContain(CLIENT_CODES.standKeyRequired);
     expect(alert.dataset.code).toBe(CLIENT_CODES.standKeyRequired);
-    expect(screen.getByText('Only the Hive Stand browser link can do that.')).toBeTruthy();
+    expect(screen.getByText("Only the Hive Stand's own browser tab can do this.")).toBeTruthy();
+  });
+
+  it('draws the next step as a link when the table says where to go', () => {
+    render(<ErrorNotice error={clientError('hivemind.entrance.cell_not_found', 'x')} />);
+    const link = screen.getByRole('link', { name: 'Go back to the Fleet and pick another.' });
+    expect(link.getAttribute('href')).toBe('#/fleet');
   });
 
   it('falls back to the Entrance detail for an unknown code, with no advice', () => {

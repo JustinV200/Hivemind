@@ -5,8 +5,9 @@
  * bee's thoughts), its task, its Cell (a link to the Cell page when the schema names one), the
  * gate's verdict and the reason for it, the rollback mark and, for an Exoskeleton action, the
  * recording column's note. The default order is the newest change first. Under 1280 px the table
- * becomes stacked cards (one proposal, one card), each cell keeping its label, and the shared
- * "Sort by" control stands in for the hidden header row.
+ * becomes stacked cards (one proposal, one card), each cell keeping its label, the cells with
+ * nothing to say left off the card, and the shared "Sort by" control stands in for the hidden
+ * header row. A proposal the gate has not judged yet says "not decided yet" under Verdict.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/capping/queue/`. Drawn by `capping_screen.tsx` from the
@@ -21,7 +22,7 @@
  *   - docs/observation/design.md sections 4.3 and 5.9.
  */
 import { useState } from 'react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import {
   IdToken,
   riskTierWords,
@@ -74,6 +75,20 @@ function Tag(props: { tone: Tone; children: string }): ReactElement {
   return <span className={`tag tag--status tag--${props.tone}`}>{props.children}</span>;
 }
 
+// A cell with nothing to say keeps the hyphen in the table and is left off the card, so three
+// proposals on a phone are not thirty rows of `-`.
+function Cell(props: { label: string; children: ReactNode }): ReactElement {
+  const empty = props.children === NONE;
+  return (
+    <td data-label={props.label} className={empty ? 'capping-empty' : undefined}>
+      {props.children}
+    </td>
+  );
+}
+
+// A proposal the gate has not judged says so, rather than showing a hyphen under "Verdict".
+const WAITING: ReadonlySet<ProposalState> = new Set(['PROPOSED', 'CHECKING']);
+
 function Row(props: { row: QueueRow }): ReactElement {
   const { proposal, verdict, exoskeleton } = props.row;
   return (
@@ -90,18 +105,20 @@ function Row(props: { row: QueueRow }): ReactElement {
       <td data-label="Bee">
         <BeeLink bee={proposal.bee_id} />
       </td>
-      <td data-label="Task">{proposal.task_id ? <IdToken id={proposal.task_id} /> : NONE}</td>
-      <td data-label="Cell">{proposal.cell_id ? <CellLink cell={proposal.cell_id} /> : NONE}</td>
-      <td data-label="Verdict">
+      <Cell label="Task">{proposal.task_id ? <IdToken id={proposal.task_id} /> : NONE}</Cell>
+      <Cell label="Cell">{proposal.cell_id ? <CellLink cell={proposal.cell_id} /> : NONE}</Cell>
+      <Cell label="Verdict">
         {verdict ? (
           <Tag tone={verdict.verdict === 'CAPPED' ? 'ok' : 'alarm'}>{verdict.verdict}</Tag>
+        ) : WAITING.has(proposal.state) ? (
+          'not decided yet'
         ) : (
           NONE
         )}
-      </td>
-      <td data-label="Reason">{reasonOf(props.row)}</td>
-      <td data-label="Rollback">{rollbackOf(proposal)}</td>
-      <td data-label="Recording">{exoskeleton ? <RecordingNote /> : NONE}</td>
+      </Cell>
+      <Cell label="Reason">{reasonOf(props.row)}</Cell>
+      <Cell label="Rollback">{rollbackOf(proposal)}</Cell>
+      <Cell label="Recording">{exoskeleton ? <RecordingNote /> : NONE}</Cell>
       <td data-label="Updated">
         <TimeStamp at={proposal.updated_at} />
       </td>

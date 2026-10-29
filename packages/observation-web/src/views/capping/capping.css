@@ -199,6 +199,14 @@
   }
 }
 
+/* On a card a cell with nothing to say (the hyphen) is left out, so a waiting proposal is a few
+   rows rather than eleven; the table keeps every column */
+@media (max-width: 1279px) {
+  .capping-table td.capping-empty {
+    display: none;
+  }
+}
+
 /* The queue's eleven columns need 1280px; below that its rows stay cards (design.md section 2) */
 @media (min-width: 1280px) {
   .capping-table {

@@ -177,6 +177,9 @@ describe('legend', () => {
     });
     const legend = await screen.findByRole('region', { name: 'Comb Shield levels' });
     expect(within(legend).getAllByText(/^(MEADOW|PROPOLIS|NIGHT VEIL)$/)).toHaveLength(3);
+    // The meanings fall back to the Entrance's fixed sentences, so the badges are never bare.
+    expect(within(legend).getByText(/Baseline: any machine/)).toBeTruthy();
+    expect(within(legend).getByText(/Virtual only/)).toBeTruthy();
   });
 });
 
@@ -293,7 +296,7 @@ describe('links', () => {
         link.getAttribute('href'),
       ]);
     expect(hrefs).toEqual([
-      ['cell_r hive-stand', '#/cells/cell_r'],
+      ['hive-stand cell_r', '#/cells/cell_r'],
       ['Attendant', '#/attendant/warden_1'],
       ['Thoughts of warden_1', '#/thoughts/warden_1'],
       ['Thoughts of worker_7', '#/thoughts/worker_7'],

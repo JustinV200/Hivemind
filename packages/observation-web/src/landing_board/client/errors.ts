@@ -5,7 +5,8 @@
  * one human sentence, then what to do (design.md section 8); the code stays off screen. The
  * sentence comes from the table here, keyed by code, so wording is one reviewed place and never
  * improvised per view; a code not in the table falls back to the Entrance's own `detail`, which
- * it writes as one sentence and never fills with a credential.
+ * it writes as one sentence and never fills with a credential. An action that tells the human to
+ * go somewhere carries the hash to go to (`href`), so the notice can draw it as a link.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/landing_board/client/`. Thrown by `http.ts`, and read by
@@ -27,6 +28,8 @@ export type ErrorBody = components['schemas']['ErrorBody'];
 export interface ErrorWords {
   sentence: string;
   action: string;
+  // Where the action leads, when it names a place to go: the notice draws the action as a link.
+  href?: string;
 }
 
 // Local refusals use their own namespace so they cannot be mistaken for the Entrance's codes.
@@ -64,6 +67,7 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
   [`${ENTRANCE}capability_denied`]: {
     sentence: 'This device is not allowed to see or do that.',
     action: 'Ask the operator to widen what this device may do.',
+    href: '#/devices',
   },
   [`${ENTRANCE}rate_limited`]: {
     sentence: 'Too many requests came from this device.',
@@ -87,11 +91,13 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
   },
   [`${ENTRANCE}cell_not_found`]: {
     sentence: 'That Cell is not known to the Hive.',
-    action: 'Go back to the fleet and pick another.',
+    action: 'Go back to the Fleet and pick another.',
+    href: '#/fleet',
   },
   [`${ENTRANCE}not_found`]: {
     sentence: 'That does not exist, or this listener does not serve it.',
-    action: 'Go back and pick another.',
+    action: 'Go back to the Fleet and pick another.',
+    href: '#/fleet',
   },
   [`${ENTRANCE}invalid_request`]: {
     sentence: 'The Hive could not read that request.',
@@ -151,7 +157,7 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
   },
   [`${ENTRANCE}invite_not_found`]: {
     sentence: 'That invite is gone.',
-    action: 'Mint a new one if it is still needed.',
+    action: 'Create a new one if it is still needed.',
   },
   [`${ENTRANCE}mode_conflict`]: {
     sentence: 'The Entrance is already in the mode you asked for.',
@@ -190,9 +196,9 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
     action: 'Allow the microphone for this page, or type instead.',
   },
   [CLIENT_CODES.standKeyRequired]: {
-    sentence: 'Only the Hive Stand browser link can do that.',
+    sentence: "Only the Hive Stand's own browser tab can do this.",
     action:
-      'Open the Hive Stand browser link `hive serve` printed (it changes every serve), on localhost.',
+      'On the Hive Stand, open the link that hive serve printed in the terminal; it changes each time it starts.',
   },
   [CLIENT_CODES.viewFailed]: {
     sentence: 'This view could not be drawn from what the Hive sent.',
@@ -229,11 +235,12 @@ export interface DescribedError {
   code: string;
   sentence: string;
   action: string;
+  href: string | null;
 }
 
 export function describeError(error: unknown): DescribedError {
   if (!(error instanceof LandingBoardError)) {
-    return { code: CLIENT_CODES.network, ...ERROR_TABLE[CLIENT_CODES.network]! };
+    return { code: CLIENT_CODES.network, href: null, ...ERROR_TABLE[CLIENT_CODES.network]! };
   }
   const words = ERROR_TABLE[error.code];
   // An unknown code shows the Entrance's own one-sentence detail and no invented advice.
@@ -241,5 +248,6 @@ export function describeError(error: unknown): DescribedError {
     code: error.code,
     sentence: words?.sentence ?? error.detail,
     action: words?.action ?? '',
+    href: words?.href ?? null,
   };
 }

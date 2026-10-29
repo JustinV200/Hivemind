@@ -4,8 +4,9 @@
  * Under the folder's header (the most sensitive label this viewer may read, and the Entrance's
  * own note when the listing is not what one would expect) it lists the sub-folders the viewer's
  * scopes reach and then a page of items, each with its clearance and provenance. "More" reads the
- * next page by cursor. A last line says that proposing a note is not available here yet: the
- * Observation Hive has no path into the House Bee's queue, and it never says "saved".
+ * next page by cursor. While a search is open the items and their paging step aside for the
+ * results. There is no propose control: the Observation Hive has no path into the House Bee's
+ * queue, and the panel says nothing of a feature it does not have.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/honey/panels/`. Drawn by the Honey screen from the
@@ -13,7 +14,7 @@
  *
  * Key invariants:
  *   - Draws only the folder as the Entrance cut it for this viewer; nothing is added or filtered.
- *   - Nothing here writes: no propose control exists, only the one-line note.
+ *   - Nothing here writes: no propose control exists.
  *   - An empty folder says so, so an empty screen is never mistaken for a loading one.
  *
  * See Also:
@@ -25,8 +26,6 @@ import { ClearanceBadge } from '../parts/clearance_badge';
 import { ItemRow } from '../parts/item_row';
 import { folderHref } from '../parts/words';
 import type { HoneyFolder } from '../slice';
-
-export const NO_PROPOSALS = 'Proposing a note is not available from the Observation Hive yet.';
 
 function SubFolders(props: { folders: HoneyFolder['folders'] }): ReactElement | null {
   if (props.folders.length === 0) return null;
@@ -53,9 +52,11 @@ export function FolderPanel(props: {
   truncated: boolean;
   loadingMore: boolean;
   openId: string | null;
+  // While a search is open its results stand in for the folder's items.
+  searching: boolean;
   onMore: () => void;
 }): ReactElement {
-  const { folder, truncated, loadingMore, openId, onMore } = props;
+  const { folder, truncated, loadingMore, openId, searching, onMore } = props;
   const empty = folder.folders.length === 0 && folder.items.length === 0;
   return (
     <>
@@ -64,7 +65,7 @@ export function FolderPanel(props: {
       </p>
       {folder.note ? <p className="honey-note">{folder.note}</p> : null}
       <SubFolders folders={folder.folders} />
-      {folder.items.length > 0 ? (
+      {folder.items.length > 0 && !searching ? (
         <section className="honey-group" aria-labelledby="honey-items-title">
           <h2 id="honey-items-title" className="section-heading">
             Items
@@ -77,15 +78,14 @@ export function FolderPanel(props: {
         </section>
       ) : null}
       {empty ? <EmptyState>Nothing in this folder that this device may see.</EmptyState> : null}
-      {folder.next_cursor !== null ? (
+      {folder.next_cursor !== null && !searching ? (
         <button type="button" className="button" disabled={loadingMore} onClick={onMore}>
           More
         </button>
       ) : null}
-      {truncated ? (
+      {truncated && !searching ? (
         <p className="honey-muted">The list is cut here. Search the folder to find the rest.</p>
       ) : null}
-      <p className="honey-muted">{NO_PROPOSALS}</p>
     </>
   );
 }
