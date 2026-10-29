@@ -53,7 +53,8 @@ describe('HelpScreen', () => {
     mount(<HelpScreen page="glossary" section={null} />);
     fireEvent.change(screen.getByLabelText('Search the help'), { target: { value: 'night veil' } });
     const results = screen.getByRole('region', { name: /^Results for "night veil"/ });
-    expect(within(results).getByRole('heading', { name: 'Night Veil' })).toBeTruthy();
+    // A hit's heading carries no id: two pages may share one, and the link addresses the section.
+    expect(within(results).getByRole('heading', { name: 'Night Veil' }).id).toBe('');
     expect(within(results).getAllByRole('link', { name: 'Words' })[0]?.getAttribute('href')).toBe(
       '#/help/glossary?s=night-veil',
     );

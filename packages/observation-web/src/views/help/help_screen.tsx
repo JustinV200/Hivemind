@@ -69,8 +69,9 @@ function Results(props: { query: string }): ReactElement {
               {hit.page.title}
             </a>
           </p>
-          {/* The section's own heading opens its block list, so the hit reads as on its page. */}
-          <Markdown blocks={hit.blocks} />
+          {/* The section's own heading opens its block list, so the hit reads as on its page;
+              without ids, since two pages may share a heading and the link above addresses it. */}
+          <Markdown blocks={hit.blocks} anchors={false} />
         </article>
       ))}
     </section>

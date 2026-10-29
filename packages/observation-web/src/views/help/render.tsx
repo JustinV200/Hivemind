@@ -3,9 +3,11 @@
  *
  * Each block from `markdown.ts` becomes one element. A heading carries the id its words make,
  * prefixed `help-`, so a link into a section (`#/help/<page>?s=<id>`) can find and focus it; it is
- * focusable by script only, never by Tab, so landing on a section reads its heading first. A link
- * in the text is a plain anchor: a hash route (`#/fleet`, `#/help/forage`) goes through the router
- * like every nav link.
+ * focusable by script only, never by Tab, so landing on a section reads its heading first. Only
+ * the open page is addressed that way, so the search hits, which may draw the same heading from
+ * two pages, are drawn without ids (`anchors={false}`) and the page never holds an id twice. A
+ * link in the text is a plain anchor: a hash route (`#/fleet`, `#/help/forage`) goes through the
+ * router like every nav link.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/help/`. Drawn by `help_screen.tsx` for a page and for
@@ -47,7 +49,12 @@ function Spans(props: { spans: readonly Inline[] }): ReactElement {
   );
 }
 
-export function Markdown(props: { blocks: readonly Block[] }): ReactElement {
+export function Markdown(props: {
+  blocks: readonly Block[];
+  // False for the search hits, which may repeat a heading of the open page: no ids, no focus.
+  anchors?: boolean;
+}): ReactElement {
+  const anchors = props.anchors ?? true;
   return (
     <>
       {props.blocks.map((block, i) => {
@@ -55,7 +62,12 @@ export function Markdown(props: { blocks: readonly Block[] }): ReactElement {
           case 'heading': {
             const Tag = block.level === 2 ? 'h2' : 'h3';
             return (
-              <Tag key={i} id={headingId(block.id)} className="help-heading" tabIndex={-1}>
+              <Tag
+                key={i}
+                id={anchors ? headingId(block.id) : undefined}
+                className="help-heading"
+                tabIndex={anchors ? -1 : undefined}
+              >
                 {block.text}
               </Tag>
             );
