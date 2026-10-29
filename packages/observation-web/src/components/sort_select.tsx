@@ -63,7 +63,11 @@ export function SortSelect<K extends string>(props: {
     <div className="sort-select">
       <label>
         Sort by{' '}
-        <select value={sort?.key ?? NONE} onChange={(event) => choose(event.target.value)}>
+        <select
+          className="select"
+          value={sort?.key ?? NONE}
+          onChange={(event) => choose(event.target.value)}
+        >
           {props.none !== undefined ? <option value={NONE}>{props.none}</option> : null}
           {props.options.map((option) => (
             <option key={option.key} value={option.key}>

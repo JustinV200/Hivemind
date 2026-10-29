@@ -61,6 +61,7 @@ export function BeePicker(props: { bee: string }): ReactElement {
     <label className="bee-picker">
       Bee
       <select
+        className="select"
         value={props.bee}
         onChange={(event) => {
           window.location.hash = hrefFor({ name: 'thoughts', bee: event.target.value });

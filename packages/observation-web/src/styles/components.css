@@ -339,13 +339,19 @@
   font-size: var(--fs-sm);
 }
 
-.sort-select select {
+/* The one select field, wherever a view draws one (the Sort by control, the Thoughts' Bee
+   picker, the Capping view's phone filters), so every select reads as the same control */
+.select {
   min-height: 36px;
-  margin-left: var(--sp-1);
   padding: 0 var(--sp-2);
   background: var(--surface);
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+.sort-select .select {
+  margin-left: var(--sp-1);
 }
 
 .sort-select .button {

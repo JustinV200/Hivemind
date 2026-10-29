@@ -120,6 +120,7 @@ function SelectGroup<T extends string>(props: GroupProps<T>): ReactElement {
     <label className="capping-select">
       {props.label}
       <select
+        className="select"
         value={chosen.length === 1 ? (chosen[0] as T) : ''}
         onChange={(event) => choose(event.target.value)}
       >

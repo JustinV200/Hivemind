@@ -35,7 +35,7 @@
   gap: var(--sp-2);
 }
 
-/* The Bee select in the title row, drawn like the "Sort by" control */
+/* The Bee select in the title row: the shared `.select` field, kept short enough for the row */
 .bee-picker {
   display: inline-flex;
   align-items: center;
@@ -43,14 +43,8 @@
   font-size: var(--fs-sm);
 }
 
-.bee-picker select {
-  min-height: 36px;
+.bee-picker .select {
   max-width: 16rem;
-  padding: 0 var(--sp-2);
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
 }
 
 /* Where else the open bee can be read, under the title */
