@@ -19,7 +19,7 @@
  *   - docs/observation/design.md section 5.8.
  */
 import type { ReactElement } from 'react';
-import { IdToken } from '../../../components';
+import { IdToken, plainCode } from '../../../components';
 import { count, usd } from '../format';
 import type { CostSnapshot } from '../slice';
 import { CostTable } from './cost_table';
@@ -27,12 +27,19 @@ import type { Column } from './cost_table';
 import { goalRows, UNATTRIBUTED } from './rows';
 import type { GoalRow, Split } from './rows';
 
-function SplitList(props: { splits: readonly Split[] }): ReactElement {
+// A split by slot names `ModelSlot` codes (`QUEEN`), written in lower case with the code on
+// `title`; a split by provider names providers, which are already words.
+function SplitList(props: { splits: readonly Split[]; codes?: boolean }): ReactElement {
   return (
     <ul className="cost-split">
       {props.splits.map((split) => (
         <li key={split.name}>
-          <span>{split.name}</span> {usd(split.usd)}
+          {props.codes ? (
+            <span title={split.name}>{plainCode(split.name)}</span>
+          ) : (
+            <span>{split.name}</span>
+          )}{' '}
+          {usd(split.usd)}
         </li>
       ))}
     </ul>
@@ -56,7 +63,7 @@ const COLUMNS: readonly Column<GoalRow>[] = [
     cell: (row) => `${count(row.tokens.input)} / ${count(row.tokens.output)}`,
     sortBy: tokenTotal,
   },
-  { id: 'slot', label: 'By slot', cell: (row) => <SplitList splits={row.bySlot} /> },
+  { id: 'slot', label: 'By slot', cell: (row) => <SplitList splits={row.bySlot} codes /> },
   { id: 'provider', label: 'By provider', cell: (row) => <SplitList splits={row.byProvider} /> },
 ];
 

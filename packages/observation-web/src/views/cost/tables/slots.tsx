@@ -6,7 +6,9 @@
  * calls (calls through a provider that charged, out of all the slot's calls), with the same numbers
  * in text beside the bar. It counts calls, not dollars, because hosted spend is all of a slot's
  * spend and a share of it would always read 100 percent. The bar is a share, not a limit, so it
- * keeps a neutral fill: a slot served wholly by a provider is a fact, not a fault.
+ * keeps a neutral fill: a slot served wholly by a provider is a fact, not a fault. The slot
+ * arrives as its `ModelSlot` code (`QUEEN`) and is written in lower case, as every view writes a
+ * slot, with the code on the cell's `title`.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/cost/tables/`. Drawn by `cost_screen.tsx` from the
@@ -21,7 +23,7 @@
  *   - docs/observation/design.md sections 4.2 and 5.8.
  */
 import type { ReactElement } from 'react';
-import { Gauge } from '../../../components';
+import { Gauge, plainCode } from '../../../components';
 import { sharePercent, usd } from '../format';
 import type { CostSnapshot } from '../slice';
 import { CostTable } from './cost_table';
@@ -30,7 +32,13 @@ import { slotRows } from './rows';
 import type { SlotRow } from './rows';
 
 const COLUMNS: readonly Column<SlotRow>[] = [
-  { id: 'slot', label: 'Slot', cell: (row) => row.slot, sortBy: (row) => row.slot },
+  {
+    id: 'slot',
+    label: 'Slot',
+    // The words and the sort share one text, so the column orders as it reads.
+    cell: (row) => <span title={row.slot}>{plainCode(row.slot)}</span>,
+    sortBy: (row) => plainCode(row.slot),
+  },
   { id: 'spend', label: 'Spend', cell: (row) => usd(row.spend), sortBy: (row) => row.spend },
   { id: 'hosted', label: 'Hosted', cell: (row) => usd(row.hosted), sortBy: (row) => row.hosted },
   {
@@ -46,7 +54,7 @@ const COLUMNS: readonly Column<SlotRow>[] = [
       <Gauge
         used={row.hostedCalls}
         budget={row.calls}
-        label={`Hosted share of ${row.slot} calls`}
+        label={`Hosted share of ${plainCode(row.slot)} calls`}
         tone="neutral"
       />
     ),

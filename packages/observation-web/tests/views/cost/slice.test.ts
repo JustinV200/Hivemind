@@ -57,7 +57,7 @@ describe('an llm.call frame with usage', () => {
     const state = reduceCost(
       seeded(),
       frame({
-        slot: 'queen',
+        slot: 'QUEEN',
         provider: 'cloud',
         payload: { goal_id: 'goal_1' },
         usage: { cached_tokens: 7, cost_usd: 0.02, input_tokens: 500, output_tokens: 100 },
@@ -66,7 +66,7 @@ describe('an llm.call frame with usage', () => {
     const g1 = goal(state, 'goal_1')!;
     expect(g1.cost_usd).toBeCloseTo(0.05, 6);
     expect(g1.calls).toBe(6);
-    const queen = g1.lines.find((l) => l.slot === 'queen' && l.provider === 'cloud')!;
+    const queen = g1.lines.find((l) => l.slot === 'QUEEN' && l.provider === 'cloud')!;
     expect(queen).toMatchObject({
       calls: 3,
       input_tokens: 1500,
@@ -74,7 +74,7 @@ describe('an llm.call frame with usage', () => {
       cached_tokens: 7,
     });
     expect(queen.cost_usd).toBeCloseTo(0.05, 6);
-    const slot = state.cost.slots.find((s) => s.slot === 'queen')!;
+    const slot = state.cost.slots.find((s) => s.slot === 'QUEEN')!;
     expect(slot.cost_usd).toBeCloseTo(0.055, 6);
     expect(slot.hosted_usd).toBeCloseTo(0.055, 6);
     expect(state.cost.providers.find((p) => p.provider === 'cloud')).toMatchObject({ calls: 5 });
@@ -87,7 +87,7 @@ describe('an llm.call frame with usage', () => {
     const state = reduceCost(
       seeded(),
       frame({
-        slot: 'scout',
+        slot: 'SCOUT',
         provider: 'edge',
         payload: { goal_id: 'goal_3' },
         usage: { cached_tokens: 0, cost_usd: 0.9, input_tokens: 10, output_tokens: 5 },
@@ -95,7 +95,7 @@ describe('an llm.call frame with usage', () => {
     );
     // goal_3 is the costliest now; the null goal still comes after goals that cost more.
     expect(state.cost.goals.map((g) => g.goal_id)).toEqual(['goal_3', 'goal_1', 'goal_2', null]);
-    expect(state.cost.slots.map((s) => s.slot)).toEqual(['queen', 'scout', 'worker']);
+    expect(state.cost.slots.map((s) => s.slot)).toEqual(['QUEEN', 'SCOUT', 'WORKER']);
     expect(state.cost.providers.map((p) => p.provider)).toEqual(['edge', 'cloud', 'local']);
     expect(goal(state, 'goal_3')!.lines).toHaveLength(1);
   });
@@ -121,7 +121,7 @@ describe('an llm.call frame with usage', () => {
     const state = reduceCost(
       seeded(),
       frame({
-        slot: 'worker',
+        slot: 'WORKER',
         provider: 'local',
         payload: { goal_id: 'goal_1' },
         usage: { cached_tokens: 0, cost_usd: 0, input_tokens: 90, output_tokens: 10 },
@@ -134,8 +134,8 @@ describe('an llm.call frame with usage', () => {
   });
 
   it('agrees with the Entrance when the same call is in a read', () => {
-    const base = [line({ goal_id: 'goal_1', slot: 'queen', provider: 'cloud', cost_usd: 0.01 })];
-    const extra = line({ goal_id: 'goal_1', slot: 'queen', provider: 'cloud', cost_usd: 0.02 });
+    const base = [line({ goal_id: 'goal_1', slot: 'QUEEN', provider: 'cloud', cost_usd: 0.01 })];
+    const extra = line({ goal_id: 'goal_1', slot: 'QUEEN', provider: 'cloud', cost_usd: 0.02 });
     const folded = reduceCost(
       reduceCost(initialCost, { type: 'read', cost: costFrom(base) }),
       frame({

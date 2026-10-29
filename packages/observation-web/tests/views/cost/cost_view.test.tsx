@@ -135,10 +135,12 @@ describe('the slot and provider tables', () => {
   it('show each slot with its local saving and a gauge of hosted calls', async () => {
     await mountCost();
     await screen.findByRole('table', { name: /Spend per slot/ });
-    // Default sort: the biggest saving first.
+    // Default sort: the biggest saving first. The wire's `QUEEN` is written in lower case, the
+    // code kept on the title.
     expect(firstCells(/Spend per slot/)).toEqual(['queen', 'worker']);
     const worker = bodyRows(/Spend per slot/)[1]!;
     const cells = within(worker).getAllByRole('cell');
+    expect(within(worker).getByText('worker').getAttribute('title')).toBe('WORKER');
     expect(cells[1]?.textContent).toBe('$0.01');
     expect(cells[3]?.textContent).toBe('$0.01');
     const gauge = within(worker).getByRole('meter', { name: 'Hosted share of worker calls' });
@@ -194,7 +196,7 @@ describe('live', () => {
       trailFrame(
         callEvent({
           payload: { goal_id: 'goal_2' },
-          slot: 'worker',
+          slot: 'WORKER',
           provider: 'cloud',
           usage: { cached_tokens: 0, cost_usd: 0.1, input_tokens: 40, output_tokens: 8 },
         }),

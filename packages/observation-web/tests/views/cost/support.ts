@@ -37,7 +37,7 @@ type Schemas = components['schemas'];
 export function line(over: Partial<Schemas['CostLine']> = {}): Schemas['CostLine'] {
   return {
     goal_id: 'goal_1',
-    slot: 'queen',
+    slot: 'QUEEN',
     provider: 'cloud',
     calls: 1,
     cost_usd: 0.01,
@@ -89,18 +89,18 @@ export function costFrom(lines: Schemas['CostLine'][]): Schemas['CostView'] {
 // Three goals' worth of spend: goal_1 on a hosted queen and a free local worker, goal_2 on a hosted
 // worker, and one call that named no goal.
 export const sampleLines = (): Schemas['CostLine'][] => [
-  line({ goal_id: 'goal_1', slot: 'queen', provider: 'cloud', calls: 2, cost_usd: 0.03 }),
+  line({ goal_id: 'goal_1', slot: 'QUEEN', provider: 'cloud', calls: 2, cost_usd: 0.03 }),
   line({
     goal_id: 'goal_1',
-    slot: 'worker',
+    slot: 'WORKER',
     provider: 'local',
     calls: 3,
     cost_usd: 0,
     input_tokens: 12000,
     output_tokens: 3400,
   }),
-  line({ goal_id: 'goal_2', slot: 'worker', provider: 'cloud', calls: 1, cost_usd: 0.012 }),
-  line({ goal_id: null, slot: 'queen', provider: 'cloud', calls: 1, cost_usd: 0.005 }),
+  line({ goal_id: 'goal_2', slot: 'WORKER', provider: 'cloud', calls: 1, cost_usd: 0.012 }),
+  line({ goal_id: null, slot: 'QUEEN', provider: 'cloud', calls: 1, cost_usd: 0.005 }),
 ];
 
 export const sampleCost = (): Schemas['CostView'] => costFrom(sampleLines());
@@ -118,7 +118,7 @@ export function callEvent(
     node_id: 'node_1',
     payload: {},
     provider: 'cloud',
-    slot: 'queen',
+    slot: 'QUEEN',
     subject_id: 'queen',
     usage: { cached_tokens: 0, cost_usd: 0.02, input_tokens: 500, output_tokens: 100 },
     ...over,
