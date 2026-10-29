@@ -126,6 +126,11 @@ class HelpAnswerer:
         """The slot the binding serves; what the Cost view files the call under."""
         return self._bound.slot
 
+    @property
+    def gate(self) -> CallGate:
+        """What every call goes through; the Fanner's lane when `hive serve` built this."""
+        return self._gate
+
     async def answer(self, question: str, passages: Sequence[Passage]) -> str | None:
         """Ask the model for an answer grounded in ``passages``; None when it could not answer.
 

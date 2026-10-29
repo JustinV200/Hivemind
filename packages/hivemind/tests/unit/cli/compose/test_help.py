@@ -2,8 +2,8 @@
 
 Over a fake manifest, `serve_hive` wires the Ask when the Observation Hive's build directory
 holds help pages: the retriever is the EMBEDDER slot's (the fake kind embeds) over keywords, the
-answerer runs on a chat binding bound through the Hive's own registry, and the route is mounted.
-Without the pages there is no Ask.
+answerer runs on a chat binding bound through the Hive's own registry and calls through its
+Fanner's lane, and the route is mounted. Without the pages there is no Ask.
 
 Fits into the Hive:
     Mirrors src/hivemind/cli/compose/help.py (codingrules section 3).
@@ -29,6 +29,7 @@ from hivemind.cli.compose.entrance import (
 from hivemind.cli.compose.help import HELP_PAGES_DIR
 from hivemind.entrance.help import HelpServices
 from hivemind.entrance.help.retrieval import EmbeddingRetriever
+from hivemind.llm import FannerLane
 from hivemind.llm.routing import CHAT_SLOTS
 from hivemind.manifest import load_manifest
 from waggle.clock import SystemClock
@@ -65,6 +66,8 @@ def test_the_ask_is_wired_over_the_builds_pages_the_embedder_and_a_chat_binding(
     assert help_ is not None
     assert isinstance(help_.retriever, EmbeddingRetriever)
     assert help_.answerer is not None and help_.answerer.slot in CHAT_SLOTS
+    # Metered by the Hive's own Fanner, so every answer is one priced llm.call on its trail.
+    assert isinstance(help_.answerer.gate, FannerLane)
 
 
 def test_without_help_pages_there_is_no_ask(tmp_path: Path) -> None:
