@@ -41,7 +41,8 @@ describe('the list', () => {
     await mount({ devices: [phone, locked] });
     const row = (await screen.findByText('Pixel 9')).closest('tr')!;
     const cells = within(row);
-    expect(cells.getByText('approved')).toBeTruthy();
+    // The standing is a word with the wire code on its title, like every other code on screen.
+    expect(cells.getByText('approved').getAttribute('title')).toBe('APPROVED');
     expect(
       cells.getByText(
         'may watch the Hive (observe); may send goals and messages (entrance:submit)',

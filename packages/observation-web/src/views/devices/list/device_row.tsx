@@ -97,7 +97,10 @@ export function DeviceRow(props: {
         ) : null}
       </td>
       <td data-label="Standing">
-        <span className={`devices-status devices-status--${device.status.toLowerCase()}`}>
+        <span
+          className={`devices-status devices-status--${device.status.toLowerCase()}`}
+          title={device.status}
+        >
           {statusWord(device.status)}
         </span>
       </td>
