@@ -25,6 +25,7 @@
  *   - src/store/slices/summary.ts and src/store/slices/connection.ts for the data.
  */
 import type { ReactElement } from 'react';
+import { clockWords } from '../../components';
 import { refusedStreams, staleSince, summaryCounters, useSlice } from '../../store';
 import type { StreamName, SummaryCounters } from '../../store';
 import { useChanged } from './use_changed';
@@ -77,12 +78,6 @@ function groupsOf(c: SummaryCounters | null): Group[] {
   ];
 }
 
-function clock(ms: number): string {
-  const date = new Date(ms);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
 // One comb cell: the label and hint above, the number below, marked while it has just changed.
 function Cell(props: { group: Group; denied: boolean; loaded: boolean }): ReactElement {
   const { group, denied, loaded } = props;
@@ -127,7 +122,7 @@ export function SummaryStrip(): ReactElement {
         />
       ))}
       {stale && since !== null ? (
-        <span className="strip-stale">stale since {clock(since)}</span>
+        <span className="strip-stale">stale since {clockWords(since)}</span>
       ) : null}
     </div>
   );

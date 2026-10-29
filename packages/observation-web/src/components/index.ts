@@ -23,7 +23,7 @@ export { Gauge } from './gauge';
 export { IdToken } from './id_token';
 export { StatusDot } from './status_dot';
 export type { StatusWord } from './status_dot';
-export { TimeStamp } from './time';
+export { clockWords, TimeStamp } from './time';
 export { NARROW_TABLE_MIN, RAIL_MIN, useMinWidth, WIDE_TABLE_MIN } from './use_min_width';
 export { usePaneWidth } from './use_pane_width';
 export { SortSelect } from './sort_select';

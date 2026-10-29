@@ -26,17 +26,13 @@
  */
 import type { ReactElement, ReactNode } from 'react';
 import { useSlice, viewStaleSince } from '../store';
+import { clockWords } from './time';
 
 // A flat-top hexagon on a 10 by 10 grid, drawn in the accent before the title.
 const GLYPH = 'M5 0 9.33 2.5v5L5 10 .67 7.5v-5z';
 
-export function clockWords(ms: number): string {
-  const date = new Date(ms);
-  const pad = (n: number): string => String(n).padStart(2, '0');
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
-// The line that says the view is behind: drawn only while a stream has dropped.
+// The line that says the view is behind: drawn only while a stream has dropped, with the time
+// in the strip's own words (`clockWords`), so the two notes never read differently.
 function StaleNote(): ReactElement | null {
   const since = viewStaleSince(useSlice('connection'));
   if (since === null) return null;

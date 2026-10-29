@@ -28,12 +28,19 @@ const DAY = 24 * 60 * MINUTE;
 const JUST_NOW = 45_000; // Under this either way the stamp says "just now": a tick is 30 s.
 const WEEK = 7 * DAY; // Past a week the date says more than a count of days.
 
+// A moment as the local clock reads it, `hh:mm:ss`: the one formatter behind the strip's and the
+// title row's `stale since` notes, so the two can never disagree.
+export function clockWords(ms: number): string {
+  const date = new Date(ms);
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 // The local date and time to the second; the date part is the text once a week has passed.
 export function readable(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  return `${day} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  return `${day} ${clockWords(date.getTime())}`;
 }
 
 // The gap in words: minutes under an hour, hours under a day, days under a week. The whole gap is
