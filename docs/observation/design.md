@@ -65,8 +65,11 @@ From top to bottom, on every screen after login:
 4. **Main area.** One view. A view has a title row (title, then its filters, then under them its
    one-line gloss, the same sentence the nav item carries, from `components/words`), then its
    body. While any stream the screen could be drawing from has dropped, the title row adds
-   `stale since hh:mm:ss, reconnecting` in the warn tone and the main area dims (0.7, which keeps
-   body text above 4.5:1), so rows drawn from the last frames are never taken for current ones.
+   `stale since hh:mm:ss, reconnecting` in the warn tone, so rows drawn from the last frames are
+   never taken for current ones. The main area is not dimmed with the strip: at any opacity that
+   still reads as dimmed, `--text-muted`, `--accent` and the status tones fall under the 4.5:1 of
+   section 7 on the page and the comb surface (0.9 leaves `--warn` at 4.2 on `--surface-2`), and
+   the note already carries the state in words.
 
 | Width | Shell |
 |---|---|
@@ -388,9 +391,12 @@ map tables are tables from 720 px; the Grants table, with ten columns, from 1080
 ### 5.4 Thoughts (`#/thoughts/<bee>`, `#/thoughts/queen`)
 
 The bee's episodes, newest first: trigger, assembled context by section (each section collapsed,
-expandable), the reasoning summary when the provider exposes one, the decision and the action.
-For the Queen it also shows the Attendant's current ordering of her inbox with scores, and each
-autopilot decision with the rule that fired. A **Follow** toggle appends new episodes at the top
+expandable), the reasoning summary when the provider exposes one, the decision and the action
+(its code as plain words, `retry task`, the code on `title`). For the Queen it also shows the
+Attendant's current ordering of her inbox with scores, and each autopilot decision as a slim row
+in words: what she decided (`the Queen handled an Alarm`), the action, the reason through the
+Alarm kinds' table (`a Worker crashed`), and what it concerned. A **Follow** toggle appends new
+episodes at the top
 as they arrive and keeps the scroll position when off. Secrets and screenshot bytes are redacted
 at the source; the UI shows `[redacted]` where the record says so and never tries to fetch more.
 Needs `observe:thoughts`. A `Bee` select in the title row, built from the Fleet slice (the Queen, then each Cell's Warden
@@ -462,7 +468,11 @@ sampled-audit findings and rates per tier. The tier and state filters are chips 
 group can be on at once; `All` clears it) from 720 px, and one select per group below, since the
 chips would take six rows of a phone before any content; a group of several chips collapses to
 its first member when the select takes over, so the control always names what the table shows.
-The Fleet's filter is a segmented control because it is one choice at a time. Every item links to the bee's thoughts and, for an
+The Fleet's filter is a segmented control because it is one choice at a time. A proposal's state
+and the gate's verdict are the words of `enums.ts` (`Approved` for `CAPPED`, `Refused` for
+`REJECTED`, `Rolled back`), the same words the rates cards count by, on the queue's tags, the
+state chips and the Cell page's Capping panel alike, with the gate's code on each tag's and chip's
+`title`. Every item links to the bee's thoughts and, for an
 Exoskeleton action, to its recording. Read: `/v1/capping` (added in 12.1). Streams: trail.
 
 ### 5.10 Devices and enrolment (`#/devices`, `#/enrol`)
@@ -557,10 +567,12 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   cores, memory, model seats and spend, and who holds it`). The nav item carries the same
   sentence as its `title`.
 - **A code is shown as a phrase.** The schema's enums (`CONTEXT_PRESSURE`, `SCRATCH_WRITE`,
-  `entrance:submit`, an inbox kind, a clearance) are drawn through one words table per enum in
-  `src/components/words/enums.ts` (`context nearly full`, `writes inside its scratch folder`,
-  `may send goals and messages (entrance:submit)`), with the code kept on the element's `title`
-  for the operator; a code the table does not know is shown as sent, in lower case with spaces.
+  `entrance:submit`, an inbox kind, a clearance, a proposal's state) are drawn through one words
+  table per enum in `src/components/words/enums.ts` (`context nearly full`, `writes inside its
+  scratch folder`, `may send goals and messages (entrance:submit)`, `Approved` for `CAPPED`),
+  with the code kept on the element's `title` for the operator; a code the table does not know
+  is shown as sent, in lower case with spaces (`plainCode`), which is also how a code with no
+  table of its own (an episode's action, an autopilot decision's action and reason) is drawn.
   An id the Landing Board carries without a title (a task, a wax note, an Alarm on the Cell page)
   links to where its words are (the chat, the Honey item), and never invents a title.
 - **A pressed toggle** (`aria-pressed="true"`) is filled in the accent in every view, under the
@@ -581,6 +593,6 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   cell) wherever a view or a section has nothing to list; a sentence inside a panel (`No open
   Alarms on this Cell.`) stays a plain line, since a panel is a comb cell already. A slice not
   yet seeded shows a labelled skeleton, and a stream that has dropped says `stale since hh:mm:ss,
-  reconnecting` in the view's title row (section 2), with the main area dimmed, until it is back.
+  reconnecting` in the view's title row (section 2) until it is back.
   A legend's sentences never depend on an answer: the Fleet's Comb Shield legend keeps the
   Entrance's three fixed sentences as its fallback, so a refused read leaves no bare badge.
