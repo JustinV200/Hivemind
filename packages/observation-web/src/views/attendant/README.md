@@ -9,9 +9,10 @@ The heading names the principal, with a link to its thoughts and, for a Warden, 
 **task graph** is a live SVG in dependency layers: left to right from 720 px of room, top to bottom
 below it. Each node shows the task id (cut as the tables cut one, `task_…2C3D4`), a status word
 beside a status colour, the placement Cell and its open Alarms counted in words (`2 Alarms`), and
-links to `#/thoughts/<warden>` when it names a bee, else to the task's Cell page. Lines run from a task to the task that waits for it. A hidden table says the same
-in words. Beside it: the **inbox** in the Attendant's order (rank, score, kind, severity, id, task,
-reasons; a note when the Entrance says it was reconstructed from durable state), **recently
+links to `#/thoughts/<warden>` when it names a bee, else to the task's Cell page. Lines run from
+a task to the task that waits for it. A hidden table says the same in words. Beside it: the
+**inbox** in the Attendant's order (rank, score, kind, severity, id, task, reasons; a note when
+the Entrance says it was reconstructed from durable state), **recently
 finished** and **up next**.
 
 Seeded by `GET /v1/attendant/{principal}`. Kept live by `/v1/tasks/stream`: a frame for this

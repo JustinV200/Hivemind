@@ -158,7 +158,8 @@
   fill: var(--text-muted);
 }
 
-/* The Alarm count with its word, in the alarm tone like the outline; the word carries the meaning */
+/* The Alarm count with its word, in the alarm tone like the outline; the word carries the
+   meaning */
 .ag-svg .ag-alarm {
   fill: var(--alarm);
   font-weight: 700;

@@ -5,12 +5,12 @@
  * active bees, Cells active and inactive, real and virtual Cells, and bees thinking by model
  * (an awake episode) versus by rule (autopilot). The hint beside each label is one 12 px line
  * on a phone, so the sentence that explains it rides on the cell as its `title`. The numbers
- * come from the summary slice and never wait on the view the
- * person is looking at. A value that just changed is marked for five seconds (an underline in
- * the accent), so a reader can tell which number moved. If any stream that could be live is not,
- * the strip says `stale since hh:mm:ss` and mutes its numbers, so old numbers are never mistaken
- * for current ones. A group whose stream the Entrance refused says `no access` instead of a number. Before
- * the first data arrives the strip shows dashes and `aria-busy`.
+ * come from the summary slice and never wait on the view the person is looking at. A value that
+ * just changed is marked for five seconds (an underline in the accent), so a reader can tell
+ * which number moved. If any stream that could be live is not, the strip says `stale since
+ * hh:mm:ss` and mutes its numbers, so old numbers are never mistaken for current ones. A group
+ * whose stream the Entrance refused says `no access` instead of a number. Before the first data
+ * arrives the strip shows dashes and `aria-busy`.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/shell/head/`. Rendered by `shell.tsx` inside the sticky head.
