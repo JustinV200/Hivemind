@@ -31,6 +31,7 @@
  *   - docs/observation/design.md sections 4.7 and 4.8.
  */
 import { idText } from '../../../components/id_token';
+import { plainCode } from '../../../components/words';
 import { cut } from '../format';
 import { formatAmount } from './model';
 import type { FlowModel } from './model';
@@ -177,7 +178,8 @@ function wardenItems(model: FlowModel, geo: Geometry): Item[] {
     used: w.used,
     near: w.grants.some((g) => g.near),
     lines: [idLabel(w.id, geo.chars)],
-    title: `Warden ${w.id} on ${w.cellId || 'an unknown Cell'}${w.state ? ` (${w.state})` : ''}: ${formatAmount(model.unit, w.amount)} granted`,
+    // The state is read aloud and listed in the hidden table, so it is a word, not its code.
+    title: `Warden ${w.id} on ${w.cellId || 'an unknown Cell'}${w.state ? ` (${plainCode(w.state)})` : ''}: ${formatAmount(model.unit, w.amount)} granted`,
   }));
 }
 

@@ -17,16 +17,18 @@
  *   - docs/observation/design.md section 4.4 (status words).
  */
 import type { ReactElement } from 'react';
-import { IdToken, StatusDot, TimeStamp } from '../../../components';
+import { IdToken, plainCode, StatusDot, TimeStamp } from '../../../components';
 import type { WardenView } from '../slice';
 
-// An offline Warden reads `offline`; a live one shows its state, as a status word where one exists.
+// An offline Warden reads `offline`; a live one shows its state, as a status word where one exists
+// and otherwise as the code's words with the code on title.
 function State(props: { warden: WardenView }): ReactElement {
   const { warden } = props;
   if (warden.offline) return <StatusDot word="offline" />;
   if (warden.state === 'ACTIVE') return <StatusDot word="active" />;
   if (warden.state === 'WATCH') return <StatusDot word="watch" />;
-  return <span>{warden.state ?? 'no Heartbeat yet'}</span>;
+  if (warden.state === null) return <span>no Heartbeat yet</span>;
+  return <span title={warden.state}>{plainCode(warden.state)}</span>;
 }
 
 export function WardensTable(props: { wardens: readonly WardenView[] }): ReactElement {
