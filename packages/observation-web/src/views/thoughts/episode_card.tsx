@@ -111,7 +111,7 @@ function TaintTag({ episode }: { episode: EpisodeView }): ReactElement | null {
       className={`tag tag--status tag--${tainted ? 'alarm' : 'warn'}`}
       title={tainted ? TAINT_MEANING.tainted : TAINT_MEANING.cleared}
     >
-      {tainted ? 'TAINTED' : 'CLEARED'}
+      {plainCode(episode.taint)}
       {source}
     </span>
   );

@@ -21,7 +21,14 @@
  */
 import { useEffect, useState } from 'react';
 import type { ReactElement } from 'react';
-import { EmptyState, ErrorNotice, IdToken, inboxKindWords, TimeStamp } from '../../components';
+import {
+  EmptyState,
+  ErrorNotice,
+  IdToken,
+  inboxKindWords,
+  plainCode,
+  TimeStamp,
+} from '../../components';
 import type { components } from '../../landing_board/types';
 import { useHive } from '../../store';
 
@@ -39,7 +46,11 @@ function Row(props: { entry: Entry; rank: number }): ReactElement {
     <li className="inbox-entry">
       <span className="inbox-rank">{rank}</span>
       <span className="inbox-kind">{inboxKindWords(entry.kind)}</span>
-      {entry.severity ? <span className="tag tag--status tag--alarm">{entry.severity}</span> : null}
+      {entry.severity ? (
+        <span className="tag tag--status tag--alarm" title={entry.severity}>
+          {plainCode(entry.severity)}
+        </span>
+      ) : null}
       <IdToken id={entry.id} />
       <span className="inbox-score" title="higher is handled first">
         score <strong>{entry.score}</strong>

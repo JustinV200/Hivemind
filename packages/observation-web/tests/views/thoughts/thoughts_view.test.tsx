@@ -175,8 +175,8 @@ describe('seed', () => {
       }),
     });
     const cards = await screen.findAllByRole('article');
-    expect(within(cards[0]!).getByText('TAINTED (quarantine)')).toBeTruthy();
-    expect(within(cards[1]!).getByText('CLEARED (isolation)')).toBeTruthy();
+    expect(within(cards[0]!).getByText('tainted (quarantine)')).toBeTruthy();
+    expect(within(cards[1]!).getByText('cleared (isolation)')).toBeTruthy();
   });
 });
 
@@ -210,13 +210,20 @@ describe('the Queen', () => {
       attendant: attendantView({
         inbox_is_reconstructed: true,
         inbox: [
-          inboxEntry({ id: 'alarm_hi', score: 9.5, reasons: ['severity high'] }),
+          inboxEntry({
+            id: 'alarm_hi',
+            score: 9.5,
+            severity: 'CRITICAL',
+            reasons: ['severity high'],
+          }),
           inboxEntry({ id: 'q_1', kind: 'QUESTION', score: 3, reasons: ['waiting long'] }),
         ],
       }),
     });
     expect(await screen.findByText(/Estimated order, scored from saved state/)).toBeTruthy();
     expect(screen.getByText('severity high')).toBeTruthy();
+    // An Alarm's severity is a word on the tag, with the wire code on its title.
+    expect(screen.getByText('critical').getAttribute('title')).toBe('CRITICAL');
     expect(screen.getByText('9.5')).toBeTruthy();
     expect(screen.getByText('question')).toBeTruthy();
   });
