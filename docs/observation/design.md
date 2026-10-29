@@ -532,7 +532,9 @@ at the bottom of the page (above the nav on a phone, at the lower right from 720
 and dimming nothing, with the step's title and words, `Step N of M` in words, and Back, Next
 (Finish on the last step) and Skip tour; the arrow keys move and Escape skips, and focus moves to
 the panel on each step. The element a step is about carries a `data-tour` attribute (the strip,
-the connection word, the nav, the theme toggle, every view's title row, the chat's composer) and
+the connection word, the nav, the theme toggle, every view's title row as `view-title-<its
+screens section>`, so a step about one screen is never satisfied by another's row, the chat's
+composer) and
 is outlined by a ring drawn at its measured box, kept inside the viewport, and scrolled into
 view, without motion under `prefers-reduced-motion`; the panel names it in words, so the ring is
 never the only signal, and moves to the top, under the head, while the element sits in the lower

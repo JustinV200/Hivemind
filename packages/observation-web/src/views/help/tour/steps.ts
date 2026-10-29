@@ -3,11 +3,12 @@
  *
  * A step names a `data-tour` attribute on a real element rather than a class or a position, so
  * a restyle cannot break it; the shell carries the attributes on the strip, the connection word,
- * the nav and the theme toggle, every view's title row carries `view-title`, and the chat's
- * composer `composer`. A step on another screen names its route, which the tour opens before it
- * looks for the element; a target that is not on the page (the composer on a device that may not
- * write) is skipped. The words are short, since the panel is small on a phone, and plain, since
- * the Help pages hold the detail.
+ * the nav and the theme toggle, every view's title row carries `view-title-<its screens
+ * section>` (so the Fleet's row never stands in for the Forage's), and the chat's composer
+ * `composer`. A step on another screen names its route, which the tour opens before it looks
+ * for the element; a target that is not on the page (the composer on a device that may not
+ * write, or a title row once the person has opened another screen) is skipped. The words are
+ * short, since the panel is small on a phone, and plain, since the Help pages hold the detail.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/help/tour/`. Read by `tour.tsx`; the tests render a
@@ -55,7 +56,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       'lists them all in the rail.',
   },
   {
-    target: 'view-title',
+    target: 'view-title-fleet',
     route: '#/fleet',
     title: 'The Fleet',
     text:
@@ -63,7 +64,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       "current task. A Cell's name opens its page, with the live diagram of its bees.",
   },
   {
-    target: 'view-title',
+    target: 'view-title-forage',
     route: '#/forage',
     title: 'Forage',
     text:
@@ -71,7 +72,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       'spend, then per-host capacity, pending requests and the Forage map.',
   },
   {
-    target: 'view-title',
+    target: 'view-title-thoughts',
     route: '#/thoughts/queen',
     title: 'Thoughts',
     text:
@@ -79,7 +80,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       'any bee, and Follow keeps new episodes arriving at the top.',
   },
   {
-    target: 'view-title',
+    target: 'view-title-attendant',
     route: '#/attendant/queen',
     title: 'The Attendant',
     text:
@@ -102,7 +103,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
       'browser.',
   },
   {
-    target: 'view-title',
+    target: 'view-title-help',
     route: '#/help',
     title: 'Help',
     text:

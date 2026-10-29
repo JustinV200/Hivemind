@@ -8,7 +8,9 @@
  * one plain sentence what the view shows, so no screen opens on a bare bee word, followed by a
  * "More in Help" link into the Help's page on that screen when the view names its section;
  * and while a live stream has dropped, a note says `stale since hh:mm:ss, reconnecting`, so
- * rows drawn from the last frames are never taken for current ones (design.md section 8).
+ * rows drawn from the last frames are never taken for current ones (design.md section 8). The
+ * same section name marks the row for the guided tour (`data-tour="view-title-<section>"`), so
+ * a step about one screen is never satisfied by whichever screen happens to be open.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/components/`. Used by every view in `src/views/`; the stale
@@ -49,12 +51,13 @@ export function ViewTitle(props: {
   title: string;
   subject?: string;
   hint?: string;
-  // The section of the Help's screens page about this view, linked from the hint.
+  // The section of the Help's screens page about this view, linked from the hint and naming
+  // the row to the tour; a row without one (Not found) is no tour target.
   help?: string;
   children?: ReactNode;
 }): ReactElement {
   return (
-    <div className="view-title" data-tour="view-title">
+    <div className="view-title" data-tour={props.help ? `view-title-${props.help}` : undefined}>
       <h1>
         <svg className="view-glyph" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
           <path d={GLYPH} fill="var(--accent)" />

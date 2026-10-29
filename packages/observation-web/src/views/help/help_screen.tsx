@@ -101,7 +101,7 @@ export function HelpScreen(props: { page: string | null; section: string | null 
 
   return (
     <>
-      <ViewTitle title="Help" hint={VIEW_HINTS.help}>
+      <ViewTitle title="Help" hint={VIEW_HINTS.help} help="help">
         <form className="help-search" role="search" onSubmit={(event) => event.preventDefault()}>
           <label htmlFor="help-q">Search the help</label>
           <input

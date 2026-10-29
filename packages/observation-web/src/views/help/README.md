@@ -13,7 +13,9 @@ Hive. `pages.ts` is the page table and `help_screen.tsx` the route component (`i
 as `HelpScreen`); `help.css` the styles.
 
 `tour/` is the guided tour: a step table (`steps.ts`) naming a `data-tour` attribute on a real
-element and, where the element lives on another screen, the route to open first; `use_target.ts`
+element (a view's title row carries `view-title-<its screens section>`, so a step about one
+screen is never satisfied by another's) and, where the element lives on another screen, the
+route to open first; `use_target.ts`
 finds the element after the route has drawn, retrying briefly, and reports it absent so the tour
 skips the step; `state.ts` keeps where the tour is as a small external store with the finished
 mark in `localStorage` (every read and write guarded); `tour.tsx` is the panel (a non-modal

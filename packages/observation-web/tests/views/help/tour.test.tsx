@@ -1,6 +1,6 @@
 /**
  * Tests for the guided tour: the steps in words, moving, skipping an absent target, the keyboard,
- * the route a step opens, and what the browser remembers.
+ * the route a step opens, which element a step accepts, and what the browser remembers.
  *
  * The panel is rendered with a table of its own over a few elements carrying `data-tour`, so the
  * tests do not depend on the shell; the shell test proves the real first step finds the strip.
@@ -28,12 +28,13 @@ const STEPS: readonly TourStep[] = [
   { target: 'b', route: '#/forage', title: 'Last', text: 'The last thing.' },
 ];
 
-function mount(): void {
+function mount(steps: readonly TourStep[] = STEPS): void {
   render(
     <>
       <div data-tour="a">a</div>
       <div data-tour="b">b</div>
-      <Tour steps={STEPS} />
+      <div data-tour="view-title-fleet">Fleet</div>
+      <Tour steps={steps} />
     </>,
   );
   act(() => startTour());
@@ -65,6 +66,17 @@ describe('Tour', () => {
     // Back skips the absent step the other way.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(await screen.findByText('Step 1 of 3', {}, { timeout: 3000 })).toBeTruthy();
+  });
+
+  it('is not satisfied by another screen’s title row', async () => {
+    // Only the Fleet's title row is on the page: a step about the Forage's is absent and skipped,
+    // never outlined on the Fleet's, so the tour lands on the step about the Fleet.
+    mount([
+      { target: 'view-title-forage', title: 'Forage', text: 'Capacity.' },
+      { target: 'view-title-fleet', title: 'Fleet', text: 'Every machine.' },
+    ]);
+    expect(await screen.findByRole('dialog', { name: 'Fleet' }, { timeout: 3000 })).toBeTruthy();
+    expect(screen.getByText('Step 2 of 2')).toBeTruthy();
   });
 
   it('remembers a finished tour, and not a skipped one', async () => {
