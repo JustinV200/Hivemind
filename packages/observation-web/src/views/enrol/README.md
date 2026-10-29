@@ -2,8 +2,9 @@
 
 The Enrol view, `#/enrol`, on the Hive Stand only (the session's `listener` is `loopback`; any other
 session is shown "Not found" and the route makes no request): let a new device in. The operator
-names a device and mints an invite, which is shown as a code, a link with a Copy button, a QR code
-and the time it lapses, and can be withdrawn. When the device has redeemed the invite and made its
+names a device and creates an invite (the Entrance's word is "mint"; the button says "Create"),
+which is shown as a code, a link with a Copy button, a QR code, the time it lapses and one line on
+what to do with it, and can be withdrawn. When the device has redeemed the invite and made its
 passkey it appears under "Waiting to join" with the fingerprint of its key, live through the
 Entrance's security stream; Approve opens a form (name, capabilities, daily spend cap, expiry) and
 Deny refuses it. When the Hive runs its own certificate authority an approval can answer with a

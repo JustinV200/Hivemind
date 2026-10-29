@@ -2,8 +2,8 @@
  * The Devices view's face: the route component, the slice `src/app.tsx` registers and the step-up.
  *
  * The view is a package (a slice, a list, an Entrance panel, a shared step-up, a hook and a
- * stylesheet), so importers take it from here. The step-up is exported because the Enrol view
- * asks for it too.
+ * stylesheet), so importers take it from here. The step-up and the capability picker are
+ * exported because the Enrol view asks for them too.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/devices/`. Imported by `src/shell/outlet.tsx` (the
@@ -21,4 +21,4 @@ export type { DevicesEvent, DevicesState } from './slice';
 export { StepUpPanel, StepUpPrompt, useStepUp } from './step_up';
 export type { StepUp } from './step_up';
 export { SECURITY_STREAM, useBurstRead } from './live';
-export { parseCapabilities } from './list/format';
+export { CapabilityPicker } from './list/capability_picker';

@@ -94,6 +94,28 @@
   gap: var(--sp-2);
 }
 
+/* The capability picker: a plain fieldset of labelled boxes, one per line, in the form's type */
+.devices-picker {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: var(--fs-sm);
+}
+
+.devices-picker legend {
+  padding: 0;
+  margin-bottom: var(--sp-1);
+}
+
+.devices-picker .devices-check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 32px;
+}
+
 .devices-status {
   font-weight: 700;
   white-space: nowrap;

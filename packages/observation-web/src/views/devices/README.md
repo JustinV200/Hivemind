@@ -4,8 +4,10 @@ The Devices view, `#/devices`, on every device: who is enrolled and what each ma
 list shows each device's name (marked when it is the one in your hand and when it is the Hive
 Stand's console), its standing as a word, the kind of key, what it may do, its daily spend cap,
 when its standing lapses, when it last authenticated and the platform it reported. Under the list
-sits the Entrance panel: the mode, the Entrance Reducer, and the requests held for a person with
-Confirm and Decline. Reduce is open to any device (narrowing access is always safe); the held
+sits the Entrance panel, headed "Remote access": the mode in plain words (on, or reduced to the
+Hive Stand only), the Entrance Reducer as "Reduce to the Hive Stand only", and the requests held
+for a person with Confirm and Decline. The capability editor is a list of labelled boxes
+(`list/capability_picker.tsx`, which the Enrol view's approve form shares), never raw codes. Reduce is open to any device (narrowing access is always safe); the held
 requests too. On the Hive Stand only (the session's `listener` is `loopback`) each row also offers
 Lock, Unlock, Revoke (after typing the device's name, with an option to cancel its open goals) and a
 capability editor, and a reduced Entrance offers Reopen. Anything the Entrance answers

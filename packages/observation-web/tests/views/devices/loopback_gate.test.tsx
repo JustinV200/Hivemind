@@ -56,7 +56,7 @@ const CONTROLS: Record<string, RegExp | null> = {
   'POST /v1/devices/{device_id}/capabilities': /^Edit capabilities of /,
   'POST /v1/devices/{device_id}/revoke': /^Revoke /,
   'POST /v1/devices/{device_id}/unlock': /^Unlock /,
-  'POST /v1/entrance/invites': /^Mint invite$/,
+  'POST /v1/entrance/invites': /^Create invite$/,
   'DELETE /v1/entrance/invites/{device_id}': /^Withdraw invite$/,
   'POST /v1/entrance/open': /^Reopen the Entrance$/,
   'POST /v1/entrance/pending/{device_id}/approve': /^Approve /,
@@ -158,12 +158,12 @@ describe('the Hive Stand', () => {
       qr_svg: '<svg/>',
       url: 'https://hive.test/enrol#code=ABCD-EFGH-IJKL',
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Mint invite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
     await screen.findByRole('button', { name: 'Withdraw invite' });
     await waitFor(() => expect(present(/^Approve /)).toBe(true));
     for (const [operation, control] of Object.entries(CONTROLS)) {
       if (control === null) continue;
-      // "Mint invite" is gone once an invite is shown; the mint above proved it was there.
+      // "Create invite" is gone once an invite is shown; the mint above proved it was there.
       if (operation === 'POST /v1/entrance/invites') continue;
       expect(present(control), operation).toBe(true);
     }

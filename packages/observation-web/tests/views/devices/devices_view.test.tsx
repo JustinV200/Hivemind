@@ -167,9 +167,9 @@ describe('the controls', () => {
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Edit capabilities of Pixel 9' }));
     const form = screen.getByRole('form', { name: 'Capabilities of Pixel 9' });
-    fireEvent.change(within(form).getByLabelText('Capabilities, one per line'), {
-      target: { value: 'observe' },
-    });
+    // The device's set is ticked in the known list, each box a phrase with its code.
+    expect(within(form).getByLabelText(/\(observe\)$/)).toHaveProperty('checked', true);
+    fireEvent.click(within(form).getByLabelText(/\(entrance:submit\)$/));
     fireEvent.change(within(form).getByLabelText(/Spend cap per day/), {
       target: { value: '1.5' },
     });
@@ -185,9 +185,8 @@ describe('the controls', () => {
     const opened = await mount({ listener: 'loopback', devices: [phone] });
     fireEvent.click(await screen.findByRole('button', { name: 'Edit capabilities of Pixel 9' }));
     const form = screen.getByRole('form', { name: 'Capabilities of Pixel 9' });
-    fireEvent.change(within(form).getByLabelText('Capabilities, one per line'), {
-      target: { value: ' ' },
-    });
+    fireEvent.click(within(form).getByLabelText(/\(observe\)$/));
+    fireEvent.click(within(form).getByLabelText(/\(entrance:submit\)$/));
     expect(within(form).getByRole('button', { name: 'Save capabilities' })).toHaveProperty(
       'disabled',
       true,
@@ -289,9 +288,7 @@ describe('step-up', () => {
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Edit capabilities of Pixel 9' }));
     const form = screen.getByRole('form', { name: 'Capabilities of Pixel 9' });
-    fireEvent.change(within(form).getByLabelText('Capabilities, one per line'), {
-      target: { value: 'observe' },
-    });
+    fireEvent.click(within(form).getByLabelText(/\(entrance:submit\)$/));
     fireEvent.click(within(form).getByRole('button', { name: 'Save capabilities' }));
 
     const prompt = await screen.findByRole('form', { name: 'Confirm again' });
@@ -370,8 +367,8 @@ describe('the Entrance panel', () => {
   it('shows the mode and offers to reduce from any listener, after a second tap', async () => {
     const opened = await mount({ listener: 'remote', mode: modeView() });
     opened.fake.respond('POST /v1/entrance/reduce', 200, { changed: true, mode: 'REDUCED' });
-    await screen.findByText('serving');
-    fireEvent.click(screen.getByRole('button', { name: 'Reduce the Entrance' }));
+    await screen.findByText('on (serving)');
+    fireEvent.click(screen.getByRole('button', { name: 'Reduce to the Hive Stand only' }));
     expect(opened.sent('POST /v1/entrance/reduce')).toHaveLength(0);
     fireEvent.click(screen.getByRole('button', { name: 'Reduce now' }));
     expect(
@@ -404,7 +401,7 @@ describe('the Entrance panel', () => {
     fireEvent.click(within(prompt).getByRole('button', { name: 'Confirm' }));
     expect(await screen.findByText('The Entrance is open again.')).toBeTruthy();
     expect(opened.sent('POST /v1/entrance/open')).toHaveLength(2);
-    expect(screen.getByRole('button', { name: 'Reduce the Entrance' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Reduce to the Hive Stand only' })).toBeTruthy();
   });
 
   it('lists held requests with their payload, and confirms or declines them', async () => {

@@ -75,7 +75,7 @@ export function GoalsTable(props: { cost: CostSnapshot }): ReactElement {
       {rows.some((row) => row.goal === null) ? (
         <p className="cost-note">
           Unattributed is spend whose call named no goal, directly or through a grant; it is never
-          guessed, and it moves under its goal once the Fanner lanes carry one.
+          guessed, and it moves under its goal once the call records one.
         </p>
       ) : null}
     </>

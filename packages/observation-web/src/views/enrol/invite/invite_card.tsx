@@ -2,7 +2,9 @@
  * `InviteCard`: the invite just minted, as a code, a link, a QR code and its expiry.
  *
  * The operator hands the invite to a new device three ways: reads out the code (groups of four so
- * it can be said aloud), copies or shares the link, or lets the device scan the QR code. The invite
+ * it can be said aloud), copies or shares the link, or lets the device scan the QR code; the card
+ * says so, and what happens next, since a code, a link and a QR alone say nothing of what to do
+ * with them. The invite
  * works once and lapses at the time shown; after that the card says so instead of leaving a dead
  * code on the screen. Withdrawing it deletes the unredeemed invite on the Entrance.
  *
@@ -66,11 +68,13 @@ export function InviteCard(props: { invite: InviteRecord; actions: EnrolActions 
       <h3>Invite</h3>
       {lapsed ? (
         <p className="enrol-warn" role="status">
-          This invite has expired. Withdraw it and mint a new one.
+          This invite has expired. Withdraw it and create a new one.
         </p>
       ) : (
         <p className="enrol-note">
-          Works once, until <TimeStamp at={invite.expires_at} />.
+          Open this link on the new device, or scan the code; it works once, until{' '}
+          <TimeStamp at={invite.expires_at} />. The device then appears below, waiting for your
+          approval.
         </p>
       )}
       <p className="enrol-code" aria-label="Invite code">

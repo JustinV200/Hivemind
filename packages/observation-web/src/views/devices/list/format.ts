@@ -33,8 +33,3 @@ export const capabilityWords = (capabilities: readonly string[]): string =>
 // What the device said about its platform at redemption, or a word saying it did not.
 export const platformWords = (device: DeviceRecord): string =>
   device.description?.platform || 'not reported';
-
-// Splits what a person typed into a set of capability strings: spaces, commas and lines divide.
-export function parseCapabilities(text: string): string[] {
-  return [...new Set(text.split(/[\s,]+/).filter((one) => one !== ''))];
-}

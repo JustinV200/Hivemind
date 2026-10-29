@@ -1,7 +1,8 @@
 /**
  * `InvitePanel`: mint an invite for a new device, and show the one just minted.
  *
- * The operator names the device ("phone") and mints; the Entrance answers with a single-use code, a
+ * The operator names the device ("phone") and creates the invite (the Entrance calls this minting;
+ * the button says "Create"); the Entrance answers with a single-use code, a
  * link and a QR code that stop working after the invite's time-to-live. Until the minted invite is
  * redeemed or withdrawn the card stays on screen and the mint form is hidden, so one invite is
  * shown at a time and the operator is never unsure which code belongs to which device.
@@ -58,7 +59,7 @@ export function InvitePanel(props: {
             />
           </label>
           <button type="submit" className="button" disabled={actions.busy || label.trim() === ''}>
-            Mint invite
+            Create invite
           </button>
         </form>
       )}

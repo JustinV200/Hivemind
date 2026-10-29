@@ -1,11 +1,13 @@
 /**
  * `LoginForm`: the device id and password fields of the login screen, and the way into joining.
  *
- * Login is two factors (landing-board.md section 5): the human names the device (remembered from
- * last time) and types the operator's password; the passkey is the browser's own prompt, raised
+ * Login is two factors (landing-board.md section 5): the human names the device by its id
+ * (remembered from last time; a hint under the field says what the id is) and types the
+ * operator's password; the passkey is the browser's own prompt, raised
  * when the form is submitted. When the page was opened with an invite but this browser already
  * knows a device, a second button offers the join screen instead, so a browser whose old device was
- * revoked can enrol again from a new invite.
+ * revoked can enrol again from a new invite; without an invite a standing line says where one
+ * comes from, so a person who lands here cold is not left without a path in.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/login/`. Drawn by `login.tsx`; it owns no state, so the
@@ -50,10 +52,15 @@ export function LoginForm(props: {
           name="device"
           autoComplete="username"
           required
+          placeholder="dev_…"
+          aria-describedby="login-device-hint"
           value={fields.deviceId}
           onChange={(event) => setFields({ ...fields, deviceId: event.target.value })}
         />
       </label>
+      <p id="login-device-hint" className="login-hint">
+        The device id this browser was given when it joined; it is remembered here.
+      </p>
       <label>
         Password
         <input
@@ -73,7 +80,10 @@ export function LoginForm(props: {
         <button type="button" className="button" onClick={props.onJoin}>
           Join with the invite in this link
         </button>
-      ) : null}
+      ) : (
+        // Without an invite in the address there is no way to join from here; say where it is.
+        <p className="login-hint">New device? Open the invite link the operator sent you.</p>
+      )}
     </form>
   );
 }

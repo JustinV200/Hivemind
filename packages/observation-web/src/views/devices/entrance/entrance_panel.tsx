@@ -1,8 +1,12 @@
 /**
- * `EntrancePanel`: the Entrance's mode, the Reducer, the reopen flow and the held requests.
+ * `EntrancePanel`: remote access (the Entrance's mode), the Reducer, the reopen flow and the held
+ * requests.
  *
  * The Entrance is either OPEN (it serves its remote listener) or REDUCED (loopback only, every
- * remote session ended). Reducing narrows access, so any device may do it, after a second tap that
+ * remote session ended). The panel says this as "Remote access: on" or "reduced, the Hive Stand
+ * only", with one line on what reducing does, since this is a safety control and its schema words
+ * (mode, listener, exposed) are the densest jargon in the app. Reducing narrows access, so any
+ * device may do it, after a second tap that
  * says what it ends (including this device's own session when it is remote). Reopening widens it,
  * so only the Hive Stand offers it, and the Entrance asks for a fresh step-up first: the guarded
  * write opens the prompt. A remote device looking at a reduced Entrance is told where to reopen it.
@@ -33,7 +37,7 @@ function Reducer(props: { actions: DeviceActions }): ReactElement {
   if (!arming) {
     return (
       <button type="button" className="button button--danger" onClick={() => setArming(true)}>
-        Reduce the Entrance
+        Reduce to the Hive Stand only
       </button>
     );
   }
@@ -41,7 +45,7 @@ function Reducer(props: { actions: DeviceActions }): ReactElement {
     <div
       className="devices-arming comb-cell comb-cell--strong"
       role="group"
-      aria-label="Reduce the Entrance"
+      aria-label="Reduce to the Hive Stand only"
     >
       <p>
         This ends every remote session, including this one if it is remote, and the Entrance answers
@@ -64,21 +68,25 @@ function Reducer(props: { actions: DeviceActions }): ReactElement {
   );
 }
 
+// The mode in one line: on (and whether its door is serving right now), or reduced.
+function accessWords(mode: NonNullable<DevicesState['mode']>): string {
+  if (mode.mode !== 'OPEN') return 'reduced, the Hive Stand only';
+  return mode.remote_listening ? 'on (serving)' : 'on (the remote door is not serving)';
+}
+
 function ModeLines(props: { mode: NonNullable<DevicesState['mode']> }): ReactElement {
   const { mode } = props;
   return (
     <dl className="devices-facts">
       <div>
-        <dt>Mode</dt>
-        <dd>{mode.mode === 'OPEN' ? 'open' : 'reduced, the Hive Stand only'}</dd>
+        <dt>Remote access</dt>
+        <dd>{accessWords(mode)}</dd>
       </div>
       <div>
-        <dt>Remote listener</dt>
-        <dd>{mode.remote_listening ? 'serving' : 'not serving'}</dd>
-      </div>
-      <div>
-        <dt>Remote access asked for</dt>
-        <dd>{mode.exposed ? 'yes' : 'no'}</dd>
+        <dt>Configured</dt>
+        <dd>
+          {mode.exposed ? 'the manifest asks for a remote door' : 'no remote door in the manifest'}
+        </dd>
       </div>
     </dl>
   );
@@ -93,7 +101,11 @@ export function EntrancePanel(props: {
   const { mode } = state;
   return (
     <section className="devices-section" aria-label="Entrance">
-      <h2 className="section-heading">The Entrance Reducer</h2>
+      <h2 className="section-heading">Remote access</h2>
+      <p className="devices-note">
+        Devices away from the Hive Stand come in through the Entrance&apos;s remote door. Reducing
+        closes it and ends every remote session; only the Hive Stand can open it again.
+      </p>
       {state.errors.mode ? <ErrorNotice error={state.errors.mode} /> : null}
       {mode ? <ModeLines mode={mode} /> : <p aria-busy="true">Reading the Entrance</p>}
       {mode?.mode === 'OPEN' ? <Reducer actions={actions} /> : null}

@@ -52,7 +52,7 @@ describe('the invite', () => {
     fireEvent.change(await screen.findByLabelText('What do you call the device'), {
       target: { value: 'phone' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Mint invite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
 
     const card = await screen.findByRole('region', { name: 'Invite' });
     expect(opened.sent('POST /v1/entrance/invites').map(bodyOf)).toEqual([{ label: 'phone' }]);
@@ -64,7 +64,7 @@ describe('the invite', () => {
     expect(qr.src.startsWith('data:image/svg+xml')).toBe(true);
     expect(decodeURIComponent(qr.src.split(',').slice(1).join(','))).toBe(QR);
     // One invite at a time: the mint form is gone while this one is live.
-    expect(screen.queryByRole('button', { name: 'Mint invite' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Create invite' })).toBeNull();
   });
 
   it('draws no image for an answer that is not an SVG', async () => {
@@ -76,7 +76,7 @@ describe('the invite', () => {
     fireEvent.change(await screen.findByLabelText('What do you call the device'), {
       target: { value: 'p' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Mint invite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
     await screen.findByRole('region', { name: 'Invite' });
     expect(screen.queryByAltText('QR code for the invite link')).toBeNull();
     expect(document.querySelector('script')).toBeNull();
@@ -93,7 +93,7 @@ describe('the invite', () => {
     fireEvent.change(await screen.findByLabelText('What do you call the device'), {
       target: { value: 'p' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Mint invite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Copy link' }));
     expect(await screen.findByRole('button', { name: 'Copied' })).toBeTruthy();
     expect(written).toEqual([INVITE.url]);
@@ -108,7 +108,7 @@ describe('the invite', () => {
     fireEvent.change(await screen.findByLabelText('What do you call the device'), {
       target: { value: 'p' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Mint invite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
     expect(await screen.findByText(/This invite has expired/)).toBeTruthy();
   });
 
@@ -123,12 +123,12 @@ describe('the invite', () => {
     fireEvent.change(await screen.findByLabelText('What do you call the device'), {
       target: { value: 'p' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Mint invite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Withdraw invite' }));
     expect(await screen.findByText('Invite withdrawn.')).toBeTruthy();
     expect(opened.sent('DELETE /v1/entrance/invites/dev_invited')).toHaveLength(1);
     expect(screen.queryByRole('region', { name: 'Invite' })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Mint invite' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Create invite' })).toBeTruthy();
   });
 
   it('drops the invite once the device it admits appears in the waiting list', async () => {
@@ -137,7 +137,7 @@ describe('the invite', () => {
     fireEvent.change(await screen.findByLabelText('What do you call the device'), {
       target: { value: 'p' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Mint invite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
     await screen.findByRole('region', { name: 'Invite' });
     opened.fake.respond('GET /v1/entrance/pending', 200, {
       devices: [{ ...waiting, id: 'dev_invited' }],
@@ -158,7 +158,7 @@ describe('the invite', () => {
     fireEvent.change(await screen.findByLabelText('What do you call the device'), {
       target: { value: 'p' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Mint invite' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
     expect(await screen.findByText('The Hive could not read that request.')).toBeTruthy();
   });
 });
@@ -195,9 +195,9 @@ describe('the waiting list', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Approve phone' }));
     const form = screen.getByRole('form', { name: 'Approve phone' });
     fireEvent.change(within(form).getByLabelText('Name'), { target: { value: 'Justin phone' } });
-    fireEvent.change(within(form).getByLabelText(/^Capabilities/), {
-      target: { value: 'observe\nentrance:answer' },
-    });
+    // The device's proposed set is ticked; the operator unticks one box and ticks another.
+    fireEvent.click(within(form).getByLabelText(/\(entrance:submit\)$/));
+    fireEvent.click(within(form).getByLabelText(/\(entrance:answer\)$/));
     fireEvent.change(within(form).getByLabelText('Spend cap per day in USD'), {
       target: { value: '12.5' },
     });
@@ -231,7 +231,8 @@ describe('the waiting list', () => {
     });
     fireEvent.click(await screen.findByRole('button', { name: 'Approve phone' }));
     const form = screen.getByRole('form', { name: 'Approve phone' });
-    fireEvent.change(within(form).getByLabelText(/^Capabilities/), { target: { value: '' } });
+    fireEvent.click(within(form).getByLabelText(/\(observe\)$/));
+    fireEvent.click(within(form).getByLabelText(/\(entrance:submit\)$/));
     fireEvent.change(within(form).getByLabelText('Expires'), { target: { value: 'never' } });
     fireEvent.click(within(form).getByRole('button', { name: 'Approve device' }));
     await screen.findByText(/^Approved /);

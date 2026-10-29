@@ -55,6 +55,10 @@ function Spend(props: { cost: CostSnapshot }): ReactElement {
         <GoalsTable cost={cost} />
       </Section>
       <Section title="Slots">
+        <p className="cost-note">
+          A slot is the model each kind of bee runs on: the queen, the judge, the workers, the
+          attendant.
+        </p>
         <SlotsTable cost={cost} />
       </Section>
       <Section title="Providers">

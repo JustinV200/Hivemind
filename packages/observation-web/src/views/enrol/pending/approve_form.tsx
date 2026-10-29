@@ -2,8 +2,9 @@
  * `ApproveForm`: approve one waiting device, binding its name, capabilities, spend cap and expiry.
  *
  * Approval is the decision that lets a device in (landing-board.md section 4). The form starts from
- * what the device asked for: the name it proposed, the capabilities proposed for its role and the
- * cap on record. A blank capability box asks the Entrance for the device role's own proposed set,
+ * what the device asked for: the name it proposed, the capabilities proposed for its role (ticked
+ * in the known list, `CapabilityPicker`) and the cap on record. Nothing ticked asks the Entrance
+ * for the device role's own proposed set,
  * and the Entrance refuses anything wider than that role's ceiling. The spend cap is required, in
  * USD per day. A program key (Ed25519) can also be marked as one a person types at, so it may step
  * up; a browser's passkey device always can.
@@ -21,7 +22,7 @@
  */
 import { useState } from 'react';
 import type { FormEvent, ReactElement } from 'react';
-import { parseCapabilities } from '../../devices';
+import { CapabilityPicker } from '../../devices';
 import type { PendingDevice } from '../slice';
 import type { ApprovalBody, EnrolActions } from '../use_enrol_actions';
 import { EXPIRY_CHOICES, expiryFrom } from './expiry';
@@ -33,7 +34,7 @@ export function ApproveForm(props: {
 }): ReactElement {
   const { device, actions } = props;
   const [name, setName] = useState(device.description?.name || device.name);
-  const [capabilities, setCapabilities] = useState(device.capabilities.join('\n'));
+  const [capabilities, setCapabilities] = useState<string[]>([...device.capabilities]);
   const [cap, setCap] = useState(String(device.spend_cap_usd_per_day ?? 0));
   const [expiry, setExpiry] = useState('30');
   const [interactive, setInteractive] = useState(false);
@@ -44,12 +45,11 @@ export function ApproveForm(props: {
     event.preventDefault();
     if (invalid) return;
     const chosen = EXPIRY_CHOICES.find((one) => one.key === expiry) ?? EXPIRY_CHOICES[0]!;
-    const listed = parseCapabilities(capabilities);
     const body: ApprovalBody = {
       name: name.trim(),
       spend_cap_usd_per_day: spend,
-      // Blank asks for the device role's proposed set.
-      capabilities: listed.length > 0 ? listed : null,
+      // Nothing ticked asks for the device role's proposed set.
+      capabilities: capabilities.length > 0 ? capabilities : null,
       expires_at: expiryFrom(chosen, Date.now()) ?? null,
       // Only a program key can be one a person types at; a passkey always is, whatever this says.
       interactive: device.key_kind === 'ed25519' && interactive,
@@ -73,14 +73,12 @@ export function ApproveForm(props: {
           onChange={(event) => setName(event.target.value)}
         />
       </label>
-      <label>
-        Capabilities, one per line, blank for the device role's set
-        <textarea
-          rows={3}
-          value={capabilities}
-          onChange={(event) => setCapabilities(event.target.value)}
-        />
-      </label>
+      <CapabilityPicker
+        legend="Capabilities"
+        hint="Nothing ticked: the usual set for this kind of device."
+        chosen={capabilities}
+        onChange={setCapabilities}
+      />
       <label>
         Spend cap per day in USD
         <input
