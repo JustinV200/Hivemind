@@ -7,9 +7,9 @@ own inbox). It is reached from the fleet list and the Cell diagram, which link a
 The heading names the principal, with a link to its thoughts and, for a Warden, to its Cell page
 (taken from the Cell one of its own tasks is placed on, since the schema does not name it). The
 **task graph** is a live SVG in dependency layers: left to right from 720 px of room, top to bottom
-below it. Each node shows the task id, a status word beside a status colour, the placement Cell and
-a badge counting open Alarms, and links to `#/thoughts/<warden>` when it names a bee, else to the
-task's Cell page. Lines run from a task to the task that waits for it. A hidden table says the same
+below it. Each node shows the task id (cut as the tables cut one, `task_…2C3D4`), a status word
+beside a status colour, the placement Cell and its open Alarms counted in words (`2 Alarms`), and
+links to `#/thoughts/<warden>` when it names a bee, else to the task's Cell page. Lines run from a task to the task that waits for it. A hidden table says the same
 in words. Beside it: the **inbox** in the Attendant's order (rank, score, kind, severity, id, task,
 reasons; a note when the Entrance says it was reconstructed from durable state), **recently
 finished** and **up next**.

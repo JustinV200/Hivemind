@@ -98,12 +98,21 @@ describe('the task graph', () => {
       'Task task_2, running, role drone, on cell_1, Warden warden_1, 2 open Alarms',
     );
     expect(node('task_2').getAttribute('aria-label')).toContain('2 open Alarms');
-    expect(node('task_2').querySelector('[data-alarms="2"]')?.textContent).toBe('2');
+    // The count is said with its word, never a bare number in a coloured pill.
+    expect(node('task_2').querySelector('[data-alarms="2"]')?.textContent).toBe('2 Alarms');
     expect(node('task_1').querySelector('[data-alarms]')).toBeNull();
     expect(node('task_3').textContent).toContain('pending');
     expect(node('task_3').textContent).toContain('not placed yet');
     expect(node('task_4').textContent).toContain('blocked');
     expect(svg.querySelectorAll('path[marker-end]')).toHaveLength(2);
+  });
+
+  it('cuts a real id to its kind and ULID tail, so it never runs under the Alarm words', async () => {
+    const id = 'task_01J9TASK000000000000000001';
+    await mount({ body: attendantView({ nodes: [taskNode({ task_id: id, open_alarms: 1 })] }) });
+    await screen.findByRole('img', { name: /Task graph/ });
+    expect(node(id).querySelector('.ag-id')?.textContent).toBe('task_…00001');
+    expect(node(id).querySelector('[data-alarms="1"]')?.textContent).toBe('1 Alarm');
   });
 
   it('keeps colours to tokens', async () => {

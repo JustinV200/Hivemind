@@ -20,7 +20,7 @@ export type { CombShieldLevel, MaskState } from './badges';
 export { BrandHeader, EmptyState, HexPattern, HEXAGON, Mark } from './comb';
 export { ErrorNotice } from './error_notice';
 export { Gauge } from './gauge';
-export { IdToken } from './id_token';
+export { IdToken, idText } from './id_token';
 export { StatusDot } from './status_dot';
 export type { StatusWord } from './status_dot';
 export { clockWords, TimeStamp } from './time';
