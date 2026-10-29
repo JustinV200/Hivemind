@@ -2,11 +2,11 @@
  * The Honey view's words and addresses: kind labels, clearance names, and path to link.
  *
  * The schema's kind is an open enum (`honey|note|wax|bee_bread`, and it may grow), so a kind this
- * file does not know is shown as the schema gave it rather than hidden. Clearance names are the
- * README's (Wildflower, Apiary, Royal), shared with the other views from `components/words`.
- * Paths are held with a leading slash; the
- * route table wants them without one. An item's address is its folder's with `?item=<id>`, so an
- * open reading pane is a link that can be shared and comes back on reload.
+ * file does not know is shown in plain case (`plainCode`) rather than hidden. Clearance names are
+ * the README's (Wildflower, Apiary, Royal), shared with the other views from `components/words`.
+ * Paths are held with a leading slash; the route table wants them without one. An item's address
+ * is its folder's with `?item=<id>`, so an open reading pane is a link that can be shared and
+ * comes back on reload.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/honey/`. Used by the badge, the rows, the breadcrumbs
@@ -21,6 +21,7 @@
  * See Also:
  *   - README.md for the clearance vocabulary; src/router/routes.ts for the hash grammar.
  */
+import { plainCode } from '../../../components';
 import { hrefFor } from '../../../router';
 
 const KIND_LABELS: Readonly<Record<string, string>> = {
@@ -30,9 +31,9 @@ const KIND_LABELS: Readonly<Record<string, string>> = {
   bee_bread: 'Bee Bread',
 };
 
-// An unknown kind is shown as sent, with its underscores read as spaces.
+// An unknown kind is shown as sent, in the plain case every other code takes (design.md 8).
 export function kindLabel(kind: string): string {
-  return KIND_LABELS[kind] ?? kind.replace(/_/g, ' ');
+  return KIND_LABELS[kind] ?? plainCode(kind);
 }
 
 // The route hands the path over without its leading slash; the Entrance wants it with one.

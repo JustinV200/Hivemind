@@ -19,11 +19,9 @@
  *   - docs/entrance/openapi.json, `ConfirmationView`.
  */
 import type { ReactElement } from 'react';
-import { EmptyState, ErrorNotice, IdToken, TimeStamp } from '../../../components';
+import { EmptyState, ErrorNotice, IdToken, plainCode, TimeStamp } from '../../../components';
 import type { DeviceActions } from '../actions/use_device_actions';
 import type { DeviceRecord, HeldRecord } from '../slice';
-
-const words = (code: string): string => code.replace(/_/g, ' ');
 
 function HeldItem(props: {
   held: HeldRecord;
@@ -34,8 +32,8 @@ function HeldItem(props: {
   return (
     <li className="devices-held comb-cell comb-cell--strong" aria-label={`Held request ${held.id}`}>
       <p>
-        <strong>{words(held.action)}</strong> from {props.asker ? props.asker.name : 'a device'}{' '}
-        <IdToken id={held.device_id} />
+        <strong title={held.action}>{plainCode(held.action)}</strong> from{' '}
+        {props.asker ? props.asker.name : 'a device'} <IdToken id={held.device_id} />
       </p>
       <p className="devices-note">
         Held <TimeStamp at={held.created_at} />, can be confirmed until{' '}
