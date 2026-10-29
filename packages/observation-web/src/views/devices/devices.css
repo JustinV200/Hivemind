@@ -228,9 +228,11 @@
   overflow-wrap: anywhere;
 }
 
+/* The label never folds (`May` / `do`) when a long value shares the card's line with it */
 .devices-table td::before {
   content: attr(data-label);
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .devices-table td.devices-controls {
