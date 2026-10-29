@@ -26,8 +26,9 @@ From top to bottom, on every screen after login:
    brand mark (3.4) and the Hive's name. Right: the connection dot (section 4.4) with its word
    (`live`, `connecting`, `reconnecting`, `offline`; the dot pulses while connecting or
    reconnecting); the theme toggle (a sun or moon with the word `Light` or `Dark`, which stores
-   `data-theme` on `<html>`); from 720 px the device name and the listener (`loopback` or
-   `remote`) and a log out button, which on a phone move into the nav's More panel. A session
+   `data-theme` on `<html>`); from 720 px the device name and the listener in words (`on the
+   Hive Stand` for the loopback one, `remote` otherwise, with a `title` saying what it decides)
+   and a log out button, which on a phone move into the nav's More panel. A session
    that `needs_step_up` shows a banner under the bar until the step-up prompt is done.
 2. **Summary strip** (68 px from 720 px, 116 px on a phone; never scrolls away, never hidden by
    navigation). Four groups, each drawn as a shallow comb cell (3.4) with its label above and
@@ -38,8 +39,11 @@ From top to bottom, on every screen after login:
    underline for five seconds:
    - `Bees` active bees (total).
    - `Cells` active / inactive.
-   - `Kind` Real / Virtual.
-   - `Thinking` LLM / autopilot (bees in awake episodes versus autopilot handling).
+   - `Cells` real / virtual.
+   - `Thinking` by model / by rule (bees in awake episodes versus autopilot handling).
+
+   The hint beside each label is one 12 px line on a phone, so the sentence that explains it
+   (`bees deciding with a model vs by rule (autopilot)`) rides on the cell as its `title`.
 
    It is a slice seeded by `/v1/summary` and kept live by the cells, telemetry and episodes
    streams (ADR-0049). If a stream is down, the strip dims and says `stale since hh:mm:ss` rather
@@ -50,13 +54,19 @@ From top to bottom, on every screen after login:
    finished goal, a security event): one line per kind with a count and a link to the view that
    holds the item; opening the chat clears the chat kinds, Dismiss clears the rest.
 3. **Nav.** Fleet, Forage, Thoughts, Attendant, Chat, Honey, Cost, Capping, Devices. `Enrol` is
-   added only when the session's `listener` is `loopback`. The nav is drawn on the chrome; the
+   added only when the session's `listener` is `loopback`. Each item carries its view's one-line
+   gloss (section 8) as its `title`, so a newcomer can tell Fleet (machines) from Forage
+   (capacity) from Capping (the change gate) before opening them. The nav is drawn on the chrome; the
    current item is bold in the chrome accent with a 3 px rule beside it and `aria-current="page"`,
    never colour alone. As a rail it starts where the head ends, whatever the head holds: the shell
    measures the head (bar, banner, strip and notice bar) and the rail, the Cell page's sticky
    header and the Honey reading pane follow that height (`--head-h`), so a waiting question is
    never hidden under the rail.
-4. **Main area.** One view. A view has a title row (title, then its filters), then its body.
+4. **Main area.** One view. A view has a title row (title, then its filters, then under them its
+   one-line gloss, the same sentence the nav item carries, from `components/words`), then its
+   body. While any stream the screen could be drawing from has dropped, the title row adds
+   `stale since hh:mm:ss, reconnecting` in the warn tone and the main area dims (0.7, which keeps
+   body text above 4.5:1), so rows drawn from the last frames are never taken for current ones.
 
 | Width | Shell |
 |---|---|
@@ -264,8 +274,9 @@ content. Fixed words: `live`, `connecting` (first attempt, not yet confirmed), `
 - A node shows: a role glyph (a fixed set of nine single-path glyphs: Worker, Forager, Scout,
   Guard Bee, Undertaker, Drone, House Bee, Ripener, other), the id, what it is doing now (one
   line, cut at 28 characters, full text in `<title>`), a status dot with its word, and a
-  `ContextGauge` along the bottom edge. A node in an awake episode has a solid 2 px outline in
-  `--accent`; one on autopilot has none.
+  `ContextGauge` along the bottom edge with its percent drawn beside it (`79%`), never left to
+  the fill or the `<title>` alone. A node in an awake episode has a solid 2 px outline in
+  `--accent` and the word `awake` in its top right corner; one on autopilot has neither.
 - A bee in an Alarm state has its outline in `--alarm` and the word `Alarm`.
 - Clicking or activating a node opens that bee's thoughts (`#/thoughts/<bee>`).
 
@@ -382,7 +393,10 @@ For the Queen it also shows the Attendant's current ordering of her inbox with s
 autopilot decision with the rule that fired. A **Follow** toggle appends new episodes at the top
 as they arrive and keeps the scroll position when off. Secrets and screenshot bytes are redacted
 at the source; the UI shows `[redacted]` where the record says so and never tries to fetch more.
-Needs `observe:thoughts`. Read: `/v1/thoughts` (added in 12.1), `/v1/episodes`. Streams: episodes,
+Needs `observe:thoughts`. A `Bee` select in the title row, built from the Fleet slice (the Queen, then each Cell's Warden
+and the bees whose thoughts it lists, each named with its Cell), reaches any bee from here, and a
+links row under the title leads to the bee's Cell page and its Warden's Attendant view.
+Read: `/v1/thoughts` (added in 12.1), `/v1/episodes`. Streams: episodes,
 telemetry.
 
 ### 5.5 Attendant (`#/attendant/<principal>`)
@@ -398,7 +412,12 @@ from the fleet row and the Cell diagram. Read: `/v1/attendant/{principal}` (adde
 One column: the conversation, oldest first, and below it the composer. Lines are `message`,
 `reply`, `question`, `alarm` or `notice`, the Queen's on the left and the human's on the right.
 A question shows its options as buttons (or a text field for a free answer); an Alarm shows
-`Acknowledge`. Each line links to the tasks and episodes it produced. A push-to-talk button holds
+`Acknowledge`; once answered or acknowledged on this device the line keeps what the viewer said
+(`You answered: spring`, `Acknowledged by you.`), and one settled elsewhere says `No longer
+waiting.`. Each line links to the tasks and episodes it produced (`See task … in the Attendant`,
+with the message it answers as the link's `title`, since a task has no title of its own). The
+composer says under its switch that a message only talks to the Queen while a goal asks her to
+plan and run work. A push-to-talk button holds
 to record, and a spoken goal shows its transcript with `Confirm` and `Decline` before anything
 runs. The page opens on the newest line (the conversation is scrolled to its end once the seed
 lands) and follows a new line there unless the reader has scrolled up to read; a question's
@@ -419,9 +438,14 @@ A folder tree on the left (a single list on phone) and the folder's items on the
 (`C0`, `C1`, `C2`) and provenance. An item's title is a link to `#/honey/<path>?item=<id>`, which
 opens it in the reading pane, so an open item can be shared, comes back on reload and closes with
 Back; the pane's Close is a link back to the folder's own address. Only the Honey route reads the
-hash's query. A search box searches the open folder. "Propose a note" queues
-a note for the House Bee (Cell Wax when opened from a Cell's folder) and says so; it never says
-"saved". What shows follows the viewer's scopes. Read: `/v1/honey/tree`, `/v1/honey/items/{id}` and `/v1/honey/search`. There is no Honey stream: the
+hash's query. A search box searches the open folder; its hits stand under a heading that names
+the words and the count (`Results for "passkey" (1)`), in place of the folder's own items while
+the search is open. A legend under the title keys the three clearance labels with the README's
+one-liners (public, internal, personal), which each badge also carries as its `title`; the
+breadcrumbs are hidden at the root, where they would only repeat the title. "Propose a note"
+would queue a note for the House Bee (Cell Wax when opened from a Cell's folder) and say so,
+never "saved"; until the Landing Board carries it the browser draws no control and says nothing
+of one. What shows follows the viewer's scopes. Read: `/v1/honey/tree`, `/v1/honey/items/{id}` and `/v1/honey/search`. There is no Honey stream: the
 view reads on navigation and re-reads a folder when the trail stream shows a Honey event for it.
 
 ### 5.8 Cost (`#/cost`)
@@ -447,9 +471,13 @@ Exoskeleton action, to its recording. Read: `/v1/capping` (added in 12.1). Strea
 from 1280 px, since its capability list, platform and door controls need the room; cards below),
 the passkey step-up prompt, and the join screen a new device lands on when it opens the Entrance
 with an invite. Read: `/v1/devices`, `/v1/devices/me`. Stream: entrance (security events).
-`#/enrol` renders only when the session's `listener` is `loopback`: the invite (code and QR), the
-pending list, approve (name, capabilities, spend cap, expiry), deny, unlock, revoke, and the
-Entrance Reducer with its reopen flow. A remote session that opens `#/enrol` sees a plain
+`#/enrol` renders only when the session's `listener` is `loopback`: the invite (code and QR, with
+one line on what to do with them; the button says `Create invite`), the
+pending list, approve (name, capabilities as labelled boxes from the known set, spend cap,
+expiry), deny, unlock, revoke, and the
+Entrance Reducer with its reopen flow. The Reducer's panel is headed `Remote access` and says the
+mode in words (`on (serving)`, `reduced, the Hive Stand only`) over one line on what reducing
+does; its button reads `Reduce to the Hive Stand only`, behind a second tap. A remote session that opens `#/enrol` sees a plain
 "not found" page. This is a convenience; the remote listener 404s the routes (8.15). Read:
 `/v1/entrance/pending`, `/v1/entrance/invites`, `/v1/entrance/mode`, `/v1/entrance/watch`. Below
 the pending list, "Waiting to use your screen or sound" lists the tasks held for the owner's yes to
@@ -524,10 +552,25 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   `MEADOW`, `PROPOLIS`, `NIGHT VEIL`), Pheromone Mask. If the README does not define a word, the
   UI does not use it; a term the reader may not know gets a one-line gloss in its legend or empty
   state.
+- **Every view opens with one sentence** saying what it shows (`VIEW_HINTS` in
+  `src/components/words/`), plain words first and the bee term in the same breath (`Capacity:
+  cores, memory, model seats and spend, and who holds it`). The nav item carries the same
+  sentence as its `title`.
+- **A code is shown as a phrase.** The schema's enums (`CONTEXT_PRESSURE`, `SCRATCH_WRITE`,
+  `entrance:submit`, an inbox kind, a clearance) are drawn through one words table per enum in
+  `src/components/words/enums.ts` (`context nearly full`, `writes inside its scratch folder`,
+  `may send goals and messages (entrance:submit)`), with the code kept on the element's `title`
+  for the operator; a code the table does not know is shown as sent, in lower case with spaces.
+  An id the Landing Board carries without a title (a task, a wax note, an Alarm on the Cell page)
+  links to where its words are (the chat, the Honey item), and never invents a title.
+- **A pressed toggle** (`aria-pressed="true"`) is filled in the accent in every view, under the
+  pointer too, by one rule in `base.css`; no view carries a pressed rule of its own.
 - Labels are nouns (`Context`, `Grant`); buttons are verbs (`Answer`, `Acknowledge`, `Follow`).
   Sentences are short and plain.
 - **Errors** show one human sentence, then what to do. Example: `hivemind.entrance.step_up_required`
-  shows "This needs you to confirm again. Enter your password and use your device key." The raw
+  shows "This needs you to confirm again. Enter your password and use your device key." When the
+  next step names a place to go, it is a link there (`Go back to the Fleet and pick another.`
+  to `#/fleet`). The raw
   code is kept off screen, on the alert's `data-code` for devtools. The sentence comes from a
   fixed table in the client keyed by code; an unknown code shows `ErrorBody.detail`, which the
   Entrance writes as one sentence and never fills with a credential. A `401` takes the human to
@@ -537,4 +580,7 @@ the strip uses `/v1/summary` (added in 12.1) and the streams.
   provisions or borrows one.`), always as `EmptyState` (the sentence on the faint comb, in a comb
   cell) wherever a view or a section has nothing to list; a sentence inside a panel (`No open
   Alarms on this Cell.`) stays a plain line, since a panel is a comb cell already. A slice not
-  yet seeded shows a labelled skeleton, and a stream that is behind says `catching up`.
+  yet seeded shows a labelled skeleton, and a stream that has dropped says `stale since hh:mm:ss,
+  reconnecting` in the view's title row (section 2), with the main area dimmed, until it is back.
+  A legend's sentences never depend on an answer: the Fleet's Comb Shield legend keeps the
+  Entrance's three fixed sentences as its fallback, so a refused read leaves no bare badge.
