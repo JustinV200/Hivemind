@@ -1,11 +1,11 @@
 /**
  * `AttendantHeader`: the title row, who the view is for, and where else to read that principal.
  *
- * The heading names the principal (`queen` or a Warden's id). Under it, the title row's hint says
- * in words what the view holds for that principal, and a line links to the principal's thoughts. For a Warden it also
- * links to the Warden's Cell page, when one of the Warden's own tasks says which Cell it is placed
- * on: the Attendant view does not name the Warden's Cell by itself, so no task placed there means
- * no link, never a guess.
+ * The heading names the principal (`queen` or a Warden's id). Under it, the title row carries the
+ * view's one-line gloss, the same sentence the nav item carries (design.md section 2), and a line
+ * links to the principal's thoughts. For a Warden it also links to the Warden's Cell page, when
+ * one of the Warden's own tasks says which Cell it is placed on: the Attendant view does not name
+ * the Warden's Cell by itself, so no task placed there means no link, never a guess.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/attendant/`. Drawn by `attendant.tsx`.
@@ -18,7 +18,7 @@
  *   - docs/observation/design.md section 5.5.
  */
 import type { ReactElement } from 'react';
-import { ViewTitle } from '../../components';
+import { VIEW_HINTS, ViewTitle } from '../../components';
 import { hrefFor } from '../../router';
 import type { TaskNode } from './slice';
 
@@ -39,15 +39,7 @@ export function AttendantHeader(props: {
   const cell = queen ? null : cellOfWarden(principal, nodes);
   return (
     <header className="att-header">
-      <ViewTitle
-        title="Attendant"
-        subject={principal}
-        hint={
-          queen
-            ? 'What is waiting on the Queen, in priority order, and the tasks she is concerned with.'
-            : "What is waiting on this Warden, in priority order, and its sub-bees' tasks."
-        }
-      />
+      <ViewTitle title="Attendant" subject={principal} hint={VIEW_HINTS.attendant} />
       <p className="att-links">
         <a href={hrefFor({ name: 'thoughts', bee: principal })}>{`Thoughts of ${principal}`}</a>
         {cell ? <a href={hrefFor({ name: 'cell', id: cell })}>{`Cell page of ${cell}`}</a> : null}

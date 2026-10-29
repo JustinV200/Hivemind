@@ -94,10 +94,11 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
     action: 'Go back to the Fleet and pick another.',
     href: '#/fleet',
   },
+  // The gate's generic code for any missing or listener-gated route, so the way on is not one
+  // view's: only a missing Cell (`cell_not_found`, above) sends the human back to the Fleet.
   [`${ENTRANCE}not_found`]: {
     sentence: 'That does not exist, or this listener does not serve it.',
-    action: 'Go back to the Fleet and pick another.',
-    href: '#/fleet',
+    action: 'Check the address, or pick another view from the nav.',
   },
   [`${ENTRANCE}invalid_request`]: {
     sentence: 'The Hive could not read that request.',
