@@ -25,7 +25,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { ReactElement, ReactNode } from 'react';
-import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import { useSlice } from '../../store';
 import { CapacityDiagram } from './capacity/diagram';
 import { hostBlocks } from './capacity/model';
@@ -151,7 +151,7 @@ export function ForageScreen(): ReactElement {
   const nowMs = useNow();
   return (
     <>
-      <ViewTitle title="Forage" />
+      <ViewTitle title="Forage" hint={VIEW_HINTS.forage} />
       {state.error ? <ErrorNotice error={state.error} /> : null}
       {!state.seeded && !state.error ? <p aria-busy="true">Reading Forage</p> : null}
       {state.seeded ? (

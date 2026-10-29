@@ -16,7 +16,9 @@
  *
  * A view that opens a stream of its own (the Thoughts view's follow mode) reports it here too, keyed
  * by path, so the top bar's word covers it. A view stream is not one the strip needs, so it never
- * makes the strip stale, and it leaves the slice when the view closes it.
+ * makes the strip stale, and it leaves the slice when the view closes it; it does count for the
+ * view's own stale note (`viewStaleSince`), which every title row shows while any stream the
+ * screen could be drawing from has dropped.
  *
  * Key invariants:
  *   - Pure: the time of a change comes in with the event, never from a clock here.
@@ -110,6 +112,16 @@ export function connectionWord(slice: ConnectionSlice): ConnectionWord {
 // first attempt has not dropped, and the strip is seeded from the summary read, so it is current.
 export function staleSince(slice: ConnectionSlice): number | null {
   const down = usable(slice).filter((s) => s.state !== 'live' && s.state !== 'connecting');
+  return down.length === 0 ? null : Math.min(...down.map((s) => s.since));
+}
+
+// When the view on screen last had every stream it could draw from live: the shell's three and
+// any the view opened itself. Null when it is current. A status at time 0 is the initial state
+// before any feed started, so it is not a drop.
+export function viewStaleSince(slice: ConnectionSlice): number | null {
+  const down = [...usable(slice), ...Object.values(slice.views)].filter(
+    (s) => s.since > 0 && s.state !== 'live' && s.state !== 'connecting' && s.state !== 'refused',
+  );
   return down.length === 0 ? null : Math.min(...down.map((s) => s.since));
 }
 

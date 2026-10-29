@@ -20,7 +20,7 @@
  *   - docs/observation/design.md section 5.8; src/views/cost/README.md.
  */
 import type { ReactElement, ReactNode } from 'react';
-import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import './cost.css';
 import type { CostSnapshot } from './slice';
 import { GoalsTable } from './tables/goals';
@@ -68,7 +68,7 @@ export function CostScreen(): ReactElement {
   const state = useCost();
   return (
     <>
-      <ViewTitle title="Cost" />
+      <ViewTitle title="Cost" hint={VIEW_HINTS.cost} />
       {state.error ? <ErrorNotice error={state.error} /> : null}
       {!state.seeded && !state.error ? <p aria-busy="true">Reading the cost</p> : null}
       {state.seeded ? <Spend cost={state.cost} /> : null}

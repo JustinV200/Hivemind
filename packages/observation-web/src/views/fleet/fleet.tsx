@@ -25,7 +25,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { ReactElement } from 'react';
-import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import { useViewStream } from '../../store';
 import { byKind, KindFilter, useKindFilter } from './filter';
 import './fleet.css';
@@ -59,7 +59,7 @@ export function FleetView(props: { rereadMs?: number }): ReactElement {
   };
   return (
     <>
-      <ViewTitle title="Fleet">
+      <ViewTitle title="Fleet" hint={VIEW_HINTS.fleet}>
         <KindFilter
           kind={kind}
           onChoose={(next) => {

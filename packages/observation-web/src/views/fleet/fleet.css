@@ -37,6 +37,8 @@
   align-items: center;
   gap: var(--sp-2) var(--sp-4);
   flex-basis: 100%;
+  /* After the title row's gloss, which the row draws last in the markup */
+  order: 1;
   padding: var(--sp-2) var(--sp-3);
   background: var(--surface-2);
   border-radius: var(--radius);

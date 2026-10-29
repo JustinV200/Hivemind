@@ -25,7 +25,7 @@
  */
 import { useState } from 'react';
 import type { ReactElement } from 'react';
-import { ErrorNotice, ViewTitle } from '../../components';
+import { ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import { useSlice } from '../../store';
 import { useDeviceActions } from './actions/use_device_actions';
 import './devices.css';
@@ -54,7 +54,7 @@ export function DevicesScreen(): ReactElement {
 
   return (
     <section className="devices">
-      <ViewTitle title="Devices" />
+      <ViewTitle title="Devices" hint={VIEW_HINTS.devices} />
       <StepUpPanel />
       <StepUpPrompt step={step} />
       {actions.notice ? (

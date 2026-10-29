@@ -24,7 +24,7 @@
  *   - src/views/thoughts/README.md.
  */
 import type { ReactElement } from 'react';
-import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import { useHive, useViewStream } from '../../store';
 import { DecisionRow } from './decision_row';
 import { EpisodeCard } from './episode_card';
@@ -60,7 +60,7 @@ export function ThoughtsView(props: { bee: string }): ReactElement {
   const items = timelineOf(state.episodes, state.decisions);
   return (
     <>
-      <ViewTitle title="Thoughts" subject={props.bee}>
+      <ViewTitle title="Thoughts" subject={props.bee} hint={VIEW_HINTS.thoughts}>
         <FollowToggle
           follow={state.follow}
           queued={state.queued.length + state.queuedDecisions.length}

@@ -75,6 +75,7 @@ export function Nav(): ReactElement {
           <li key={item.label} className={item.primary ? undefined : 'nav-secondary'}>
             <a
               href={item.href}
+              title={item.hint}
               aria-current={item.owns.includes(route.name) ? 'page' : undefined}
               onClick={() => setMoreOpen(false)}
             >

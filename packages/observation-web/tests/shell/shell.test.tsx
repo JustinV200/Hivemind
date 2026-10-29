@@ -126,8 +126,8 @@ describe('summary strip', () => {
     const bees = await screen.findByRole('group', { name: 'Bees: 5 active' });
     expect(within(bees).getByText('5')).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Cells: 3 active, 2 inactive' })).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Kind: 1 Real, 4 Virtual' })).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Thinking: 2 LLM, 3 autopilot' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Cells: 1 Real, 4 Virtual' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Thinking: 2 by model, 3 by rule' })).toBeTruthy();
     const strip = screen.getAllByRole('status').find((el) => el.classList.contains('strip'))!;
     expect(strip.getAttribute('aria-live')).toBe('off');
   });
@@ -156,7 +156,7 @@ describe('summary strip', () => {
       }
     });
     expect(screen.getByRole('group', { name: 'Cells: 2 active, 3 inactive' })).toBeTruthy();
-    expect(screen.getByRole('group', { name: 'Kind: 5 Real, 0 Virtual' })).toBeTruthy();
+    expect(screen.getByRole('group', { name: 'Cells: 5 Real, 0 Virtual' })).toBeTruthy();
     // Two bees streamed of the five the seed counted: the seed still stands.
     expect(screen.getByRole('group', { name: 'Bees: 5 active' })).toBeTruthy();
   });
@@ -181,7 +181,12 @@ describe('summary strip', () => {
     act(() => fake.advance(5000));
     expect(screen.getByText('live')).toBeTruthy();
     act(() => fake.sockets[0]!.serverClose(1006));
-    expect(screen.getByText(/stale since \d\d:\d\d:\d\d/)).toBeTruthy();
+    // The strip's note, and the view's own under its title, which dims the main area with it.
+    expect(screen.getAllByText(/stale since \d\d:\d\d:\d\d/)).toHaveLength(2);
+    expect(screen.getByText(/^stale since \d\d:\d\d:\d\d, reconnecting$/).className).toBe(
+      'view-stale',
+    );
+    expect(screen.getByRole('main').className).toContain('shell-main--stale');
     expect(screen.getByText('reconnecting')).toBeTruthy();
     const strip = screen.getAllByRole('status').find((el) => el.classList.contains('strip'))!;
     expect(strip.className).toContain('strip--stale');

@@ -6,8 +6,9 @@
  * width. Then the connection dot, which says whether the live
  * streams are connected (`live`, `connecting`, `reconnecting` or `offline`) and whose word is
  * announced politely when it changes. Then the theme toggle. On a rail (720 px and up) the device
- * name (from the device's own record, its id until that loads), the listener (`loopback` on the
- * Hive Stand, `remote` anywhere else: it decides which screens exist) and the log out button
+ * name (from the device's own record, its id until that loads), the listener in words (`on the
+ * Hive Stand` for the loopback one, `remote` anywhere else: it decides which screens exist, which
+ * its `title` says) and the log out button
  * follow; on a phone those two move into the nav's More panel so the bar stays one 48 px row.
  *
  * Fits into the Hive:
@@ -35,13 +36,20 @@ export function useLogOut(): () => void {
   };
 }
 
+// The listener in words: the loopback one is the Hive Stand's own door, the other is remote.
+const LISTENER_WORDS = { loopback: 'on the Hive Stand', remote: 'remote' } as const;
+const LISTENER_MEANING =
+  'How this device reached the Hive. Only a device on the Hive Stand itself can enrol others.';
+
 // The device's name and the listener it came in through, drawn in the bar or the More panel.
 export function DeviceLine(): ReactElement {
   const session = useSlice('session');
   return (
     <span className="topbar-device">
       <span>{session.deviceName ?? session.deviceId}</span>
-      <span className="topbar-listener">{session.listener}</span>
+      <span className="topbar-listener" title={LISTENER_MEANING}>
+        {session.listener ? LISTENER_WORDS[session.listener] : null}
+      </span>
     </span>
   );
 }

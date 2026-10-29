@@ -21,6 +21,7 @@
  *   - Nothing here makes the page wider than the viewport.
  *   - The rail never overlaps the head: its top and height follow `--head-h`.
  *   - The current nav item is never colour alone: bold, with a 3px rule beside it.
+ *   - A stale view is never colour or dimming alone: the title row says `stale since` in words.
  *   - The focus ring on the nav is --chrome-accent, drawn inside the item, so it reads on the
  *     chrome in both themes and the rail's scroll box never clips it.
  *
@@ -202,6 +203,28 @@
 .view-subject {
   color: var(--text-muted);
   overflow-wrap: anywhere;
+}
+
+/* The view's one-line gloss and its stale note: full-width lines under the title and its
+   filters, so a filter keeps the title's line and the words never push it down */
+.view-hint,
+.view-stale {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.view-stale {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* While a stream has dropped, everything but the title row dims, as the strip does; 0.7 rather
+   than the strip's 0.55 because body text at 0.55 on the page would fall under 4.5:1 */
+.shell-main--stale > :not(.view-title, .cell-header, .att-header, .notice),
+.shell-main--stale :is(.chat, .enrol, .devices) > :not(.view-title, .notice) {
+  opacity: 0.7;
 }
 
 @media (min-width: 720px) {

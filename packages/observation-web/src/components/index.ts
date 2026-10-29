@@ -2,8 +2,9 @@
  * The components' face: the shared pieces every view draws with.
  *
  * Importers take badges, the status dot, the gauge, the error notice, the view boundary, the
- * title row, the sort control, the empty state, the brand mark and header, the comb pattern and
- * the two width hooks (a breakpoint, a measured pane) from here.
+ * title row, the sort control, the empty state, the brand mark and header, the comb pattern, the
+ * two width hooks (a breakpoint, a measured pane) and the shared words (the view glosses and the
+ * plain phrases for the schema's codes) from here.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/components/`. Imported by `src/shell/` and `src/views/`.
@@ -29,3 +30,17 @@ export { SortSelect } from './sort_select';
 export type { SortChoice, SortDirection, SortOption } from './sort_select';
 export { ViewBoundary } from './view_boundary';
 export { ViewTitle } from './view_title';
+export {
+  alarmKindWords,
+  CAPABILITY_WORDS,
+  capabilityWords,
+  CLEARANCE_MEANINGS,
+  CLEARANCE_NAMES,
+  clearanceWords,
+  inboxKindWords,
+  KNOWN_CAPABILITIES,
+  plainCode,
+  riskTierWords,
+  VIEW_HINTS,
+} from './words';
+export type { GlossedView, HoneyClearance } from './words';

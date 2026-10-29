@@ -25,7 +25,7 @@
  *   - src/views/enrol/README.md, src/views/enrol/use_enrol.ts for how it stays live.
  */
 import type { ReactElement } from 'react';
-import { ErrorNotice, ViewTitle } from '../../components';
+import { ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import { useSlice } from '../../store';
 import { StepUpPanel, StepUpPrompt, useStepUp } from '../devices';
 import './enrol.css';
@@ -44,7 +44,7 @@ function Body(): ReactElement {
   const watch = useWatch();
   return (
     <section className="enrol">
-      <ViewTitle title="Enrol" />
+      <ViewTitle title="Enrol" hint={VIEW_HINTS.enrol} />
       <StepUpPanel />
       <StepUpPrompt step={step} />
       {actions.notice ? (

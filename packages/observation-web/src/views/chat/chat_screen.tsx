@@ -22,7 +22,7 @@
  *   - docs/observation/design.md section 5.6 and src/views/chat/README.md.
  */
 import type { ReactElement } from 'react';
-import { ErrorNotice, ViewTitle } from '../../components';
+import { ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import { LandingBoardError } from '../../landing_board/client';
 import { useHive, useSlice, useViewStream } from '../../store';
 import './chat.css';
@@ -56,7 +56,7 @@ export function ChatScreen(): ReactElement {
   const refused = state.error instanceof LandingBoardError && state.error.status === 403;
   return (
     <section className="chat">
-      <ViewTitle title="Chat" subject="Queen" />
+      <ViewTitle title="Chat" subject="Queen" hint={VIEW_HINTS.chat} />
       <p className="sr-only" role="status" aria-live="polite">
         {state.announce ? `The Queen wrote: ${state.announce.text}` : ''}
       </p>

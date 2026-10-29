@@ -22,7 +22,7 @@
  *   - src/views/capping/README.md, src/views/capping/use_capping.ts for how it stays live.
  */
 import type { ReactElement, ReactNode } from 'react';
-import { EmptyState, ErrorNotice, ViewTitle } from '../../components';
+import { EmptyState, ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import './capping.css';
 import { AuditsTable } from './audits/audits_table';
 import { QueueFilters, useQueueFilter } from './queue/filters';
@@ -41,6 +41,15 @@ function Section(props: { title: string; children: ReactNode }): ReactElement {
   );
 }
 
+// The title row, the same in every state of the view, so the gloss is there before any data.
+function Title(props: { children?: ReactNode }): ReactElement {
+  return (
+    <ViewTitle title="Capping" hint={VIEW_HINTS.capping}>
+      {props.children}
+    </ViewTitle>
+  );
+}
+
 function isEmpty(state: CappingState): boolean {
   return state.proposals.length === 0 && state.audits.length === 0 && state.counts.length === 0;
 }
@@ -52,9 +61,9 @@ function Body(props: { state: CappingState }): ReactElement {
   const shown = filterRows(rows, filter.tiers, filter.states);
   return (
     <>
-      <ViewTitle title="Capping">
+      <Title>
         <QueueFilters rows={rows} filter={filter} />
-      </ViewTitle>
+      </Title>
       {state.error ? <ErrorNotice error={state.error} /> : null}
       <RatesStrip state={state} />
       <Section title="Queue">
@@ -82,7 +91,7 @@ function Body(props: { state: CappingState }): ReactElement {
 function Waiting(props: { error: unknown }): ReactElement {
   return (
     <>
-      <ViewTitle title="Capping" />
+      <Title />
       {props.error ? (
         <ErrorNotice error={props.error} />
       ) : (
@@ -95,7 +104,7 @@ function Waiting(props: { error: unknown }): ReactElement {
 function Nothing(props: { error: unknown }): ReactElement {
   return (
     <>
-      <ViewTitle title="Capping" />
+      <Title />
       {props.error ? <ErrorNotice error={props.error} /> : null}
       <EmptyState>
         Nothing has been proposed yet. A proposal appears here when a bee asks the gate to let it do

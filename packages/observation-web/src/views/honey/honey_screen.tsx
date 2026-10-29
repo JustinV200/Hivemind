@@ -25,7 +25,7 @@
  *   - src/views/honey/hooks/ for the reads and src/views/honey/slice/ for the state.
  */
 import type { ReactElement } from 'react';
-import { ErrorNotice, ViewTitle } from '../../components';
+import { ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import { useHoneyFolder } from './hooks/use_folder';
 import { useReading } from './hooks/use_reading';
 import { useSearch } from './hooks/use_search';
@@ -52,7 +52,7 @@ export function HoneyScreen(props: { path: string; item: string | null }): React
     <>
       {/* At the root the path is a lone slash, which says nothing beside the title; the
           crumbs name the folder, so the subject is only shown once there is one */}
-      <ViewTitle title="Honey" subject={path === '/' ? undefined : path} />
+      <ViewTitle title="Honey" subject={path === '/' ? undefined : path} hint={VIEW_HINTS.honey} />
       <Breadcrumbs path={path} parent={folder?.parent ?? null} />
       {error ? (
         <>

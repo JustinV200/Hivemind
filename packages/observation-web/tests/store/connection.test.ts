@@ -22,6 +22,7 @@ import {
   reduceConnection,
   refusedStreams,
   staleSince,
+  viewStaleSince,
 } from '../../src/store/slices/connection';
 import type { ConnectionEvent } from '../../src/store/slices/connection';
 import {
@@ -90,6 +91,22 @@ describe('connection', () => {
     });
     expect(connectionWord(later)).toBe('reconnecting');
     expect(staleSince(later)).toBe(50);
+  });
+
+  it('marks a view stale from a dropped shell stream or its own, never from the initial state', () => {
+    expect(viewStaleSince(initialConnection)).toBeNull();
+    const ready = fold([{ type: 'reset', at: 1 }, ...live(2)]);
+    expect(viewStaleSince(ready)).toBeNull();
+    const own = reduceConnection(ready, {
+      type: 'view',
+      path: '/v1/cells/stream',
+      state: 'reconnecting',
+      at: 30,
+    });
+    expect(viewStaleSince(own)).toBe(30);
+    expect(staleSince(own)).toBeNull();
+    const shell = reduceConnection(own, { type: 'stream', name: 'cells', state: 'closed', at: 20 });
+    expect(viewStaleSince(shell)).toBe(20);
   });
 
   it('keeps the original time when a state repeats', () => {

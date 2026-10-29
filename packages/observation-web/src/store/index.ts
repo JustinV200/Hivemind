@@ -23,7 +23,7 @@ export { HiveProvider, useHive, useSlice, useViewStream } from './react';
 export type { Hive } from './react';
 export { startFeeds } from './feed';
 export { SHELL_SLICES } from './slices';
-export { connectionWord, refusedStreams, staleSince } from './slices/connection';
+export { connectionWord, refusedStreams, staleSince, viewStaleSince } from './slices/connection';
 export type { ConnectionSlice, StreamName } from './slices/connection';
 export { summaryCounters } from './slices/summary';
 export type { SummaryCounters, SummarySeed, SummarySlice } from './slices/summary';

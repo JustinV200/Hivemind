@@ -2,8 +2,10 @@
  * The summary strip: the Hive's core counters, always visible under the top bar, as four cells.
  *
  * Four groups, each drawn as a shallow comb cell with its label above and its number below:
- * active bees, Cells active and inactive, Real and Virtual Cells, and bees thinking with an LLM
- * versus on autopilot. The numbers come from the summary slice and never wait on the view the
+ * active bees, Cells active and inactive, real and virtual Cells, and bees thinking by model
+ * (an awake episode) versus by rule (autopilot). The hint beside each label is one 12 px line
+ * on a phone, so the sentence that explains it rides on the cell as its `title`. The numbers
+ * come from the summary slice and never wait on the view the
  * person is looking at. A value that just changed is marked for five seconds (an underline in
  * the accent), so a reader can tell which number moved. If any stream that could be live is not,
  * the strip dims and says `stale since hh:mm:ss`, so old numbers are never mistaken for current
@@ -30,6 +32,8 @@ import { useChanged } from './use_changed';
 interface Group {
   label: string;
   hint: string;
+  // The sentence behind the hint, which must stay one 12 px line on a phone: the cell's `title`.
+  meaning: string;
   value: string;
   spoken: string;
   needs: readonly StreamName[];
@@ -41,6 +45,7 @@ function groupsOf(c: SummaryCounters | null): Group[] {
     {
       label: 'Bees',
       hint: 'active',
+      meaning: 'bees working or waiting right now',
       value: show(c?.active_bees ?? 0),
       spoken: `${c?.active_bees ?? 0} active`,
       needs: ['telemetry'],
@@ -48,22 +53,25 @@ function groupsOf(c: SummaryCounters | null): Group[] {
     {
       label: 'Cells',
       hint: 'active / inactive',
+      meaning: 'machines (Cells) with a Warden working on them vs idle ones',
       value: show(`${c?.cells_active} / ${c?.cells_inactive}`),
       spoken: `${c?.cells_active} active, ${c?.cells_inactive} inactive`,
       needs: ['cells'],
     },
     {
-      label: 'Kind',
-      hint: 'Real / Virtual',
+      label: 'Cells',
+      hint: 'real / virtual',
+      meaning: 'Real Cells are machines the Hive borrows; Virtual Cells it makes itself',
       value: show(`${c?.cells_real} / ${c?.cells_virtual}`),
       spoken: `${c?.cells_real} Real, ${c?.cells_virtual} Virtual`,
       needs: ['cells'],
     },
     {
       label: 'Thinking',
-      hint: 'LLM / autopilot',
+      hint: 'by model / by rule',
+      meaning: 'bees deciding with a model vs by rule (autopilot)',
       value: show(`${c?.bees_awake} / ${c?.bees_autopilot}`),
-      spoken: `${c?.bees_awake} LLM, ${c?.bees_autopilot} autopilot`,
+      spoken: `${c?.bees_awake} by model, ${c?.bees_autopilot} by rule`,
       needs: ['episodes'],
     },
   ];
@@ -84,6 +92,7 @@ function Cell(props: { group: Group; denied: boolean; loaded: boolean }): ReactE
     <div
       className="strip-group"
       role="group"
+      title={group.meaning}
       aria-label={`${group.label}: ${denied ? 'no access' : loaded ? group.spoken : 'loading'}`}
     >
       <span className="strip-label">
@@ -111,7 +120,7 @@ export function SummaryStrip(): ReactElement {
     >
       {groupsOf(counters).map((group) => (
         <Cell
-          key={group.label}
+          key={`${group.label} ${group.hint}`}
           group={group}
           denied={group.needs.some((name) => refused.includes(name))}
           loaded={counters !== null}

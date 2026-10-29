@@ -1,8 +1,8 @@
 /**
  * `AttendantHeader`: the title row, who the view is for, and where else to read that principal.
  *
- * The heading names the principal (`queen` or a Warden's id). Under it, a line says in words what
- * the view holds for that principal, and links to the principal's thoughts. For a Warden it also
+ * The heading names the principal (`queen` or a Warden's id). Under it, the title row's hint says
+ * in words what the view holds for that principal, and a line links to the principal's thoughts. For a Warden it also
  * links to the Warden's Cell page, when one of the Warden's own tasks says which Cell it is placed
  * on: the Attendant view does not name the Warden's Cell by itself, so no task placed there means
  * no link, never a guess.
@@ -39,12 +39,15 @@ export function AttendantHeader(props: {
   const cell = queen ? null : cellOfWarden(principal, nodes);
   return (
     <header className="att-header">
-      <ViewTitle title="Attendant" subject={principal} />
-      <p className="att-muted">
-        {queen
-          ? "The tasks the Queen is concerned with, and the inbox behind them, in the Attendant's order."
-          : "This Warden's sub-bees' tasks, and its own inbox in the Attendant's order."}
-      </p>
+      <ViewTitle
+        title="Attendant"
+        subject={principal}
+        hint={
+          queen
+            ? 'What is waiting on the Queen, in priority order, and the tasks she is concerned with.'
+            : "What is waiting on this Warden, in priority order, and its sub-bees' tasks."
+        }
+      />
       <p className="att-links">
         <a href={hrefFor({ name: 'thoughts', bee: principal })}>{`Thoughts of ${principal}`}</a>
         {cell ? <a href={hrefFor({ name: 'cell', id: cell })}>{`Cell page of ${cell}`}</a> : null}
