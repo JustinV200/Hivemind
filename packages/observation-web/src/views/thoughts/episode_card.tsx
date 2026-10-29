@@ -157,7 +157,9 @@ export function EpisodeCard(props: { episode: EpisodeView }): ReactElement {
       ) : null}
       <dl className="thought-pairs">
         <Pair label="Decision">{e.decision}</Pair>
-        <Pair label="Action">{e.action}</Pair>
+        <Pair label="Action">
+          <span title={e.action}>{plainCode(e.action)}</span>
+        </Pair>
       </dl>
       {e.prompt_ref ? (
         <Section title="Prompt reference">

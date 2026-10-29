@@ -56,7 +56,11 @@ function DecisionStreams(): null {
 }
 
 // Under the list: the way further back, and the note that the bound has cut the oldest off.
-function Footer(props: { state: ThoughtsState; loadingOlder: boolean; loadOlder: () => void }) {
+function Footer(props: {
+  state: ThoughtsState;
+  loadingOlder: boolean;
+  loadOlder: () => void;
+}): ReactElement {
   const { state } = props;
   return (
     <>

@@ -235,7 +235,10 @@ describe('the Queen', () => {
       .getAllByRole('article')
       .map((el) => el.getAttribute('aria-label') ?? 'episode');
     expect(rows).toEqual(['episode', 'Autopilot decision', 'episode']);
-    expect(screen.getByText('lease_gone')).toBeTruthy();
+    // The codes are words, each with the code on its title: the kind, the action, the reason.
+    expect(screen.getByText('lease gone').getAttribute('title')).toBe('lease_gone');
+    expect(screen.getByText('rebind', { selector: 'strong' }).getAttribute('title')).toBe('REBIND');
+    expect(screen.getByText('the Queen decided').getAttribute('title')).toBe('queen.decided');
   });
 });
 
@@ -283,7 +286,8 @@ describe("the Queen's decisions, live", () => {
         trailFrame({ id: 'noise', kind: 'task.started', at: '2026-01-01T00:04:00Z' }),
       );
     });
-    expect(screen.getByText('provider_down')).toBeTruthy();
+    expect(screen.getByText('provider down')).toBeTruthy();
+    expect(screen.getByText('the Queen handled an Alarm')).toBeTruthy();
     expect(screen.getAllByRole('article', { name: 'Autopilot decision' })).toHaveLength(2);
   });
 
