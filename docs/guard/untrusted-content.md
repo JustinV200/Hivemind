@@ -110,6 +110,10 @@ fence and continue as trusted prompt.
 
 A dropped text never reaches the model, the attempt's call records, or a Handoff built from them.
 
+The Queen's planner is stricter: it is shown no flagged Honey hit at all, and a network scope it
+plans survives only when the goal text, or an exact `net:` grant in the goal's ceiling, names it
+(`hivemind.queen.planner.network`).
+
 ## The event
 
 `guard.injection_suspected`, recorded on the reading bee's own trail, subject the consuming bee:

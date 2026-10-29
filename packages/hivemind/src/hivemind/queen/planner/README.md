@@ -35,7 +35,10 @@ it, a Forager for web or GUI work, and a Drone for everything else).
   Hive's ripened, searchable knowledge) found for the goal, as `waggle.messages.honey.HoneyHit`s.
   `plan_goal` renders them into the prompt's `RETRIEVED` section with `hivemind.memory`'s own
   preamble and hit blocks, labelled reference data and never instructions; a hit above the goal's
-  clearance is never shown, and no section is rendered when nothing was retrieved. The
+  clearance is never shown, nor is one the scanner flagged, and no section is rendered when
+  nothing was retrieved. A planned network scope the goal text (or an exact `net:` grant in the
+  goal's ceiling) does not name is dropped (`network.py`), so retrieved text never earns a `net:`
+  grant. The
   consultation itself runs in `hivemind.queen.goal_submission` through
   `hivemind.queen.dispatcher.consult_for_plan`.
 

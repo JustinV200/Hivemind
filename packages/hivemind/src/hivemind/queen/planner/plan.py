@@ -51,8 +51,10 @@ Key invariants:
       re-checks it.
     - A retrieved hit labelled above the goal's clearance, or tainted, never reaches the prompt
       (the Queen's consultation already filtered by clearance; this is defence in depth); every
-      hit shown was scanned first and renders under its verdict, and no RETRIEVED section is
-      rendered at all when nothing was retrieved.
+      hit shown was scanned first and passed, and no RETRIEVED section is rendered at all when
+      nothing was retrieved.
+    - A planned network scope the goal's owner never named is dropped, so retrieved text can
+      never earn a task a `net:` grant (`hivemind.queen.planner.network`).
 
 See Also:
     - .claude/roadmap.md step 3.18 for "the planner emits acceptance for every subtask".
@@ -98,6 +100,7 @@ from hivemind.memory import (
     is_refused,
     render_item,
 )
+from hivemind.queen.planner.network import owner_named_needs
 from hivemind.queen.planner.schema import PlannedPostcondition, PlannedTask, PlanSchema
 from hivemind.supervision.capping import COMMAND_POSTCONDITION_KINDS
 from waggle.messages import Postcondition
@@ -252,11 +255,13 @@ def _retrieved_section(items: Sequence[RetrievedItem], clearance: HoneyClearance
     cut at the same per-item cap hot state uses.
     """
     # Defence in depth: an item above the goal's own clearance, or one tainted since it was
-    # retrieved, never reaches the planner's prompt.
+    # retrieved, never reaches the planner's prompt. Nor does a flagged one: the plan sets grants.
     visible = [
         item
         for item in items
-        if item.clearance.rank <= clearance.rank and not is_refused(item.tainted)
+        if item.clearance.rank <= clearance.rank
+        and not is_refused(item.tainted)
+        and not item.content.verdict.flagged
     ]
     if not visible:
         return ""  # No section at all rather than a preamble over nothing.
@@ -344,8 +349,10 @@ def _needs_for(needs: TaskNeeds, brief: PlanBrief) -> TaskNeeds:
 
     A tier replaces the model's choice; the promise to survive a lost link is only ever switched
     on, so a subtask the model already marked keeps its mark whether or not the operator asked.
+    A network scope the owner never named is dropped (`owner_named_needs`).
     """
-    tiered = _needs_at_tier(needs, brief.comb_shield)
+    named = owner_named_needs(needs, brief.goal, brief.capabilities)
+    tiered = _needs_at_tier(named, brief.comb_shield)
     if not brief.survives_link_loss or tiered.survives_link_loss:
         return tiered
     # A plain bool with no cross-field rule, so a copy is enough (codingrules 8.5).
