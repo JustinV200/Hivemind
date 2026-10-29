@@ -21,13 +21,13 @@ import type { ReactElement } from 'react';
 import { IdToken, TimeStamp } from '../../../components';
 import { hrefFor } from '../../../router';
 import type { CellPage } from '../slice';
+import { Panel, Tag } from './panel';
+import type { TagTone } from './panel';
 
 // The note's own page: the Honey browser's wax folder for this Cell, with the note open in the
 // reading pane, which is where its title and text are (the page row carries neither).
 const waxHref = (cellId: string, waxId: string): string =>
   hrefFor({ name: 'honey', path: `cells/${cellId}/wax`, item: waxId });
-import { Panel, Tag } from './panel';
-import type { TagTone } from './panel';
 
 type Entry = CellPage['wax'][number];
 
