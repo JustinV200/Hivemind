@@ -193,6 +193,23 @@ describe('the controls', () => {
     );
     expect(opened.sent('POST /v1/devices/dev_phone/capabilities')).toHaveLength(0);
   });
+
+  // A capability the known list does not hold (a pinned Cell's) is still the device's: a save
+  // that dropped it would silently narrow the device.
+  it('keeps a capability the known list does not hold, ticked and sent back', async () => {
+    const pinned = deviceView({ capabilities: ['observe', 'cell:real:cell_x'] });
+    const opened = await mount({ listener: 'loopback', devices: [pinned] });
+    opened.fake.respond('POST /v1/devices/dev_phone/capabilities', 200, pinned);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit capabilities of Pixel 9' }));
+    const form = screen.getByRole('form', { name: 'Capabilities of Pixel 9' });
+    expect(within(form).getByLabelText(/\(observe\)$/)).toHaveProperty('checked', true);
+    expect(within(form).getByLabelText('cell:real:cell_x')).toHaveProperty('checked', true);
+    fireEvent.click(within(form).getByRole('button', { name: 'Save capabilities' }));
+    await screen.findByText('Saved what Pixel 9 may do.');
+    expect(opened.sent('POST /v1/devices/dev_phone/capabilities').map(bodyOf)).toEqual([
+      { capabilities: ['observe', 'cell:real:cell_x'], spend_cap_usd_per_day: 5 },
+    ]);
+  });
 });
 
 describe('revoke', () => {

@@ -18,7 +18,7 @@
  *   - tests/views/forage/slice.test.ts for the reducer rules.
  */
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { flush } from '../../support/fake_browser';
 import type { FakeBrowser } from '../../support/fake_browser';
 import {
@@ -279,4 +279,33 @@ describe('the flow unit and the phone layout', () => {
     expect(cells.every((cell) => cell.getAttribute('data-label'))).toBe(true);
     expect(screen.getByRole('table', { name: /Wardens and the grants/ })).toBeTruthy();
   });
+
+  // The one layout rule that takes content off the screen: on a phone the three secondary
+  // sections are closed disclosures, and the grants stay plain sections at every width.
+  it('folds Requests, Wardens and the Forage map behind closed disclosures on a phone', async () => {
+    narrow();
+    await mountForage();
+    await screen.findByRole('heading', { name: 'Grants' });
+    const disclosure = (name: string) =>
+      screen.getByRole('heading', { name }).closest('details') as HTMLDetailsElement | null;
+    for (const name of ['Requests', 'Wardens', 'Forage map']) {
+      expect(disclosure(name)?.open).toBe(false);
+    }
+    expect(disclosure('Grants')).toBeNull();
+    expect(disclosure('Spend against grant caps')).toBeNull();
+  });
+});
+
+// A phone's width as the page hears it: no min-width query matches. jsdom has no matchMedia,
+// which the hook reads as every width reached, so the fake is removed after the test.
+function narrow(): void {
+  window.matchMedia = ((query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  })) as unknown as typeof window.matchMedia;
+}
+afterEach(() => {
+  delete (window as { matchMedia?: unknown }).matchMedia;
 });
