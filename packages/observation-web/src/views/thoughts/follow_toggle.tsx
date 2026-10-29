@@ -38,7 +38,12 @@ export function FollowToggle(props: FollowToggleProps): ReactElement {
         {`Follow: ${follow ? 'on' : 'off'}`}
       </button>
       {!follow && queued > 0 ? (
-        <button type="button" className="button follow-new" onClick={props.onReveal}>
+        <button
+          type="button"
+          className="button follow-new"
+          onClick={props.onReveal}
+          title="Follow is off, so new episodes wait here until you show them"
+        >
           {queued} new
         </button>
       ) : null}

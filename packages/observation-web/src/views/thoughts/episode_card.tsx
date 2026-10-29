@@ -151,9 +151,10 @@ export function EpisodeCard(props: { episode: EpisodeView }): ReactElement {
         <Pair label="Action">{e.action}</Pair>
       </dl>
       {e.prompt_ref ? (
-        <Section title="Assembled context">
+        <Section title="Prompt reference">
           <p>
-            The prompt this episode ran on, by reference: <code>{e.prompt_ref}</code>
+            The prompt this episode ran on, by reference (the Landing Board does not serve its text
+            yet): <code>{e.prompt_ref}</code>
           </p>
         </Section>
       ) : null}

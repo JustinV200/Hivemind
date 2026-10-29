@@ -14,6 +14,7 @@ and folded into the same bounded list (queued behind Follow like episodes).
 `slice.ts` is the view's slice and reducer (bounded to 500 episodes, a principal filter, the Follow
 queue, page merge by episode id); `use_thoughts.ts` reads the first page and "Older";
 `thoughts_view.tsx` is the route component; `episode_card.tsx`, `decision_row.tsx`,
-`inbox_panel.tsx` and `follow_toggle.tsx` draw the pieces; `timeline.ts` merges episodes and
-decisions. The view is read-only and renders only what the generated types carry. Secrets and
+`inbox_panel.tsx` and `follow_toggle.tsx` draw the pieces; `bee_nav.tsx` is the `Bee` select
+in the title row (built from the Fleet slice, seeded once here if no view has) and the links to
+the bee's Cell page and Attendant; `timeline.ts` merges episodes and decisions. The view is read-only and renders only what the generated types carry. Secrets and
 screenshot bytes are redacted by the Entrance before they reach it.

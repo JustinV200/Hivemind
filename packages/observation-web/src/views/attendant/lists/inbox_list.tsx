@@ -5,7 +5,7 @@
  * the position. Each entry shows its rank, score, kind, an Alarm's severity, its id (the subject
  * the schema carries: an Alarm, a question or a chat entry), the task it concerns, when it began
  * waiting and the scorer's reasons. When the Entrance says the inbox was rebuilt from durable
- * state, a note says so in the schema's own terms.
+ * state, a note says so in plain words: an estimated order, scored from saved state.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/attendant/lists/`. Drawn by `attendant.tsx` beside the
@@ -37,7 +37,7 @@ function Row(props: { entry: Entry; rank: number }): ReactElement {
             <span className="tag tag--status tag--alarm">{entry.severity}</span>
           ) : null}
           <IdToken id={entry.id} />
-          <span className="att-score">
+          <span className="att-score" title="higher is handled first">
             score <strong>{Number(entry.score.toFixed(2))}</strong>
           </span>
         </div>
@@ -74,8 +74,7 @@ export function InboxList(props: {
       </h2>
       {props.reconstructed ? (
         <p className="att-note">
-          Rebuilt from durable state and scored with the Attendant&apos;s own scorer; the
-          supervisor&apos;s live queue cannot be read.
+          Estimated order, scored from saved state, not the Queen&apos;s live queue.
         </p>
       ) : null}
       {props.inbox.length === 0 ? (

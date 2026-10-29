@@ -1,5 +1,6 @@
 /*
- * Thoughts view styles: episode cards, autopilot decision rows, the inbox panel and Follow.
+ * Thoughts view styles: episode cards, autopilot decision rows, the inbox panel, Follow and the
+ * bee picker with its links.
  *
  * Mobile first (design.md section 2): cards stack in one column and a card's sections expand
  * inline below their button, so nothing needs width. An autopilot decision is a slim row with a
@@ -32,6 +33,33 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+}
+
+/* The Bee select in the title row, drawn like the "Sort by" control */
+.bee-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.bee-picker select {
+  min-height: 36px;
+  max-width: 16rem;
+  padding: 0 var(--sp-2);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* Where else the open bee can be read, under the title */
+.bee-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
 }
 
 .follow-new {

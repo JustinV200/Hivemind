@@ -190,12 +190,12 @@ describe('the lists', () => {
     expect(items[1]!.textContent).toContain('question');
     expect(within(items[1]!).getByText('blocks task_4')).toBeTruthy();
     expect(items[2]!.textContent).toContain('message from you');
-    expect(inbox.queryByText(/Rebuilt from durable state/)).toBeNull();
+    expect(inbox.queryByText(/Estimated order/)).toBeNull();
   });
 
   it('say when the inbox was reconstructed', async () => {
     await mount({ body: { ...body, inbox_is_reconstructed: true } });
-    expect(await screen.findByText(/Rebuilt from durable state/)).toBeTruthy();
+    expect(await screen.findByText(/Estimated order, scored from saved state/)).toBeTruthy();
   });
 
   it('list what finished and what is next, with the graph status where it is known', async () => {

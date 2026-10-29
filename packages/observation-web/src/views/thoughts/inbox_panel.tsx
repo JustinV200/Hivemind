@@ -5,7 +5,7 @@
  * inbox highest score first, as the Entrance ordered it. Each entry shows its kind, its score, the
  * scorer's reasons, the task it concerns and when it began waiting. When the Entrance says the
  * inbox was rebuilt from durable state (the supervisor's live queue cannot be read), a small note
- * says so, in the schema's own terms.
+ * says so in plain words: an estimated order, scored from saved state.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/thoughts/`. Drawn by `thoughts_view.tsx` when the bee
@@ -41,7 +41,7 @@ function Row(props: { entry: Entry; rank: number }): ReactElement {
       <span className="inbox-kind">{inboxKindWords(entry.kind)}</span>
       {entry.severity ? <span className="tag tag--status tag--alarm">{entry.severity}</span> : null}
       <IdToken id={entry.id} />
-      <span className="inbox-score">
+      <span className="inbox-score" title="higher is handled first">
         score <strong>{entry.score}</strong>
       </span>
       <TimeStamp at={entry.received_at} />
@@ -86,8 +86,7 @@ export function InboxPanel(): ReactElement {
       </h2>
       {inbox_is_reconstructed ? (
         <p className="inbox-note">
-          Rebuilt from durable state and scored with the Attendant&apos;s own scorer; the
-          supervisor&apos;s live queue cannot be read.
+          Estimated order, scored from saved state, not the Queen&apos;s live queue.
         </p>
       ) : null}
       {inbox.length === 0 ? (

@@ -6,7 +6,9 @@
  * Attendant's current ordering of her inbox and her autopilot decisions, interleaved with the
  * episodes in time order; her decisions stay live on two trail streams, one per decision kind. Follow (on by default) streams new episodes to the top; off, they queue
  * behind an "N new" button so the list does not move. "Older" pages back through history. The
- * route is the same for every bee, so the fleet can link to any of them.
+ * route is the same for every bee, so the fleet can link to any of them, and a `Bee` select in
+ * the title row (`bee_nav.tsx`) reaches any of them from here, with links to the bee's Cell page
+ * and Attendant under the title.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/thoughts/`. Chosen by the outlet in `src/shell/` when
@@ -26,6 +28,7 @@
 import type { ReactElement } from 'react';
 import { EmptyState, ErrorNotice, VIEW_HINTS, ViewTitle } from '../../components';
 import { useHive, useViewStream } from '../../store';
+import { BeeLinks, BeePicker } from './bee_nav';
 import { DecisionRow } from './decision_row';
 import { EpisodeCard } from './episode_card';
 import { FollowToggle } from './follow_toggle';
@@ -61,6 +64,7 @@ export function ThoughtsView(props: { bee: string }): ReactElement {
   return (
     <>
       <ViewTitle title="Thoughts" subject={props.bee} hint={VIEW_HINTS.thoughts}>
+        <BeePicker bee={props.bee} />
         <FollowToggle
           follow={state.follow}
           queued={state.queued.length + state.queuedDecisions.length}
@@ -68,6 +72,7 @@ export function ThoughtsView(props: { bee: string }): ReactElement {
           onReveal={() => store.dispatch({ slice: 'thoughts', event: { type: 'reveal' } })}
         />
       </ViewTitle>
+      <BeeLinks bee={props.bee} />
       {props.bee === QUEEN ? <DecisionStreams /> : null}
       {props.bee === QUEEN ? <InboxPanel /> : null}
       {state.error ? <ErrorNotice error={state.error} /> : null}
@@ -87,7 +92,13 @@ export function ThoughtsView(props: { bee: string }): ReactElement {
         )}
       </div>
       {state.nextCursor !== null ? (
-        <button type="button" className="button" disabled={loadingOlder} onClick={loadOlder}>
+        <button
+          type="button"
+          className="button"
+          disabled={loadingOlder}
+          onClick={loadOlder}
+          title="Read the page before these; with Follow off the list stays where it is"
+        >
           Older
         </button>
       ) : null}

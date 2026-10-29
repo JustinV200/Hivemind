@@ -32,6 +32,7 @@ import {
   trailFrame,
 } from '../../support/frames';
 import { storeSession } from '../../support/session_fixture';
+import { fleetAnswer, fleetRow } from '../fleet/support';
 
 afterEach(() => {
   window.location.hash = '';
@@ -41,6 +42,8 @@ interface Options {
   hash?: string;
   page?: unknown;
   attendant?: unknown;
+  // The fleet, for the Bee select; unscripted (a 404) the select names only the open bee.
+  fleet?: unknown;
   thoughtsStatus?: number;
   thoughtsBody?: unknown;
 }
@@ -57,6 +60,7 @@ async function openThoughts(options: Options = {}): Promise<FakeBrowser> {
     options.thoughtsBody ?? options.page,
   );
   fake.respond('GET /v1/attendant/queen', 200, options.attendant ?? attendantView());
+  if (options.fleet) fake.respond('GET /v1/fleet', 200, options.fleet);
   window.location.hash = options.hash ?? '#/thoughts/queen';
   render(<App browser={fake.browser} />);
   // The four the shell opens, the episodes stream, and the Queen's two decision streams.
@@ -114,6 +118,44 @@ describe('seed', () => {
     expect(await screen.findByText(/No thoughts yet/)).toBeTruthy();
   });
 
+  it('offers every bee the fleet names in a Bee select, with links to its Cell and Attendant', async () => {
+    const fake = await openThoughts({
+      hash: '#/thoughts/worker_7',
+      page: thoughtsPage({ episodes: [] }),
+      fleet: fleetAnswer([
+        fleetRow({
+          id: 'cell_hs',
+          name: 'hive-stand',
+          warden_id: 'warden_1',
+          links: {
+            attendant_principal: 'warden_1',
+            cell_id: 'cell_hs',
+            thought_principals: ['warden_1', 'worker_7'],
+          },
+        }),
+      ]),
+    });
+    const picker = (await screen.findByLabelText('Bee')) as HTMLSelectElement;
+    await waitFor(() =>
+      expect([...picker.options].map((o) => o.textContent)).toEqual([
+        'Queen',
+        'warden_1 (hive-stand)',
+        'worker_7 (hive-stand)',
+      ]),
+    );
+    expect(picker.value).toBe('worker_7');
+    expect(screen.getByRole('link', { name: 'Cell page of hive-stand' }).getAttribute('href')).toBe(
+      '#/cells/cell_hs',
+    );
+    expect(screen.getByRole('link', { name: 'Attendant of warden_1' }).getAttribute('href')).toBe(
+      '#/attendant/warden_1',
+    );
+    // Choosing a bee navigates; the fleet was read once, for the names.
+    fireEvent.change(picker, { target: { value: 'warden_1' } });
+    expect(window.location.hash).toBe('#/thoughts/warden_1');
+    expect(fake.requests.filter((r) => r.target === '/v1/fleet')).toHaveLength(1);
+  });
+
   it('marks an autopilot episode, and shows usage only for a model call', async () => {
     await openThoughts({
       page: thoughtsPage({ episodes: [episodeView({ id: 'ep_a', is_autopilot: true })] }),
@@ -145,7 +187,7 @@ describe('context sections', () => {
         episodes: [{ ...newest, input_tokens: 1200, output_tokens: 30, cost_usd: 0.0123 }],
       }),
     });
-    const toggle = await screen.findByRole('button', { name: 'Assembled context' });
+    const toggle = await screen.findByRole('button', { name: 'Prompt reference' });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByText('prompt_abc')).toBeNull();
     fireEvent.click(toggle);
@@ -173,7 +215,7 @@ describe('the Queen', () => {
         ],
       }),
     });
-    expect(await screen.findByText(/Rebuilt from durable state/)).toBeTruthy();
+    expect(await screen.findByText(/Estimated order, scored from saved state/)).toBeTruthy();
     expect(screen.getByText('severity high')).toBeTruthy();
     expect(screen.getByText('9.5')).toBeTruthy();
     expect(screen.getByText('question')).toBeTruthy();
