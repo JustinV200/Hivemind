@@ -19,7 +19,7 @@
  *   - docs/observation/design.md section 5.2.
  */
 import type { ReactElement } from 'react';
-import { IdToken } from '../../../components';
+import { IdToken, plainCode } from '../../../components';
 import { hrefFor } from '../../../router';
 import type { CellPage } from '../slice';
 import { Panel, Tag } from './panel';
@@ -52,7 +52,9 @@ function TaskRow(props: { task: Task; bee: string | null }): ReactElement {
   return (
     <li className="cell-row">
       <IdToken id={task.id} />
-      <Tag tone={STATUS_TONE[task.status]}>{task.status.toLowerCase()}</Tag>
+      <Tag tone={STATUS_TONE[task.status]} title={task.status}>
+        {plainCode(task.status)}
+      </Tag>
       {task.attempt > 1 ? <span>{`attempt ${task.attempt}`}</span> : null}
       {task.fraction_done !== null ? (
         <span>{`${Math.round(task.fraction_done * 100)}% done`}</span>

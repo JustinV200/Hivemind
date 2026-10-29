@@ -16,11 +16,11 @@
  * See Also:
  *   - docs/observation/design.md section 8 for the wording rules.
  */
-import { capabilityWords as phraseOf } from '../../../components';
+import { capabilityWords as phraseOf, plainCode } from '../../../components';
 import type { DeviceRecord } from '../slice';
 
-// A status as the word the page shows: the enum in lower case.
-export const statusWord = (status: DeviceRecord['status']): string => status.toLowerCase();
+// A status as the word the page shows: the code as every view writes one (design.md 8).
+export const statusWord = (status: DeviceRecord['status']): string => plainCode(status);
 
 export function spendCapWords(cap: number | null): string {
   return cap === null ? 'uncapped' : `$${cap.toFixed(2)} per day`;

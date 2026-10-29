@@ -110,7 +110,7 @@ export function ageText(seconds: number): string {
 function nodeOf(bee: BeeRow, runs: WardenRuns, alarmTasks: ReadonlySet<string>, awake: boolean) {
   const look = roleLook(bee.role);
   const isWarden = bee.role === 'WARDEN';
-  const [word, tone] = STATUS[bee.status] ?? [bee.status.toLowerCase(), 'idle'];
+  const [word, tone] = STATUS[bee.status] ?? [plainCode(bee.status), 'idle'];
   const where = runs === null ? 'not tracked' : RUNS_LINE[runs];
   const line = isWarden ? where : (bee.task_id ?? 'no task');
   const alarmed = bee.task_id !== null && alarmTasks.has(bee.task_id);

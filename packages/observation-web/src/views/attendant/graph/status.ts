@@ -18,6 +18,7 @@
  * See Also:
  *   - docs/observation/design.md sections 3.2 and 4.8.
  */
+import { plainCode } from '../../../components';
 import type { components } from '../../../landing_board/types';
 import { hrefFor } from '../../../router';
 
@@ -46,8 +47,9 @@ export function paintOf(tone: Tone): string {
   return `var(--${tone})`;
 }
 
+// The status as every view writes a code (design.md 8); typed so a non-status cannot be passed.
 export function statusWord(status: TaskStatus): string {
-  return status.toLowerCase();
+  return plainCode(status);
 }
 
 export function placementOf(node: TaskNode): string {
@@ -66,7 +68,7 @@ export function describeNode(node: TaskNode): string {
   const parts = [
     `Task ${node.task_id}`,
     statusWord(node.status),
-    `role ${node.role.toLowerCase().replace(/_/g, ' ')}`,
+    `role ${plainCode(node.role)}`,
     placementOf(node),
   ];
   if (node.warden_id !== null) parts.push(`Warden ${node.warden_id}`);

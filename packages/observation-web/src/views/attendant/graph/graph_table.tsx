@@ -17,6 +17,7 @@
  *   - docs/observation/design.md section 4.8.
  */
 import type { ReactElement } from 'react';
+import { plainCode } from '../../../components';
 import type { GraphEdge } from './layout';
 import { placementOf, statusWord } from './status';
 import type { TaskNode } from './status';
@@ -53,7 +54,7 @@ export function GraphTable(props: {
             <tr key={node.task_id}>
               <th scope="row">{node.task_id}</th>
               <td>{statusWord(node.status)}</td>
-              <td>{node.role.toLowerCase().replace(/_/g, ' ')}</td>
+              <td>{plainCode(node.role)}</td>
               <td>{placementOf(node)}</td>
               <td>{node.warden_id ?? 'none'}</td>
               <td>{node.open_alarms}</td>
