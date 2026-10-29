@@ -14,8 +14,8 @@ import pytest
 from hivemind.entrance.help.retrieval import KeywordIndex, tokenize
 
 DOCUMENTS = [
-    "Every Cell in one table. Click a column header to sort.",
-    "A Warden supervises one Cell. A Warden spawns Workers; the Warden never provisions.",
+    "Every Cell in one table with its Warden, the Warden's mode. Click a header to sort.",
+    "A Warden supervises one Cell and spawns Workers; it never provisions.",
     "Spend per goal, per slot and per provider.",
 ]
 TITLES = ["Fleet", "Warden", "Cost"]
@@ -25,7 +25,7 @@ TITLES = ["Fleet", "Warden", "Cost"]
     ("query", "first"),
     [
         ("how do I sort the table", 0),  # The words shared with one document alone.
-        ("what is a warden", 1),  # Repeated in one document, and its title.
+        ("what is a warden", 1),  # Named twice in passing by the Fleet's text; the title decides.
         ("cost per provider", 2),
     ],
 )
@@ -36,19 +36,6 @@ def test_the_document_about_the_query_ranks_first(query: str, first: int) -> Non
 
     assert ranked[0][0] == first
     assert all(score > 0 for _, score in ranked)
-
-
-def test_a_title_the_query_names_outranks_a_passing_mention() -> None:
-    # "warden" appears more often in the second document, but the first is titled by it.
-    index = KeywordIndex(
-        ["The warden watches.", "A warden, a warden, a warden, a warden."],
-        [
-            "Warden",
-            "Grant",
-        ],
-    )
-
-    assert index.rank("what is a warden", limit=2)[0][0] == 0
 
 
 def test_stop_words_and_absent_words_match_nothing() -> None:
