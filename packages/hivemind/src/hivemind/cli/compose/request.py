@@ -52,16 +52,17 @@ class GoalNotPlannedError(HiveMindError):
 
     code: ClassVar[str] = "hivemind.cli.goal_not_planned"
 
-    def __init__(self, request_id: str, refusal: str | None) -> None:
+    def __init__(self, request_id: str | None, refusal: str | None) -> None:
         """Build the error for one request that never became a goal.
 
         Args:
-            request_id: The goal request's id.
+            request_id: The goal request's id; None for a goal submitted directly.
             refusal: Why the Queen refused it, for the human; None when the deadline passed
                 while it was still being planned.
         """
         why = refusal if refusal is not None else "it was not planned before the deadline"
-        super().__init__(f"Goal request {request_id} was not planned: {why}")
+        subject = "The goal" if request_id is None else f"Goal request {request_id}"
+        super().__init__(f"{subject} was not planned: {why}")
         self.request_id = request_id
         self.refusal = refusal
 

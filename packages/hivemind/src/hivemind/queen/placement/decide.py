@@ -41,7 +41,8 @@ requirement it lacks, so a `prefer = "real"` Hive falling back to Virtual explai
 ADR-0060 does the same for a task that runs commands (`TaskNeeds.commands`): a Real Cell below FULL
 whose processes are not contained never takes one, and when no attached Cell may and the Hive has
 no Virtual backend at all, the `PlacementError` is final, so the task fails at once with that
-reason rather than waiting for a Cell that cannot come.
+reason rather than waiting for a Cell that cannot come. So is any failure where no candidate is
+just busy, resting, under Cell Wax or away (`rules.may_fit_later`): an OS or desktop mismatch stays.
 
 Fits into the Hive:
     Layer 6 (the kernel; the only global view; divides Forage), inside the `queen.placement`
@@ -179,7 +180,8 @@ def decide(
             "Cell, and no Virtual backend is configured.",
             final=True,
         )
-    raise PlacementError(f"No Cell fits {needs!r}: {named}.", denied)
+    final = not rules.may_fit_later(inventory)
+    raise PlacementError(f"No Cell fits {needs!r}: {named}.", denied, final=final)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

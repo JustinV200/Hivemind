@@ -107,7 +107,7 @@ def test_a_forager_needing_a_missing_tool_gets_it_scaffolded_proved_promoted_and
     hive = build_lab_hive(manifest, script)
 
     # Act
-    run = asyncio.run(run_lab(hive, ["Log in and count the lines of what you keep."]))
+    run = asyncio.run(run_lab(hive, ["Log in on localhost and count the lines of what you keep."]))
 
     # Assert: the whole story is on the trail, in order, and the Forager finished with the output.
     (report,) = run.reports

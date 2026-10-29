@@ -69,6 +69,18 @@ async def test_check_postcondition_file_absent_fails_when_the_file_exists(tmp_pa
     assert not outcome.has_held
 
 
+@pytest.mark.parametrize("kind", [PostconditionKind.FILE_EXISTS, PostconditionKind.FILE_ABSENT])
+async def test_check_postcondition_fails_a_path_outside_reach(
+    kind: PostconditionKind, tmp_path: Path
+) -> None:
+    session = FakeSession(tmp_path / "scratch", FakeClock())
+    pc = make_postcondition(kind, subject=str(tmp_path / "outside.txt"))
+
+    outcome = await check_postcondition(session, 0, pc, _RUNS)
+
+    assert not outcome.has_held
+
+
 async def test_check_postcondition_command_exits_zero_holds_on_success(tmp_path: Path) -> None:
     session = FakeSession(
         tmp_path,

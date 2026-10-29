@@ -71,7 +71,7 @@ DEFAULT_MAX_OFFLINE_S = (
 DEFAULT_ALARM_ATTEMPT_LIMIT = (
     3  # Escalation policy rows rarely need more attempts than this to fire.
 )
-DEFAULT_BUDGET_FRACTION = 0.6  # Most of a request's context window goes to retrieved/hot content.
+DEFAULT_BUDGET_FRACTION = 0.45  # Kept under the compact line below.
 DEFAULT_OUTPUT_RESERVE_TOKENS = (
     4_096  # Reserved so a long reply is never truncated by its own prompt.
 )

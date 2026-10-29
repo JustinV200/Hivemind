@@ -51,7 +51,7 @@ See Also:
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from builders.llm import make_bound
@@ -60,18 +60,9 @@ from e2e.kernel_helpers import text_response, tool_response, tool_round_count, w
 
 from hivemind.cell import HoneyClearance
 from hivemind.cell.fake import FakeSession
-from hivemind.forage.slots import ModelSlot
-from hivemind.llm import (
-    LLMChunk,
-    LLMProvider,
-    LLMRequest,
-    LLMResponse,
-    ProviderCapabilities,
-    ProviderHealth,
-)
+from hivemind.llm import LLMRequest, LLMResponse
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.slots import BoundModel
-from hivemind.manifest import load_manifest
 from hivemind.memory import (
     Handoff,
     InMemoryMemoryStore,
@@ -92,10 +83,8 @@ from waggle.messages.task import TaskAssign
 # with distinct, checkable effects"): one scratch file each, two per bee.
 STEP_FILES: tuple[str, str, str, str] = ("step_1.txt", "step_2.txt", "step_3.txt", "step_4.txt")
 
-# How many provider turns a live/local bee gets before this harness forces its checkpoint; see
-# run_live_handoff_scenario's own docstring for why this is a best-effort nudge, not a guarantee,
-# against a real model's own turn-taking.
-_LIVE_TRIGGER_AFTER_CALLS = 2
+# Bee 1 checkpoints once this many step files have landed, however the model batches its calls.
+_LIVE_STOP_AFTER_WRITES = 2
 
 __all__ = [
     "STEP_FILES",
@@ -147,11 +136,14 @@ class _RecordingSession(FakeSession):
         """Build an empty recorder scoped to `scratch_dir`."""
         super().__init__(scratch_dir=scratch_dir, clock=clock)
         self.written_paths: list[str] = []
+        self.on_write: Callable[[int], None] | None = None  # Called with the new write count.
 
     async def put_file(self, path: Path, data: bytes) -> None:
         """Delegate to FakeSession, then append `path` (posix-relative) to `written_paths`."""
         await super().put_file(path, data)
         self.written_paths.append(path.as_posix())
+        if self.on_write is not None:
+            self.on_write(len(self.written_paths))
 
 
 def _new_world(clock: Clock) -> _World:
@@ -303,39 +295,21 @@ async def _resolve_resume_from(ctx: WorkerContext, assignment: TaskAssign) -> Ha
     return await read_handoff(ctx.memory, ref, allowance)
 
 
-async def run_live_handoff_scenario(
-    manifest_path: Path, environ: Mapping[str, str]
-) -> HandoffScenarioResult:
-    """Run the same two-bee scenario against a real provider resolved from `manifest_path`.
+async def run_live_handoff_scenario(bound: BoundModel) -> HandoffScenarioResult:
+    """Run the same two-bee scenario against a real provider's WORKER binding.
 
-    Unlike `run_fake_handoff_scenario`, a real model's own tool calls cannot be scripted: this
-    forces the checkpoint by wrapping the resolved provider in `_CheckpointAfterNCalls` instead
-    of flipping `handoff_requested` from a scripted round, and asks for exact file names in the
-    objective text rather than dictating tool calls directly. `tests.evals.handoff.
-    test_handoff_eval_live` grades completion, Handoff shape and no-redo, all strictly:
-    `hivemind.workers.roles.drone.sources.DroneSources.handoff` now surfaces the whole resumed
-    Handoff -- `do_not_redo` included, rendered as an explicit instruction list -- into bee 2's own
-    prompt (defect 2 this dispatch fixed), so a real model has the same textual signal the fake
-    scenario's own scripting only used to approximate.
+    A real model's tool calls cannot be scripted, so bee 1 is asked for all four files and the
+    checkpoint is forced once two have landed, the same flag the fake scenario flips. Counting
+    landed writes rather than model calls holds whether the model sends one call per turn or all
+    four at once.
 
     Args:
-        manifest_path: A Hive Manifest naming a real `[llm.slots.worker]` provider
-            (`docs/manifests/minimal.toml` or `docs/manifests/local.toml`).
-        environ: Where provider API keys are read from (codingrules section 13); the caller's own
-            `os.environ`, never read by this module directly.
+        bound: The WORKER binding the caller resolved from its manifest.
 
     Returns:
         A HandoffScenarioResult ready for `tests.evals.handoff.grader.build_report`.
     """
-    # Imported here, not at module level: hivemind.cli pulls in more of the composition root than
-    # the fake-only path above needs, and this function is the only caller.
-    from hivemind.cli.stores import build_registry
-
-    clock = SystemClock()  # A real provider call has real latency; nothing here fakes time.
-    manifest = load_manifest(manifest_path)
-    registry = build_registry(manifest, environ, clock)
-    bound = registry.bound(ModelSlot.WORKER)
-    world = _new_world(clock)
+    world = _new_world(SystemClock())  # A real provider call has real latency.
 
     handoff_ref, bee1_write_count = await _run_live_bee_one(world, bound)
     handoff, second_bee_writes = await _run_live_bee_two(
@@ -352,26 +326,33 @@ async def run_live_handoff_scenario(
 
 
 async def _run_live_bee_one(world: _World, bound: BoundModel) -> tuple[HandoffRef, int]:
-    """Run bee 1 against a real provider, forcing its checkpoint via `_CheckpointAfterNCalls`."""
+    """Run bee 1 against a real provider, checkpointing it after `_LIVE_STOP_AFTER_WRITES`."""
     telemetry1 = TelemetryTracker(context_window=bound.context_window)
-    wrapped1 = _CheckpointAfterNCalls(bound.provider, telemetry1, _LIVE_TRIGGER_AFTER_CALLS)
+
+    def stop_after_two(count: int) -> None:
+        if count >= _LIVE_STOP_AFTER_WRITES:
+            telemetry1.handoff_requested = telemetry1.handoff_stops = True
+
+    world.session.on_write = stop_after_two
     ctx1 = make_context(
         clock=world.clock,
         session=world.session,
         trail=world.trail,
         memory=world.store,
-        bound=dataclasses.replace(bound, provider=wrapped1),
+        bound=bound,
         telemetry=telemetry1,
     )
+    names = ", ".join(STEP_FILES)
     assignment1 = make_assignment(
         clock=world.clock,
         objective=(
-            f"Write two short scratch files: {STEP_FILES[0]} first (one write_file call), then "
-            f"{STEP_FILES[1]} (a second, separate write_file call). Any short content is fine."
+            f"Write four short scratch files in this order: {names}. Use one write_file call per "
+            "file. Any short content is fine."
         ),
     )
 
     outcome1 = await Drone().run(ctx1, assignment1, resume_from=None)
+    world.session.on_write = None
     assert outcome1.claimed is False and outcome1.handoff is not None
     return await _checkpoint_bee_one(world, ctx1, assignment1.task_id, outcome1.handoff)
 
@@ -395,70 +376,6 @@ async def _run_live_bee_two(
     resume_from = await _resolve_resume_from(ctx2, assignment2)
     await Drone().run(ctx2, assignment2, resume_from)
     return resume_from, tuple(world.session.written_paths[bee1_write_count:])
-
-
-class _CheckpointAfterNCalls:
-    """Wrap any LLMProvider, flipping a TelemetryTracker's `handoff_requested` after N calls.
-
-    A real provider's own tool choices are not scriptable (unlike FakeLLMProvider): this is how
-    `run_live_handoff_scenario` simulates the same runtime handoff mechanism
-    `run_fake_handoff_scenario` triggers directly -- the wrapped provider still answers for real,
-    this only counts calls and flips the same public flag `hivemind.workers.runtime.attempt.
-    AttemptManager.request_handoff` sets from a real Intervene(Handoff).
-    """
-
-    def __init__(self, inner: LLMProvider, telemetry: TelemetryTracker, trigger_after: int) -> None:
-        """Wrap `inner`, triggering a checkpoint after `trigger_after` complete/stream calls.
-
-        Args:
-            inner: The real provider to delegate every call to, unchanged.
-            telemetry: The attempt's own tracker; `handoff_requested` is set on it, in place.
-            trigger_after: How many completed calls before the flag flips.
-        """
-        self._inner = inner
-        self._telemetry = telemetry
-        self._trigger_after = trigger_after
-        self._calls = 0
-
-    @property
-    def name(self) -> str:
-        """This provider's manifest name; delegated to the wrapped instance."""
-        return self._inner.name
-
-    @property
-    def capabilities(self) -> ProviderCapabilities:
-        """This provider's declared capabilities; delegated to the wrapped instance."""
-        return self._inner.capabilities
-
-    async def complete(self, request: LLMRequest) -> LLMResponse:
-        """Delegate to `inner.complete`, then count this call toward the trigger."""
-        response = await self._inner.complete(request)
-        self._note_call()
-        return response
-
-    async def stream(self, request: LLMRequest) -> AsyncIterator[LLMChunk]:
-        """Delegate to `inner.stream`, then count this call toward the trigger."""
-        async for chunk in self._inner.stream(request):
-            yield chunk
-        self._note_call()
-
-    async def count_tokens(self, request: LLMRequest) -> int | None:
-        """Delegate to `inner.count_tokens`; never counted toward the trigger."""
-        return await self._inner.count_tokens(request)
-
-    async def health(self) -> ProviderHealth:
-        """Delegate to `inner.health`; never counted toward the trigger."""
-        return await self._inner.health()
-
-    async def aclose(self) -> None:
-        """Delegate to `inner.aclose`: the wrapped provider owns every connection."""
-        await self._inner.aclose()
-
-    def _note_call(self) -> None:
-        """Count one landed call, flipping `handoff_requested` once `trigger_after` is reached."""
-        self._calls += 1
-        if self._calls >= self._trigger_after:
-            self._telemetry.handoff_requested = self._telemetry.handoff_stops = True
 
 
 async def _present_files(session: _RecordingSession, expected: Sequence[str]) -> tuple[str, ...]:

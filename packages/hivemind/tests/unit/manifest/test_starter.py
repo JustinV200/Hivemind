@@ -16,6 +16,8 @@ import tomllib
 
 import pytest
 
+from hivemind.cli.stores import build_forage_map
+from hivemind.forage import GoalBudgets, RoyalReserve, Tempo, seat_limit
 from hivemind.manifest import HiveManifest, ManifestError
 from hivemind.manifest.starter import (
     OLLAMA_BASE_URL,
@@ -79,3 +81,13 @@ def test_render_starter_validates_with_the_hive_stand_enabled(
 def test_render_starter_refuses_a_choice_it_cannot_honour(choice: StarterChoice) -> None:
     with pytest.raises(ManifestError):
         render_starter(choice, FakeClock())
+
+
+def test_the_local_starter_leaves_a_seat_for_a_drone() -> None:
+    choice = StarterChoice(StarterProvider.OLLAMA, model="m1")
+    manifest = HiveManifest.model_validate(tomllib.loads(render_starter(choice, FakeClock())))
+    budgets = GoalBudgets(spend_cap_usd=1.0, token_budget=1_000, max_sub_bees=4)
+
+    limits = seat_limit(build_forage_map(manifest, FakeClock()), budgets, RoyalReserve(), Tempo())
+
+    assert limits.max_sub_bees >= 1

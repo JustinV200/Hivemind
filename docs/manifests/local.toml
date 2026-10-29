@@ -77,12 +77,14 @@ model = "nomic-embed-text"
 provider = "local"
 model = "llama3.1:8b"
 
-# A weak model earns the Forage map's low grades; free of charge, since it is self-hosted.
+# A weak model earns the Forage map's low grades; free of charge, since it is self-hosted. The
+# Royal Reserve takes one seat, so fewer than 3 leaves no Drone.
 [forage.map.local_llama]
 provider = "local"
 model = "llama3.1:8b"
 grade = 2
 context_window = 8192
+seats = 4
 
 [forage.roles.drone]
 cpu_cores = 1.0

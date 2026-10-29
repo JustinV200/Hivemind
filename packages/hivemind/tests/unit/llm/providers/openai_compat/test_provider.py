@@ -488,3 +488,21 @@ async def test_aclose_closes_the_http_client_the_provider_owns() -> None:
     await provider.aclose()
 
     assert http.is_closed
+
+
+async def test_a_rejected_json_object_is_retried_once_as_json_schema() -> None:
+    formats: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        formats.append(json.loads(request.content)["response_format"]["type"])
+        if len(formats) == 1:
+            return httpx.Response(400, json={"error": {"message": "bad response_format"}})
+        return httpx.Response(200, text=_load_fixture_text("completion.json"))
+
+    json_mode_only = ProviderCapabilities.full().model_copy(update={"schema_output": False})
+    provider = _make_provider(handler, _make_config(capabilities=json_mode_only))
+
+    response = await provider.complete(make_request(response_schema={"type": "object"}))
+
+    assert response.text == "Hello there."
+    assert formats == ["json_object", "json_schema"]

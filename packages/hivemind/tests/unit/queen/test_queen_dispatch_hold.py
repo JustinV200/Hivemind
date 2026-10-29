@@ -38,12 +38,12 @@ from hivemind.pheromone import TrailQuery
 from hivemind.queen.deps import QueenDeps, WardenLink
 from hivemind.queen.dispatcher import dispatch_ready, redispatch, resume_paused
 from hivemind.queen.queen import Queen
-from waggle.ids import TaskId, new_event_id, new_node_id
+from waggle.ids import TaskId, new_cell_id, new_event_id, new_node_id
 from waggle.messages import HandoffRef
 from waggle.messages.labels import HoneyClearance as WireHoneyClearance
 
 
-def _plan(goal: str) -> dict[str, object]:
+def _plan(goal: str, needs: dict[str, object] | None = None) -> dict[str, object]:
     """A one-task plan, enough for one task to be placed."""
     acceptance: dict[str, object] = {
         "kind": "FILE_EXISTS",
@@ -58,7 +58,7 @@ def _plan(goal: str) -> dict[str, object]:
                 "title": "Root task",
                 "objective": f"Do the work for: {goal}",
                 "acceptance": [acceptance],
-                "needs": {},
+                "needs": needs or {},
                 "clearance": "C1",
                 "depends_on": [],
             }
@@ -109,6 +109,18 @@ async def test_a_held_cell_is_not_chosen_for_a_fresh_placement() -> None:
     decided = await deps.trail.query(TrailQuery(kind="queen.decided"))
     assert "placement_failed" in [event.payload.get("reason") for event in decided]
     assert deps.ledger.live_grants() == ()
+
+
+async def test_a_mismatch_waits_while_another_device_is_held() -> None:
+    provider = FakeLLMProvider(responder=plan_responder(lambda g: _plan(g, {"os": "WINDOWS"})))
+    deps, link, _end = make_queen_deps(fake_provider=provider)
+    queen = Queen(deps)
+    await queen.attach_warden(link)
+    deps.dispatch.held.hold(new_cell_id(deps.clock), "no_live_link")
+
+    task_id = await _submit(queen)
+
+    assert (await deps.chamber.get(task_id)).status is TaskStatus.PENDING
 
 
 async def test_a_task_waiting_on_a_held_cell_is_placed_when_the_hold_ends() -> None:

@@ -33,6 +33,7 @@ import hivemind.cli.run as run_module
 from hivemind.cli.app import app
 from hivemind.cli.compose import Hive, HiveStores
 from hivemind.cli.compose import build_hive as real_build_hive
+from hivemind.cli.compose.hive import goals as goals_module
 from hivemind.forage.slots import ModelSlot
 from hivemind.llm import (
     LLMRequest,
@@ -203,33 +204,19 @@ def test_run_command_exits_1_when_the_goal_fails(
 
 
 def test_run_command_exits_2_on_timeout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A `--timeout` that has already elapsed by `_poll_until_terminal`'s own very first check.
+    """A goal planned in time whose tasks are still running at the timeout exits 2.
 
-    The previous version of this test scripted a responder that blocks the event loop thread for
-    half a second against an "impossibly small" `--timeout` of `0.05`, betting that half a second
-    of real, wall-clock blocking would always exceed a twentieth of one: still, in the end, a real-
-    time race between two competing durations, which a loaded CI host's own scheduling jitter (GC
-    pauses, a throttled runner, antivirus scanning a freshly-spawned Python process on Windows)
-    could occasionally lose in either direction -- and this module's own docstring already
-    documents `hive run` as one of the few genuinely real-`SystemClock` places, so there is no
-    `FakeClock` seam to inject here instead (`hivemind.cli.run.run_command` always constructs its
-    own `SystemClock()`, never accepts one).
-
-    `--timeout 0` sidesteps the race entirely rather than trying to win it: `hivemind.cli.compose.
-    hive._poll_until_terminal`'s own elapsed-time check (`clock.monotonic() - start >= timeout_s`)
-    runs after every poll, and a monotonic clock can never read behind where it started, so with
-    `timeout_s = 0.0` that comparison is `True` on its very first evaluation, before any real
-    scheduling delay could possibly matter. The one thing that could still beat it is the goal
-    itself reaching a terminal status before that first check -- impossible here, since `_poll_
-    until_terminal`'s own `start` is captured only after `Queen.submit_goal` has already placed
-    the one task with its Warden (a separate, not-yet-scheduled asyncio task) but strictly before
-    that Warden has had any chance to spawn a Drone, run its tool loop, or report anything back.
-    No sleep, no thread, no responder timing: exit code 2 every time, on any host.
+    The poll is stubbed to report the timeout, so planning still finishes and nothing races.
     """
     manifest_path = fake_manifest(tmp_path)
     _patch_build_hive(monkeypatch, _PLAN)
 
-    result = runner.invoke(app, ["run", _GOAL, "--manifest", str(manifest_path), "--timeout", "0"])
+    async def timed_out(*_args: object) -> bool:
+        return True
+
+    monkeypatch.setattr(goals_module, "_poll_until_terminal", timed_out)
+
+    result = runner.invoke(app, ["run", _GOAL, "--manifest", str(manifest_path)])
 
     assert result.exit_code == 2, result.output
     # The stop gave the goal's unfinished task back for the next start, and the operator is told.

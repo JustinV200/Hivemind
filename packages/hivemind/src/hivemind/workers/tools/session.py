@@ -87,7 +87,7 @@ RUN_COMMAND_DEFINITION = ToolDefinition(
     parameters={
         "type": "object",
         "properties": {
-            "argv": {"type": "array"},
+            "argv": {"type": "array", "items": {"type": "string"}},
             "cwd": {"type": "string"},
             "timeout_s": {"type": "number"},
         },

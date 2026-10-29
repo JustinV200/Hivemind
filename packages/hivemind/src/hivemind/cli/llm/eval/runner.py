@@ -142,6 +142,7 @@ async def _run(hive: Hive, goal: EvalGoal, options: RunnerOptions) -> GoalEviden
         events=tuple(events),
         files=files,
         start_rung=_start_rung(hive),
+        error=None if any(e.kind == "worker.spawned" for e in events) else "no Drone ran",
     )
 
 

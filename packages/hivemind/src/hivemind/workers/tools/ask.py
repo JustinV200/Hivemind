@@ -54,7 +54,10 @@ ASK_DEFINITION = ToolDefinition(
     ),
     parameters={
         "type": "object",
-        "properties": {"text": {"type": "string"}, "options": {"type": "array"}},
+        "properties": {
+            "text": {"type": "string"},
+            "options": {"type": "array", "items": {"type": "string"}},
+        },
         "required": ["text"],
         "additionalProperties": False,
     },

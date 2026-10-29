@@ -589,13 +589,13 @@ async def test_run_goal_times_out_cleanly(blocked_hive: tuple[Hive, FakeClock]) 
 
     async def _scenario() -> GoalReport:
         async with run_hive(hive):
-            # A timeout far shorter than a single poll interval, on a goal that can never finish
-            # (its Drone only asks, and nobody answers): the first re-check always times out.
+            # Long enough for the fake planner, on a goal that can never finish (its Drone only
+            # asks, and nobody answers), so the poll times out on the advancing fake clock.
             return await run_goal(
                 hive,
                 "write three haiku about bees to separate files",
                 clearance=HoneyClearance.C1,
-                timeout_s=1e-6,
+                timeout_s=5.0,
             )
 
     report = await pump_until_done(clock, _scenario())

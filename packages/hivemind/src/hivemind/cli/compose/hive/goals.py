@@ -30,6 +30,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -37,7 +38,7 @@ from datetime import datetime
 from hivemind.brood_chamber import Task, TaskFilter, TaskStatus, is_terminal
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose.hive.build import Hive
-from hivemind.cli.compose.request import GoalAsk, request_goal_and_wait
+from hivemind.cli.compose.request import GoalAsk, GoalNotPlannedError, request_goal_and_wait
 from hivemind.pheromone import LlmEvent, PheromoneEvent, TrailQuery
 from hivemind.queen import sync_answers_from_chamber
 from waggle.ids import TaskId
@@ -142,18 +143,26 @@ async def run_goal_with(hive: Hive, goal: str, run: GoalRun) -> GoalReport:
     Returns:
         A GoalReport: `succeeded` is True only when every task reached SUCCEEDED before the
         timeout.
+
+    Raises:
+        hivemind.cli.compose.request.GoalNotPlannedError: Planning was still running at the
+            timeout.
     """
     clock = hive.clock
     # The deadline runs from here, before planning: submit_goal's own model call can take
     # minutes on a local model, and "never blocks past timeout_s" (module docstring) has to
     # include it.
     submission = _Submission(start=clock.monotonic(), at=clock.now())
-    goal_id = await hive.queen.submit_goal(
-        goal,
-        clearance=run.clearance,
-        capabilities=run.capabilities,
-        survives_link_loss=run.survives_link_loss,
-    )
+    try:
+        async with asyncio.timeout(run.timeout_s):
+            goal_id = await hive.queen.submit_goal(
+                goal,
+                clearance=run.clearance,
+                capabilities=run.capabilities,
+                survives_link_loss=run.survives_link_loss,
+            )
+    except TimeoutError as exc:
+        raise GoalNotPlannedError(None, None) from exc
     return await _follow(hive, goal_id, run.timeout_s, run.on_event, submission)
 
 

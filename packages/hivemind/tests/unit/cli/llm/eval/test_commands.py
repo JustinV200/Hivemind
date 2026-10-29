@@ -97,6 +97,24 @@ def test_eval_prints_a_line_per_goal_the_pass_count_and_where_the_report_went(
     assert "2026-10-11.md" in output
 
 
+def test_eval_writes_the_report_when_a_goal_left_its_db_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    held = []
+
+    def hold_db(request: EvalRequest) -> EvalReport:
+        held.append((request.runner.work_dir / "hive.db").open("w"))
+        return make_eval_report()
+
+    monkeypatch.setattr(commands_module, "run_evaluation", hold_db)
+
+    result = _eval(tmp_path)
+    held[0].close()
+
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "out" / "2026-10-11.md").exists()
+
+
 def test_eval_goals_option_selects_the_named_goals_only(tmp_path: Path, spy: _Spy) -> None:
     _eval(tmp_path, "--goals", "haiku, ask")
 

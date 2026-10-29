@@ -35,7 +35,7 @@ from hivemind.forage import Effort, ForageMap, ModelSlot, SlotBinding
 from hivemind.guard import Capability, CapabilityFamily
 from hivemind.llm import BoundModel
 from hivemind.pheromone import TrailQuery
-from hivemind.supervision.capping import FakeNurseReviewer, NurseAnswer
+from hivemind.supervision.capping import FakeNurseReviewer, NurseAnswer, NurseRequest
 from hivemind.wardens.nurse import NurseWiring
 from hivemind.wardens.warden import Warden
 from hivemind.workers.base import WorkerOutcome
@@ -204,6 +204,44 @@ async def test_no_nurse_is_asked_when_it_has_nothing_to_review(
     result, recorded = await _accept(reviewer, acceptance, role)
 
     assert (reviewer.calls, recorded, result.review) == ([], [], None)
+
+
+class _SlowNurse(FakeNurseReviewer):
+    """A Nurse whose review waits until the test lets it answer, like a slow local model."""
+
+    def __init__(self) -> None:
+        super().__init__(_PASS)
+        self.answer = asyncio.Event()
+
+    async def review(self, request: NurseRequest) -> NurseAnswer:
+        self.calls.append(request)
+        await self.answer.wait()
+        return _PASS
+
+
+async def test_the_warden_keeps_beating_while_the_nurse_reviews() -> None:
+    clock = FakeClock()
+    reviewer = _SlowNurse()
+    nurse = NurseWiring(reviewer=reviewer, forage=ForageMap((), clock=clock))
+    deps, queen_end, warden_id = make_warden_deps(clock, worker_factory=_factory(), nurse=nurse)
+    assignment = make_assignment(clock=clock, role=WorkerRole.DRONE, acceptance=(_FILE,))
+    warden = Warden(warden_id, deps)
+    await warden.start()
+    run_task = asyncio.ensure_future(warden.run())
+    await queen_end.send(assignment)
+    await queen_end.send(_grant(clock, assignment, warden_id))
+    await settle(lambda: bool(reviewer.calls))
+    beats = len(queen_end.heartbeats)
+
+    clock.advance(deps.heartbeat_interval_s)
+    pumped = queen_end.pump_until(lambda: len(queen_end.heartbeats) > beats)
+    await asyncio.wait_for(pumped, timeout=5.0)
+    reviewer.answer.set()
+    result = await queen_end.wait_for_result()
+    await warden.stop()
+    await asyncio.wait_for(run_task, timeout=5.0)
+
+    assert result.outcome.value == "SUCCEEDED"
 
 
 def _judge(provider: str) -> SlotBinding:

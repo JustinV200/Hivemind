@@ -67,12 +67,14 @@ provider = "local"
 model = $model
 
 # A self-hosted model costs nothing per token; grade 2 and an 8k window are a cautious start for
-# an unknown local model. Raise both once `hive llm test` shows what it can do.
+# an unknown local model. Raise both once `hive llm test` shows what it can do. The Royal Reserve
+# takes one seat, so fewer than 3 leaves no Drone.
 [forage.map.local_model]
 provider = "local"
 model = $model
 grade = 2
 context_window = 8192
+seats = 4
 
 [forage.roles.drone]
 cpu_cores = 1.0

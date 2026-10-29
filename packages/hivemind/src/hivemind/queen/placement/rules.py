@@ -114,6 +114,7 @@ __all__ = [
     "fits_os",
     "goal_lacks",
     "isolation_requires_virtual",
+    "may_fit_later",
     "night_veil_requires_virtual",
     "placement_needs",
     "real_has_forage",
@@ -370,6 +371,23 @@ def virtual_has_forage(spec: VirtualCellSpec, footprint: RoleFootprint) -> bool:
         and spec.cpu_cores >= footprint.cpu_cores
         and spec.memory_bytes >= footprint.memory_bytes
     )
+
+
+def may_fit_later(inventory: Inventory) -> bool:
+    """Whether a failed placement could pass on a later pass, so the task should wait.
+
+    Only a Real Cell with no free capacity or under BLOCK Cell Wax, or a backend resting or out
+    of headroom, can change on its own; so can an empty inventory, since a Cell may still attach,
+    and one missing a Cell that is away or being released, since it may come back.
+    """
+    if inventory.away or (not inventory.real and not inventory.virtual_backends):
+        return True
+    real = (c.cell_id in inventory.blocked or not real_has_forage(c) for c in inventory.real)
+    virtual = (
+        b.held_back is not None or not virtual_has_headroom(b.capabilities.headroom)
+        for b in inventory.virtual_backends
+    )
+    return any(real) or any(virtual)
 
 
 def caution_rank(cell_id: CellId, cautioned: Mapping[CellId, WaxMention]) -> int:

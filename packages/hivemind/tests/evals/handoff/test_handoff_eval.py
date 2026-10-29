@@ -28,9 +28,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from builders.llm import make_bound
 from builders.memory import make_handoff
+from e2e.kernel_helpers import text_response, tool_response, tool_round_count, write_call
 from evals.handoff.grader import build_report, write_report_if_configured
-from evals.handoff.scenario import run_fake_handoff_scenario
+from evals.handoff.scenario import STEP_FILES, run_fake_handoff_scenario, run_live_handoff_scenario
+
+from hivemind.llm import LLMRequest, LLMResponse
+from hivemind.llm.fake import FakeLLMProvider
 
 
 async def test_a_fresh_bee_resumes_from_a_handoff_alone_and_completes_the_task() -> None:
@@ -69,6 +74,29 @@ async def test_the_no_redo_grade_catches_a_second_bee_that_repeats_a_do_not_redo
     assert not report.no_redo.passed
     assert result.expected_files[0] in "".join(report.no_redo.violated)
     assert not report.passed
+
+
+async def test_the_live_checkpoint_holds_when_the_model_batches_every_write() -> None:
+    """A model that sends all its writes in one turn is still stopped after two have landed."""
+    batches = [STEP_FILES, STEP_FILES[2:]]  # Bee 1 sends all four writes, bee 2 the last two.
+
+    def batch_writes(request: LLMRequest) -> LLMResponse:
+        if tool_round_count(request) > 0:
+            return text_response("Done.")
+        return tool_response(request, tuple(write_call(name) for name in batches.pop(0)))
+
+    result = await run_live_handoff_scenario(
+        make_bound(provider=FakeLLMProvider(responder=batch_writes))
+    )
+
+    report = build_report(
+        scenario="live-batched",
+        expected_files=result.expected_files,
+        present_files=result.present_files,
+        handoff=result.handoff,
+        second_bee_calls=result.second_bee_writes,
+    )
+    assert report.passed, report
 
 
 def test_the_grader_also_catches_a_hand_built_handoff_with_no_teeth_of_its_own() -> None:

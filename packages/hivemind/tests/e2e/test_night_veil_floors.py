@@ -261,7 +261,9 @@ async def test_a_night_veil_tier_the_planner_set_on_its_own_never_provisions_a_c
 async def test_a_night_veil_goal_asking_for_the_metadata_endpoint_is_refused_unplanned() -> None:
     plan = _night_veil_plan({"network_scopes": ["169.254.169.254"]})
     queen, deps, backend = _hive(plan)
-    request = make_goal_request(deps.clock, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    request = make_goal_request(
+        deps.clock, text="Read 169.254.169.254.", comb_shield=CombShieldLevel.NIGHT_VEIL
+    )
 
     await queen.request_goal(request)
     await _run_until(queen, lambda: _settled(deps, request))

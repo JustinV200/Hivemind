@@ -38,7 +38,7 @@ DRONE_ROLE = "drone"  # Principal.role for every Drone episode; matches the mani
 # WorkerContext carries no manifest reference for a role to read these from directly (this
 # package's own module docstring), so they are fixed here rather than threaded through from the
 # composition root.
-DRONE_BUDGET_FRACTION = 0.6
+DRONE_BUDGET_FRACTION = 0.45
 DRONE_OUTPUT_RESERVE_TOKENS = 4_096
 
 __all__ = [

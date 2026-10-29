@@ -79,8 +79,9 @@ def eval_command(
     except UnknownGoalError as exc:
         typer.echo(str(exc.args[0]), err=True)
         raise typer.Exit(code=2) from exc
-    # Every goal gets its own subdirectory here, removed when the run ends.
-    with tempfile.TemporaryDirectory(prefix="hive-eval-") as scratch:
+    # Every goal gets its own subdirectory here, removed when the run ends. The goal Hives keep
+    # hive.db open, which Windows will not delete, and that must not lose the report.
+    with tempfile.TemporaryDirectory(prefix="hive-eval-", ignore_cleanup_errors=True) as scratch:
         options = RunnerOptions(os.environ, SystemClock(), Path(scratch))
         request = EvalRequest(
             manifest=loaded,

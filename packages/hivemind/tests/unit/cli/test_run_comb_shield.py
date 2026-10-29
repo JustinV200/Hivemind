@@ -160,8 +160,10 @@ def test_a_night_veil_goal_that_asks_where_its_cell_is_prints_as_a_refusal(
 ) -> None:
     built: list[Hive] = []
     _patch_build_hive(monkeypatch, _plan({"network_scopes": ["169.254.169.254"]}), built)
+    args = _run(tmp_path, "night_veil")
+    args[1] = "read 169.254.169.254"
 
-    result = runner.invoke(app, _run(tmp_path, "night_veil"))
+    result = runner.invoke(app, args)
 
     assert result.exit_code == 1, result.output
     assert "hive run refused: A Night Veil goal is location-blind" in result.output

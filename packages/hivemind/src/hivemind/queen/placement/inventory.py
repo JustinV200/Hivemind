@@ -187,6 +187,7 @@ class Inventory:
             `WaxSeverity.BLOCK` note).
         cautioned: Cell id to the one `WaxMention` that ranks it behind a clean candidate (rule 6:
             a WRITTEN `WaxSeverity.CAUTION` note is a penalty, never an exclusion).
+        away: Whether a Cell was left out for now, its device held or the Cell being released.
     """
 
     real: tuple[RealCandidate, ...] = ()
@@ -194,6 +195,7 @@ class Inventory:
     dormant: tuple[DormantCandidate, ...] = ()
     blocked: Mapping[CellId, WaxMention] = field(default_factory=dict)
     cautioned: Mapping[CellId, WaxMention] = field(default_factory=dict)
+    away: bool = False
 
 
 @dataclass(frozen=True, slots=True)

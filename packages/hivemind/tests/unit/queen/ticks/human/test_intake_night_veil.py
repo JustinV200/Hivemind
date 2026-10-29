@@ -90,7 +90,9 @@ async def test_a_night_veil_ceiling_that_asks_for_location_is_refused_before_pla
 
 async def test_a_night_veil_plan_needing_a_metadata_endpoint_is_refused_unpersisted() -> None:
     deps, link, seen = _queen(_metadata_plan)
-    request = make_goal_request(deps.clock, comb_shield=CombShieldLevel.NIGHT_VEIL)
+    request = make_goal_request(
+        deps.clock, text="Read 169.254.169.254.", comb_shield=CombShieldLevel.NIGHT_VEIL
+    )
     await receive(deps, request)
 
     settled = await _settle(deps, link, request)

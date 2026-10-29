@@ -445,7 +445,7 @@ roots = []
 # Fraction of a request's context window reserved for assembled (retrieved/hot-state) content.
 # Past the compact line (0.5) or handoff_threshold, a fresh episode starts over it and is compacted
 # at once; the Hive logs manifest.budget_over_compact_line at start when it is.
-budget_fraction = 0.6
+budget_fraction = 0.45
 # Tokens reserved for the model's own reply, never spent on assembled content.
 output_reserve_tokens = 4096
 # Fraction of the context budget used at which a bee checkpoints via Handoff.
@@ -618,10 +618,10 @@ default_image = "base-ubuntu"
 # audio or browser attachment; roadmap step 6.12). It must carry the X11, sound and browser tools
 # images/desktop-ubuntu does; a task with no Exoskeleton need still boots default_image.
 exoskeleton_image = "desktop-ubuntu"
-# Logical cores to reserve.
-cpu_cores = 1.0
-# Memory to reserve, in bytes (1 GiB here).
-memory_bytes = 1073741824
+# Logical cores to reserve. One leaves no Drone once Forage takes its 10% headroom.
+cpu_cores = 2.0
+# Memory to reserve, in bytes (2 GiB here).
+memory_bytes = 2147483648
 # Disk to reserve, in bytes (8 GiB here).
 disk_bytes = 8589934592
 # The most sub-bees one Virtual Cell runs at once (4 when omitted): the cap its reservation carries

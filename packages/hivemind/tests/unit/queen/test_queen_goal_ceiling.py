@@ -66,7 +66,9 @@ async def test_the_goal_set_and_network_scopes_travel_to_the_task_and_its_assign
     queen, link, warden_end = _networked_queen()
     await queen.attach_warden(link)
 
-    goal_id = await queen.submit_goal("Fetch.", clearance=HoneyClearance.C1, capabilities=_GOAL)
+    goal_id = await queen.submit_goal(
+        f"Fetch {_SCOPE}.", clearance=HoneyClearance.C1, capabilities=_GOAL
+    )
 
     assignment = await warden_end.wait_for_assignment()
     task = await queen._deps.chamber.get(goal_id)
@@ -80,7 +82,7 @@ async def test_the_operators_own_goal_sends_no_ceiling_on_the_wire() -> None:
     queen, link, warden_end = _networked_queen()
     await queen.attach_warden(link)
 
-    await queen.submit_goal("Fetch.", clearance=HoneyClearance.C1)
+    await queen.submit_goal(f"Fetch {_SCOPE}.", clearance=HoneyClearance.C1)
 
     assignment = await warden_end.wait_for_assignment()
     assert assignment.capabilities is None

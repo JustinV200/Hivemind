@@ -209,8 +209,15 @@ async def test_429_with_a_non_numeric_retry_after_header_has_no_retry_hint() -> 
     assert excinfo.value.retry_after_s is None
 
 
-async def test_400_context_length_raises_context_too_long() -> None:
-    body = (FIXTURES_DIR / "error_context_length.json").read_text(encoding="utf-8")
+# LM Studio's overflow puts a bare string under "error", not an object with a message.
+_LM_STUDIO_OVERFLOW = '{"error":"Context size has been exceeded."}'
+
+
+@pytest.mark.parametrize(
+    "body",
+    [(FIXTURES_DIR / "error_context_length.json").read_text(encoding="utf-8"), _LM_STUDIO_OVERFLOW],
+)
+async def test_400_context_length_raises_context_too_long(body: str) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(400, content=body, headers={"content-type": "application/json"})

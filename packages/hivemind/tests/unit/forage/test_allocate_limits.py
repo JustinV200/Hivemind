@@ -42,8 +42,11 @@ from hivemind.forage import (
 )
 from hivemind.forage.map import ForageMap
 from hivemind.forage.models import Abundance
+from hivemind.hive import CellReservation
+from hivemind.manifest import VirtualCellsSection
 from waggle.clock import FakeClock
 from waggle.ids import new_cell_id, new_grant_id, new_warden_id
+from waggle.messages.labels import OsFamily
 from waggle.messages.task import WorkerRole
 
 _GIB = 1024**3
@@ -88,6 +91,20 @@ def test_a_host_loaded_to_its_cores_is_limited_by_free_cores_which_lift_at_best(
     assert limits.never_lifts() == frozenset()
     assert limits.lasting is None
     assert limits.at_best[GrantBound.FREE_CORES] == 8
+
+
+def test_a_default_virtual_cell_carries_a_drone() -> None:
+    section = VirtualCellsSection()
+    reserved = CellReservation(
+        cpu_cores=section.cpu_cores,
+        memory_bytes=section.memory_bytes,
+        disk_bytes=section.disk_bytes,
+        max_sub_bees=section.max_sub_bees,
+    )
+
+    limits = sub_bee_limits(_inputs(cell_capacity=reserved.capacity("x86_64", OsFamily.LINUX)))
+
+    assert limits.max_sub_bees >= 1
 
 
 def test_a_reserve_that_claims_every_seat_never_lifts() -> None:

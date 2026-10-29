@@ -199,7 +199,9 @@ async def _run_goal(worker: Turn) -> QueenDeps:
     queen_task = asyncio.ensure_future(pair.queen.run())
     warden_task = asyncio.ensure_future(pair.warden.run())
     try:
-        await pair.queen.submit_goal("Log in to the fixture site.", clearance=HoneyClearance.C1)
+        await pair.queen.submit_goal(
+            "Log in to the fixture site on localhost.", clearance=HoneyClearance.C1
+        )
         await wait_until(lambda: _all_terminal(pair.deps), timeout_s=_TIMEOUT_S)
     finally:
         await pair.queen.stop()

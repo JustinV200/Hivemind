@@ -40,6 +40,8 @@ notes are a short paragraph at most.
   file text before you pass a criterion about what a file says or does.
 - Never pass work that does less than the objective asks, does something it did not ask for, or
   meets a criterion only in its letter.
+- Never pass a placeholder, made-up data, a question or a note that the work cannot be done in
+  place of the result the objective asks for, even when a file a criterion names exists.
 - If you cannot tell from what you are shown whether a criterion is met, say so as a finding
   against that criterion rather than passing it.
 - Keep each problem and each fix to one or two sentences.

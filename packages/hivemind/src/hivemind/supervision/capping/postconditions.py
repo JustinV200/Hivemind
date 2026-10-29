@@ -24,9 +24,10 @@ Key invariants:
       `has_held=False` results a caller can act on, not exceptions.
     - A command kind's command never starts unless `CommandAdmission.refusal` returns None; a
       refused one is `has_held=False` with `commands_refused=True`, never a pass.
-    - Only FileNotFoundError from `CellSession.get_file` is caught for FILE_EXISTS/FILE_ABSENT;
-      any other exception (a closed session, a path outside reach) propagates, because those are
-      programming errors in the caller, not a postcondition that simply did not hold.
+    - Only FileNotFoundError and PathNotAllowedError from `CellSession.get_file` are caught for
+      FILE_EXISTS/FILE_ABSENT. A path outside reach is a planner's mistake, so it fails the
+      criterion (either kind) instead of crashing the caller. Anything else (a closed session)
+      propagates.
 
 See Also:
     - .claude/codingrules.md section 8.12 for "The proposer never verifies its own work."
@@ -42,7 +43,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivemind.cell import CellSession, ExecSpec, run
+from hivemind.cell import CellSession, ExecSpec, PathNotAllowedError, run
 from hivemind.supervision.capping.commands import COMMAND_POSTCONDITION_KINDS, CommandAdmission
 from waggle.messages.labels import Postcondition, PostconditionKind
 
@@ -118,6 +119,10 @@ async def _check_file(session: CellSession, index: int, pc: Postcondition) -> Po
         exists = True
     except FileNotFoundError:
         exists = False
+    except PathNotAllowedError:
+        return PostconditionOutcome(
+            index=index, kind=pc.kind, has_held=False, observed="path outside reach"
+        )
     held = exists if pc.kind is PostconditionKind.FILE_EXISTS else not exists
     observed = "file exists" if exists else "file not found"
     return PostconditionOutcome(index=index, kind=pc.kind, has_held=held, observed=observed)

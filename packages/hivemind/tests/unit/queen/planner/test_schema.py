@@ -23,7 +23,7 @@ import pytest
 from pydantic import ValidationError
 
 from hivemind.cell import TaskNeeds
-from hivemind.queen.planner.schema import PlannedPostcondition, PlannedTask
+from hivemind.queen.planner.schema import PlannedPostcondition, PlannedTask, PlanSchema
 from waggle.messages import PostconditionKind
 from waggle.messages.task import SCOUT_REPORT_FILE, WorkerRole
 
@@ -146,3 +146,9 @@ def test_scout_role_is_refused_with_the_wrong_file() -> None:
     )
     with pytest.raises(ValidationError, match=SCOUT_REPORT_FILE):
         _task(wrong_file, role=WorkerRole.SCOUT)
+
+
+def test_a_repeated_key_is_refused_inside_the_ladder() -> None:
+    task = _task(_SCOUT_REPORT)
+    with pytest.raises(ValidationError, match="duplicate key"):
+        PlanSchema(tasks=(task, task))

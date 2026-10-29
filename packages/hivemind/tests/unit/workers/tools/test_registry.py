@@ -6,6 +6,8 @@ is visible), and `execute` checks `tool:<name>` through the Guard's Enforcer bef
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from pathlib import Path
 
 import pytest
@@ -21,6 +23,7 @@ from builders.honey_wire import FakeHoneyChannel
 from builders.llm import make_tool_call
 from builders.workers import make_assignment, make_context
 
+import hivemind.workers
 from hivemind.guard import CapabilitySet
 from hivemind.llm import ImagePart, JsonObject, ToolDefinition
 from hivemind.pheromone import TrailQuery
@@ -225,3 +228,27 @@ async def test_a_tools_changed_error_from_a_runner_propagates_through_execute() 
             ToolInvocation(ctx=ctx, assignment=make_assignment()),
             make_tool_call(name="changing_tool"),
         )
+
+
+def _arrays_without_items(schema: object) -> list[object]:
+    if isinstance(schema, list):
+        return [found for item in schema for found in _arrays_without_items(item)]
+    if not isinstance(schema, dict):
+        return []
+    own = [schema] if schema.get("type") == "array" and "items" not in schema else []
+    return own + [found for value in schema.values() for found in _arrays_without_items(value)]
+
+
+def test_every_bundled_tool_schema_gives_its_arrays_items() -> None:
+    """gpt-oss's chat template rejects an array schema with no items, failing every call."""
+    definitions = [
+        value
+        for module in pkgutil.walk_packages(hivemind.workers.__path__, "hivemind.workers.")
+        for value in vars(importlib.import_module(module.name)).values()
+        if isinstance(value, ToolDefinition)
+    ]
+
+    assert len(definitions) > 10
+    assert {d.name: _arrays_without_items(d.parameters) for d in definitions} == {
+        d.name: [] for d in definitions
+    }

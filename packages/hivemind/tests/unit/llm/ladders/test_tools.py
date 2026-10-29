@@ -24,7 +24,12 @@ from builders.llm import (
 )
 
 from hivemind.llm.capabilities import ProviderCapabilities
-from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError, RefusedError
+from hivemind.llm.errors import (
+    MalformedOutputError,
+    ProviderUnavailableError,
+    RateLimitedError,
+    RefusedError,
+)
 from hivemind.llm.fake import FakeLLMProvider
 from hivemind.llm.ladders.observer import FallbackReason
 from hivemind.llm.ladders.tools import ToolLoopOptions, run_tool_loop
@@ -167,6 +172,24 @@ async def test_run_tool_loop_raises_refused_error_on_a_refusal_stop_reason() -> 
         await run_tool_loop(
             make_bound(provider=provider), make_request(), (_TOOL,), _RecordingExecutor()
         )
+
+
+@pytest.mark.parametrize("retry_text", ["Done.", ""])
+async def test_run_tool_loop_retries_an_empty_cut_off_reply_with_more_room(retry_text: str) -> None:
+    provider = FakeLLMProvider(capabilities=ProviderCapabilities.full())
+    empty = text_response("", stop=StopReason.MAX_TOKENS)
+    retry_stop = StopReason.END_TURN if retry_text else StopReason.MAX_TOKENS
+    provider.script(empty, text_response(retry_text, stop=retry_stop))
+    run = run_tool_loop(
+        make_bound(provider=provider), make_request(), (_TOOL,), _RecordingExecutor()
+    )
+
+    if retry_text:
+        assert (await run).final_text == "Done."
+    else:
+        with pytest.raises(MalformedOutputError):
+            await run
+    assert [c.max_output_tokens for c in provider.calls] == [1024, 2048]
 
 
 # ──────────────────────────────────────────────────────────────────────────────

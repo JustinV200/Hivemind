@@ -295,6 +295,18 @@ def _response_format_to_wire(
     return None
 
 
+def json_object_fallback(body: JsonObject) -> JsonObject | None:
+    """Return `body` with `json_object` swapped for a permissive `json_schema`, else None.
+
+    LM Studio rejects `json_object` with a 400 but accepts this, which asks for the same thing.
+    """
+    response_format = _as_dict(body.get("response_format"))
+    if response_format.get("type") != "json_object":
+        return None
+    schema: JsonValue = {"name": "response", "schema": {"type": "object"}}
+    return {**body, "response_format": {"type": "json_schema", "json_schema": schema}}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Response mapping: chat-completions JSON -> LLMResponse (non-streaming)
 # ──────────────────────────────────────────────────────────────────────────────

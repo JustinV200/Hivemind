@@ -19,6 +19,7 @@ See Also:
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import cast
 
@@ -27,6 +28,7 @@ import pytest
 from hivemind.cell import HoneyClearance
 from hivemind.cli.compose.hive import GoalReport, GoalRun, Hive, run_goal, run_goal_with
 from hivemind.cli.compose.hive import goals as goals_module
+from hivemind.cli.compose.request import GoalNotPlannedError
 from waggle.clock import FakeClock
 from waggle.ids import TaskId, new_task_id
 
@@ -118,3 +120,19 @@ async def test_a_goal_run_carries_the_promise_to_survive_a_lost_link_to_the_quee
 
     # Off unless the operator asked: the default never promises what nobody said.
     assert queen.survived == [True, False]
+
+
+async def test_run_goal_with_stops_a_plan_still_running_at_the_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hive, queen, _report = _hive_and_queen(monkeypatch)
+
+    async def never_planned(*_arguments: object, **_terms: object) -> TaskId:
+        await asyncio.Event().wait()
+        return queen.goal_id
+
+    monkeypatch.setattr(queen, "submit_goal", never_planned)
+
+    with pytest.raises(GoalNotPlannedError):
+        run = run_goal_with(hive, "goal", GoalRun(HoneyClearance.C1, timeout_s=0.01))
+        await asyncio.wait_for(run, timeout=5.0)

@@ -3,11 +3,12 @@
 `make_goal_result(passed=False)` returns a `GoalResult` with every column filled in with a plain,
 passing default, so a test for the report or the measured-grade mapping states only the column it
 cares about. `make_evidence` does the same for the raw `GoalEvidence` the graders read, and
-`make_eval_report` assembles a report from results.
+`make_eval_report` assembles a report from results. `local_eval_manifest` points
+docs/manifests/local.toml at the operator's own server and models, from the environment.
 
 Fits into the Hive:
     Test infrastructure (codingrules section 14.5), not shipped. Used by the evaluation harness
-    tests under tests/unit/cli/llm/eval and tests/evals/routing.
+    tests under tests/unit/cli/llm/eval, tests/evals/routing and tests/evals/handoff.
 
 Key invariants:
     - Defaults describe a clean, passing run of the first goal; an override changes only what it
@@ -56,10 +57,13 @@ from hivemind.cli.llm.eval.measured import MeasuredEntry, SlotScore
 from hivemind.cli.llm.eval.report import BindingRow, EvalReport
 from hivemind.llm import LLMRequest, LLMResponse, Responder
 from hivemind.llm.transcription import encode_wav
+from hivemind.manifest import HiveManifest, load_manifest
+from hivemind.manifest.schema.llm import SlotBinding
 from hivemind.supervision import Checkpoint
 
 __all__ = [
     "ScriptedEval",
+    "local_eval_manifest",
     "make_eval_report",
     "make_evidence",
     "make_goal_result",
@@ -67,6 +71,8 @@ __all__ = [
     "write_fixture_clips",
 ]
 
+_LOCAL_MANIFEST = Path(__file__).resolve().parents[4] / "docs" / "manifests" / "local.toml"
+_LOCAL_PROVIDER = "local"  # The one provider docs/manifests/local.toml declares.
 _FINAL_TEXT = "Done."  # The Drone's closing line once every tool call has landed.
 _PRINT_42 = [sys.executable, "-c", "print(6 * 7)"]  # The command goal's one command.
 
@@ -261,3 +267,24 @@ def _checkpoint_turn(hive_box: list[Hive]) -> WorkerTurn:
         return text_response(_FINAL_TEXT)
 
     return turn
+
+
+def local_eval_manifest(environ: Mapping[str, str]) -> HiveManifest:
+    """Load local.toml, pointed at the operator's own server and, optionally, its own models."""
+    manifest = load_manifest(_LOCAL_MANIFEST)
+    llm = manifest.llm
+    providers = dict(llm.providers)
+    providers[_LOCAL_PROVIDER] = providers[_LOCAL_PROVIDER].model_copy(
+        update={"base_url": environ["HIVEMIND_LOCAL_LLM_BASE_URL"]}
+    )
+    slots = dict(llm.slots)
+    # Either scored slot's model may be replaced for a server that hosts different ones.
+    for key, variable in (
+        ("queen", "HIVEMIND_LOCAL_QUEEN_MODEL"),
+        ("worker", "HIVEMIND_LOCAL_WORKER_MODEL"),
+    ):
+        if environ.get(variable):
+            slots[key] = SlotBinding(provider=_LOCAL_PROVIDER, model=environ[variable])
+    return manifest.model_copy(
+        update={"llm": llm.model_copy(update={"providers": providers, "slots": slots})}
+    )

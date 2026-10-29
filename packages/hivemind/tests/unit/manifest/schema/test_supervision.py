@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from hivemind.manifest import load_manifest
+from hivemind.manifest import budget_over_compact_line, load_manifest
 from hivemind.manifest.schema.supervision import (
     DEFAULT_WAX_TEXT_CAP_CHARS,
     MemorySection,
@@ -62,7 +62,7 @@ def test_supervision_section_rejects_a_non_positive_heartbeat_interval() -> None
 def test_memory_section_has_sensible_defaults() -> None:
     section = MemorySection()
 
-    assert section.budget_fraction == 0.6
+    assert budget_over_compact_line(section) is None
     assert section.handoff_threshold == 0.66
     assert section.hot_window_s == 4.0 * 3600.0
     assert section.pins == ()

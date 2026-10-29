@@ -19,7 +19,8 @@ Key invariants:
     - `files` holds text only, each value cut to `MAX_FILE_CHARS`: the graders look for a short
       fact, and evidence must stay small enough to keep in a report.
     - `error` is set exactly when the run itself failed to start or to finish (a Hive that would
-      not build, a crash): a goal that merely failed its acceptance has `error = None`.
+      not build, a crash, no Drone ran): a goal that merely failed its acceptance has
+      `error = None`.
 
 See Also:
     - hivemind.cli.llm.eval.graders for the pure functions over this value.

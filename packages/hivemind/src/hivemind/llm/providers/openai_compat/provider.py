@@ -232,7 +232,7 @@ class OpenAICompatProvider:
             capabilities=self._config.capabilities,
             provider=self._name,
         )
-        payload, headers = await self._client.post_json_with_headers(CHAT_COMPLETIONS_PATH, body)
+        payload, headers = await _post_chat(self._client, body)
         # Roadmap step 4.7a: hosted headroom is measured, not assumed. A local server (this
         # adapter's whole reason to exist) never sends these headers, so rate_limit stays None.
         rate_limit = rate_limit_from_headers(headers, self._clock.now())
@@ -333,6 +333,22 @@ class OpenAICompatProvider:
                 error_type="model_not_found",
                 detail=f"model {model!r} is not in this server's /models listing",
             )
+
+
+async def _post_chat(
+    client: OpenAICompatClient, body: JsonObject
+) -> tuple[JsonObject, dict[str, str]]:
+    """POST a chat completion, retrying once with `json_schema` if `json_object` gets a 400.
+
+    Some servers (LM Studio) only take `json_schema`; the rest keep getting `json_object`.
+    """
+    try:
+        return await client.post_json_with_headers(CHAT_COMPLETIONS_PATH, body)
+    except ProviderRequestError as exc:
+        fallback = mapping.json_object_fallback(body)
+        if exc.status_code != 400 or fallback is None:
+            raise
+        return await client.post_json_with_headers(CHAT_COMPLETIONS_PATH, fallback)
 
 
 def _extract_model_ids(payload: JsonObject) -> frozenset[str]:

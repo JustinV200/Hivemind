@@ -397,21 +397,21 @@ class _RunOptions:
 async def _run(hive: Hive, goal: str, options: _RunOptions) -> GoalReport | GoalNotPlannedError:
     """Start and run one goal through `hive`; stream lines unless `as_json`.
 
-    A requested goal that is never planned is returned, not raised, so it leaves `run_hive`
+    A goal that is never planned is returned, not raised, so it leaves `run_hive`
     as a plain outcome rather than a failure of the Hive's own tasks.
     """
     on_event = None if options.as_json else print_event
     async with run_hive(hive):
-        if options.comb_shield is None:
-            terms = GoalRun(
-                options.clearance,
-                options.timeout_s,
-                on_event,
-                survives_link_loss=options.survives_link_loss,
-            )
-            return await run_goal_with(hive, goal, terms)
-        ask = GoalAsk(goal, options.clearance, options.comb_shield, options.survives_link_loss)
         try:
+            if options.comb_shield is None:
+                terms = GoalRun(
+                    options.clearance,
+                    options.timeout_s,
+                    on_event,
+                    survives_link_loss=options.survives_link_loss,
+                )
+                return await run_goal_with(hive, goal, terms)
+            ask = GoalAsk(goal, options.clearance, options.comb_shield, options.survives_link_loss)
             return await run_requested_goal(
                 hive, ask, timeout_s=options.timeout_s, on_event=on_event
             )

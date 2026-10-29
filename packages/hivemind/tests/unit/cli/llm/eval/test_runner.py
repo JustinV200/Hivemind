@@ -15,6 +15,7 @@ See Also:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -139,6 +140,19 @@ def test_a_goal_that_cannot_run_comes_back_as_an_error_not_an_exception(
     assert evidence.error == "RuntimeError: provider refused to start"
     assert not evidence.succeeded
     assert evidence.events == ()
+
+
+def test_a_goal_where_no_drone_ran_is_an_error(tmp_path: Path) -> None:
+    manifest = _manifest(tmp_path)
+    one_seat = {k: v.model_copy(update={"seats": 1}) for k, v in manifest.forage.map.items()}
+    manifest = manifest.model_copy(
+        update={"forage": manifest.forage.model_copy(update={"map": one_seat})}
+    )
+    goal = replace(_goal("haiku"), timeout_s=2.0)
+
+    evidence = run_goal_evidence(manifest, goal, _options(tmp_path, "haiku"))
+
+    assert evidence.error == "no Drone ran"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

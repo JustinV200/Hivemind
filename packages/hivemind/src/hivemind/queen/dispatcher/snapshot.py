@@ -169,9 +169,8 @@ async def build_inventory(
         virtual_backends = await current_virtual_backends(deps)
     backends = await _swarm_gated(deps, wardens, virtual_backends)
     dormant = await _dormant_candidates(deps, exclude_dormant | releasing)
-    return Inventory(
-        real=real, virtual_backends=backends, dormant=dormant, blocked=blocked, cautioned=cautioned
-    )
+    away = bool(deps.dispatch.held.reasons or releasing)
+    return Inventory(real, backends, dormant, blocked, cautioned, away)
 
 
 async def _dormant_candidates(

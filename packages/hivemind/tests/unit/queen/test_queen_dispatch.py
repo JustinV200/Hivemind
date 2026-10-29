@@ -146,7 +146,7 @@ async def test_submit_goal_carries_the_exoskeleton_need_and_scopes_to_the_assign
     queen = Queen(deps)
     await queen.attach_warden(link)
 
-    await queen.submit_goal("Read a page.", clearance=HoneyClearance.C1)
+    await queen.submit_goal("Read a page on example.org.", clearance=HoneyClearance.C1)
 
     assignment = await warden_end.wait_for_assignment()
     assert assignment.exoskeleton == ExoskeletonNeed(browser_only=True)

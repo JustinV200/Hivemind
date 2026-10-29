@@ -43,7 +43,7 @@ __all__ = [
     "select_goals",
 ]
 
-DEFAULT_GOAL_TIMEOUT_S = 180.0  # Generous: a small local model plans and works slowly.
+DEFAULT_GOAL_TIMEOUT_S = 600.0  # A local thinking model can spend minutes on one plan.
 MAX_PLANNED_TASKS = 6  # A plan past this for goals this small is decomposition gone wrong.
 
 # The TaskNeeds fields a plan is graded on. Isolation, tempo and disposability are left out: a

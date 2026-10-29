@@ -47,7 +47,8 @@ Key invariants:
       (URL_MATCHES, ELEMENT_TEXT: `capping.ACCEPTANCE_GUI_KINDS`) are checkable too, but only
       through an attached Exoskeleton, so `PlannedTask` allows them only when its needs set one.
     - `PlannedTask.key` carries `TaskDraft.KEY_PATTERN` for the same reason: a key the model gets
-      wrong is retried inside the ladder, not rejected by `plan.py` afterwards.
+      wrong is retried inside the ladder, not rejected by `plan.py` afterwards. `PlanSchema`
+      refuses a repeated key the same way.
     - `PlannedTask.role` defaults to DRONE and must be one of `PLANNABLE_ROLES`, checked against
       the same constant `TaskSpec`/`TaskDraft` check their own `role` field against, so the two
       layers can never disagree on which roles are legal. A FORAGER with no `needs.exoskeleton`,
@@ -356,6 +357,14 @@ class PlanSchema(BaseModel):
         max_length=MAX_PLAN_TASKS,
         description="The subtasks, goal (first) onward.",
     )
+
+    @model_validator(mode="after")
+    def _keys_are_unique(self) -> PlanSchema:
+        """Refuse a repeated key here, so the ladder retries it instead of `plan.py` failing."""
+        keys = [task.key for task in self.tasks]
+        if len(set(keys)) != len(keys):
+            raise ValueError(f"tasks has a duplicate key among {keys!r}; give each its own key.")
+        return self
 
 
 def _pattern_reaches_into_scratch(pattern: str, scratch_root: Path) -> bool:

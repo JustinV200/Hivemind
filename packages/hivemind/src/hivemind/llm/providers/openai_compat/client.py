@@ -58,14 +58,15 @@ from hivemind.llm.models import JsonObject
 SSE_DONE_SENTINEL = "[DONE]"  # The OpenAI-compatible SSE stream's own end-of-stream marker line.
 SSE_DATA_PREFIX = "data:"  # Every payload-carrying SSE line starts with this; others are ignored.
 # A 400's error message containing any of these (case-insensitively) is the request overflowing
-# the model's context window, not a generic bad request -- these four phrasings cover every
-# OpenAI-compatible server this adapter has been checked against; vendor phrasings live only
-# here, in the adapter (codingrules section 8.6).
+# the model's context window, not a generic bad request -- these phrasings cover every
+# OpenAI-compatible server this adapter has been checked against ("context size" is LM Studio's);
+# vendor phrasings live only here, in the adapter (codingrules section 8.6).
 CONTEXT_OVERFLOW_MARKERS = (
     "context length",
     "maximum context",
     "too many tokens",
     "context_length_exceeded",
+    "context size",
 )
 NOT_IMPLEMENTED = 501  # The server lacks what was asked: a request error, never an outage.
 # Connection-level httpx exceptions that mean "the server never answered", as distinct from an

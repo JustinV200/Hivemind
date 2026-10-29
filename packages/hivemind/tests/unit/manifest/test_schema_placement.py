@@ -227,6 +227,7 @@ def test_no_control_subnet_names_no_gateway() -> None:
         ({"listen_host": "172.17.0.1"}, "listen_host must be the control gateway"),
         ({"listen_host": "0.0.0.0"}, "listen_host must be the control gateway"),  # noqa: S104  # SAFETY: a refused value, never bound.
         ({"advertise_url": "ws://host.docker.internal:8710"}, "advertise_url must name"),
+        ({"control_subnet": None, "network_policy": "none"}, "needs control_subnet"),
     ],
 )
 def test_a_control_subnet_the_cells_could_not_use_is_refused(

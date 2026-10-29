@@ -251,8 +251,8 @@ async def dispatch_ready(deps: QueenDeps, wardens: Sequence[WardenLink]) -> None
             try:
                 await _dispatch_one(deps, wardens, task)
             except PlacementError as exc:
-                # This one stays PENDING to retry on a later pass, unless its goal's own set
-                # excluded every Cell, which cancels it for good.
+                # This one stays PENDING to retry on a later pass, unless no Cell in the Hive
+                # could ever take it, which cancels it for good.
                 await _record_placement_failure(deps, task, exc)
             # Read again: what was just dispatched, failed or cancelled is no longer ready.
             ready = await _ready_tasks(deps)
@@ -524,8 +524,8 @@ async def _record_placement_failure(deps: QueenDeps, task: Task, error: Placemen
         # guard.denied, when a floor refused, is already on the trail.
         await deps.chamber.cancel(task.id, detail)
         return
-    # Capacity and fit failures are transient (a Cell frees up, a backend returns): only a goal
-    # ceiling that excludes every candidate is final.
+    # Anything else is transient (a Cell frees up, a backend or a held device returns): only a
+    # goal ceiling that excludes every candidate is final here.
     if not error.denied:
         return
     held = goal_held(task) or CapabilitySet.empty()  # `denied` is only ever set for a goal set.

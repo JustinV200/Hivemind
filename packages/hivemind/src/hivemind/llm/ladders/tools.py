@@ -46,7 +46,12 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from hivemind.forage.slots import ModelSlot
-from hivemind.llm.errors import ProviderUnavailableError, RateLimitedError, RefusedError
+from hivemind.llm.errors import (
+    MalformedOutputError,
+    ProviderUnavailableError,
+    RateLimitedError,
+    RefusedError,
+)
 from hivemind.llm.ladders.extraction import (
     extract_tool_blocks,
     render_tool_preamble,
@@ -159,6 +164,7 @@ async def run_tool_loop(
 
     Raises:
         RefusedError: A response's `stop_reason` was REFUSAL.
+        MalformedOutputError: A round hit the output cap with no output, even with double the cap.
         ContextTooLongError: Propagated unchanged; the caller must shrink `request` and retry.
         ValueError: `options.max_rounds` is less than 1.
     """
@@ -232,7 +238,7 @@ async def _native_protocol(
     while True:
         round_number += 1
         attempt = request.model_copy(update={"messages": conversation, "tools": state.tools})
-        response = await state.gate.complete(state.current, attempt)
+        response = await _complete_round(state, attempt)
         usage = usage + response.usage
         if response.stop_reason is StopReason.REFUSAL:
             raise RefusedError(
@@ -269,7 +275,7 @@ async def _prompted_protocol(
     while True:
         round_number += 1
         attempt = request.model_copy(update={"messages": conversation, "tools": ()})
-        response = await state.gate.complete(state.current, attempt)
+        response = await _complete_round(state, attempt)
         usage = usage + response.usage
         if response.stop_reason is StopReason.REFUSAL:
             raise RefusedError(
@@ -292,6 +298,31 @@ async def _prompted_protocol(
         if round_number >= max_rounds:
             # Still made calls, but the round cap is spent: report exhaustion, not success.
             return _loop_result(response, round_number, calls, usage, is_exhausted=True)
+
+
+async def _complete_round(state: _LoopState, attempt: LLMRequest) -> LLMResponse:
+    """Run one round's call, giving a reply cut off before any output one retry with more room.
+
+    A thinking model can spend the whole output cap reasoning and reply with nothing. That is
+    never a finish, so the round is asked again with double the cap, and fails if it is still empty.
+    """
+    first = await state.gate.complete(state.current, attempt)
+    if not _is_cut_off_empty(first):
+        return first
+    roomier = attempt.model_copy(update={"max_output_tokens": attempt.max_output_tokens * 2})
+    second = await state.gate.complete(state.current, roomier)
+    if _is_cut_off_empty(second):
+        raise MalformedOutputError(state.current.provider.name, second.text, attempts=2)
+    return second.model_copy(update={"usage": first.usage + second.usage})
+
+
+def _is_cut_off_empty(response: LLMResponse) -> bool:
+    """Return whether `response` hit the output cap without any text or tool call."""
+    return (
+        response.stop_reason is StopReason.MAX_TOKENS
+        and not response.text.strip()
+        and not response.tool_calls
+    )
 
 
 def _loop_result(

@@ -31,7 +31,7 @@ Fits into the Hive:
     `hivemind.wardens.acceptance` (run_acceptance),
     `hivemind.wardens.nurse` (the Nurse Bee's accept-path side, ADR-0061),
     `hivemind.wardens.ticks.alarms` (retire_sub_bee, for the shared close-and-release-the-slot
-    step) and waggle only.
+    step), `hivemind.wardens.ticks.basket.jobs` (start_job) and waggle only.
 
 Key invariants:
     - Acceptance always runs on `warden._session` -- the Warden's own -- never on any session the
@@ -41,7 +41,8 @@ Key invariants:
     - `retire_sub_bee` runs exactly once per TaskResult(CLAIMED) handled, whatever the outcome, so
       the local pool slot is released and the sub-bee's link is closed either way; and only after
       acceptance and the Nurse's file reads, so a URL_MATCHES or ELEMENT_TEXT criterion still has
-      the task's browser to read; the Nurse's model call comes after it, holding no slot.
+      the task's browser to read; the Nurse's model call comes after it, holding no slot, as a
+      Warden-owned job so heartbeats keep flowing while it runs.
     - A device that cannot be asked (`DEVICE_ERRORS`: a closed session, a refused request, a link
       that went) never ends this Warden's loop: nothing was verified, so nothing is accepted, and
       the task is reported FAILED with the error's class as the reason (roadmap 11.6a).
@@ -102,6 +103,7 @@ from hivemind.wardens.nurse import (
 )
 from hivemind.wardens.spawn.binding import binding_is_local
 from hivemind.wardens.ticks.alarms import retire_sub_bee
+from hivemind.wardens.ticks.basket.jobs import start_job
 from hivemind.wardens.ticks.trail_ship import ship_trail_before_result
 from waggle.envelope import wrap
 from waggle.errors import TransportError
@@ -171,7 +173,9 @@ async def handle_accept(warden: Warden, sub_bee: SubBee, claim: TaskResult) -> N
         return
     await retire_sub_bee(warden, sub_bee)
     if nurse is not None and request is not None:
-        await _nurse_and_report(warden, sub_bee, claim, report, (nurse, request, warden._cell.id))
+        # A job, not awaited: a local Nurse call can take a minute, and the tick must keep beating.
+        asked = (nurse, request, warden._cell.id)
+        start_job(warden, _nurse_and_report(warden, sub_bee, claim, report, asked))
     elif machine.passed:
         await _send_succeeded(warden, claim)
     else:

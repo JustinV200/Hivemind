@@ -359,12 +359,17 @@ def test_allow_hive_stand_false_excludes_it_even_as_the_only_candidate() -> None
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def test_os_mismatch_excludes_a_real_candidate() -> None:
+@pytest.mark.parametrize("busy_fit", [False, True])
+def test_os_mismatch_excludes_a_real_candidate(busy_fit: bool) -> None:
+    # Only a mismatch is final; a fitting Cell that is merely busy keeps the task waiting.
     real = _real(capabilities=make_capabilities(os=OsFamily.LINUX))
-    inventory = Inventory(real=(real,))
+    busy = _real(capabilities=make_capabilities(os=OsFamily.WINDOWS), has_free_capacity=False)
+    inventory = Inventory(real=(real, busy) if busy_fit else (real,))
 
-    with pytest.raises(PlacementError):
+    with pytest.raises(PlacementError) as raised:
         decide(TaskNeeds(os=OsFamily.WINDOWS), inventory, _forage(), _policy())
+
+    assert raised.value.final is not busy_fit
 
 
 def test_network_scopes_not_reachable_excludes_a_real_candidate() -> None:

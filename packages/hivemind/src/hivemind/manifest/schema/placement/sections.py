@@ -111,8 +111,9 @@ DEFAULT_VIRTUAL_CELLS_IMAGE = "base-ubuntu"  # Terminal-first; matches images/ba
 # The Exoskeleton-ready image (roadmap step 6.1): base-ubuntu plus Xvfb, openbox, xdotool,
 # ImageMagick, PulseAudio and Chromium, none of which base-ubuntu carries (ADR-0031).
 DEFAULT_VIRTUAL_CELLS_EXOSKELETON_IMAGE = "desktop-ubuntu"
-DEFAULT_VIRTUAL_CELLS_CPU_CORES = 1.0  # A modest default footprint for one fresh Virtual Cell.
-DEFAULT_VIRTUAL_CELLS_MEMORY_BYTES = 1 * 1024**3  # 1 GiB.
+# One core leaves no Drone once Forage takes its 10% headroom.
+DEFAULT_VIRTUAL_CELLS_CPU_CORES = 2.0
+DEFAULT_VIRTUAL_CELLS_MEMORY_BYTES = 2 * 1024**3  # 2 GiB.
 DEFAULT_VIRTUAL_CELLS_DISK_BYTES = 8 * 1024**3  # 8 GiB.
 # Deliberately wider than hivemind.hive.VirtualCellSpec's own NONE default: a Cell must dial out to
 # the Queen through the host gateway (ADR-0027), and "none" is an `internal` Docker network, which
@@ -399,8 +400,14 @@ class VirtualCellsSection(BaseModel):
 
     @model_validator(mode="after")
     def _control_subnet_fits(self) -> VirtualCellsSection:
-        """Refuse a control subnet the Cells could not use: wrong backend, range or listener."""
+        """Refuse a control subnet the Cells could not use, or a Docker "none" Cell with none."""
         if self.control_subnet is None:
+            # An internal network alone gives a Docker Cell no route to the Queen at all.
+            if self.backend == "docker" and self.network_policy == "none":
+                raise ValueError(
+                    "network_policy 'none' on Docker needs control_subnet (Docker Engine on the "
+                    "Hive Stand); use 'egress_only' on Docker Desktop."
+                )
             return self
         network = ipaddress.ip_network(self.control_subnet, strict=True)
         if self.backend != "docker":

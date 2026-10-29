@@ -47,7 +47,7 @@ from waggle.messages.task import TaskAssign, WorkerRole
 # (mirrors the manifest's own [memory] budget_fraction/output_reserve_tokens defaults, the same way
 # hivemind.workers.roles.drone.prompt's own constants always have -- WorkerContext carries no
 # manifest reference for a role to read these from directly, codingrules section 8.6's ladders).
-DEFAULT_BUDGET_FRACTION = 0.6
+DEFAULT_BUDGET_FRACTION = 0.45
 DEFAULT_OUTPUT_RESERVE_TOKENS = 4_096
 
 # The one hook a profile may carry: context, active assignment, the model's own call, its result.
