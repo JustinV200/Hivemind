@@ -86,7 +86,7 @@ export const ERROR_TABLE: Readonly<Record<string, ErrorWords>> = {
     action: 'Type instead.',
   },
   [`${ENTRANCE}help_over_budget`]: {
-    sentence: 'You have asked the help as many questions as it takes for now.',
+    sentence: 'You have asked the help as many questions as it allows for now.',
     action: 'Wait a minute, then ask again, or use the search box.',
   },
   [`${ENTRANCE}help_not_served`]: {
