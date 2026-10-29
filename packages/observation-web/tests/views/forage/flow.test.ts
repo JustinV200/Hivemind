@@ -198,7 +198,8 @@ describe('the diagram', () => {
     const html = draw();
     expect(html).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     expect(html).toContain('aria-labelledby="forage-flow-title"');
-    expect(html).toContain('Warden w_1 on c_1');
+    // The Warden's state is a word in its title, not the wire's `ACTIVE`.
+    expect(html).toContain('Warden w_1 on c_1 (active)');
     expect((html.match(/<title>/g) ?? []).length).toBeGreaterThanOrEqual(
       layoutFlow(model).boxes.length,
     );
