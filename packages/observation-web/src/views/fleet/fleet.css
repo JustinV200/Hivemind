@@ -51,6 +51,11 @@
   color: var(--text-muted);
 }
 
+/* The link into the Help's glossary entry, beside the heading, at the legend's size */
+.fleet-legend > a {
+  font-size: var(--fs-xs);
+}
+
 .fleet-legend ul {
   display: flex;
   flex-wrap: wrap;

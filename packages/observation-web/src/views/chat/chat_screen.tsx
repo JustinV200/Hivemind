@@ -56,7 +56,7 @@ export function ChatScreen(): ReactElement {
   const refused = state.error instanceof LandingBoardError && state.error.status === 403;
   return (
     <section className="chat">
-      <ViewTitle title="Chat" subject="Queen" hint={VIEW_HINTS.chat} />
+      <ViewTitle title="Chat" subject="Queen" hint={VIEW_HINTS.chat} help="chat" />
       <p className="sr-only" role="status" aria-live="polite">
         {state.announce ? `The Queen wrote: ${state.announce.text}` : ''}
       </p>

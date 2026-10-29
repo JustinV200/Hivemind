@@ -54,7 +54,7 @@ export function DevicesScreen(): ReactElement {
 
   return (
     <section className="devices">
-      <ViewTitle title="Devices" hint={VIEW_HINTS.devices} />
+      <ViewTitle title="Devices" hint={VIEW_HINTS.devices} help="devices" />
       <StepUpPanel />
       <StepUpPrompt step={step} />
       {actions.notice ? (

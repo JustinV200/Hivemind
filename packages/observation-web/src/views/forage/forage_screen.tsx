@@ -199,7 +199,7 @@ export function ForageScreen(): ReactElement {
   const nowMs = useNow();
   return (
     <>
-      <ViewTitle title="Forage" hint={VIEW_HINTS.forage} />
+      <ViewTitle title="Forage" hint={VIEW_HINTS.forage} help="forage" />
       {state.error ? <ErrorNotice error={state.error} /> : null}
       {!state.seeded && !state.error ? <p aria-busy="true">Reading Forage</p> : null}
       {state.seeded ? (

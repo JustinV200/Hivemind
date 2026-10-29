@@ -21,8 +21,12 @@
 import type { ReactElement } from 'react';
 import { CLEARANCE_MEANINGS, clearanceWords } from '../../../components';
 import type { HoneyClearance } from '../../../components';
+import { hrefFor } from '../../../router';
 
 export type { HoneyClearance };
+
+// The glossary entry on the labels, for the reader who wants more than a line each.
+const HELP_HREF = hrefFor({ name: 'help', page: 'glossary', section: 'honey-clearance' });
 
 export function ClearanceBadge(props: { label: HoneyClearance }): ReactElement {
   const { label } = props;
@@ -42,6 +46,7 @@ export function ClearanceLegend(): ReactElement {
   return (
     <section className="honey-legend" aria-labelledby="honey-legend-title">
       <h2 id="honey-legend-title">Clearance labels</h2>
+      <a href={HELP_HREF}>More in Help</a>
       <ul>
         {(['C0', 'C1', 'C2'] as const).map((label) => (
           <li key={label}>

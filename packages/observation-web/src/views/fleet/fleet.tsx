@@ -59,7 +59,7 @@ export function FleetView(props: { rereadMs?: number }): ReactElement {
   };
   return (
     <>
-      <ViewTitle title="Fleet" hint={VIEW_HINTS.fleet}>
+      <ViewTitle title="Fleet" hint={VIEW_HINTS.fleet} help="fleet">
         <KindFilter
           kind={kind}
           onChoose={(next) => {

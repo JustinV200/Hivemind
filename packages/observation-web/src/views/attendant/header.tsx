@@ -39,7 +39,12 @@ export function AttendantHeader(props: {
   const cell = queen ? null : cellOfWarden(principal, nodes);
   return (
     <header className="att-header">
-      <ViewTitle title="Attendant" subject={principal} hint={VIEW_HINTS.attendant} />
+      <ViewTitle
+        title="Attendant"
+        subject={principal}
+        hint={VIEW_HINTS.attendant}
+        help="attendant"
+      />
       <p className="att-links">
         <a href={hrefFor({ name: 'thoughts', bee: principal })}>{`Thoughts of ${principal}`}</a>
         {cell ? <a href={hrefFor({ name: 'cell', id: cell })}>{`Cell page of ${cell}`}</a> : null}

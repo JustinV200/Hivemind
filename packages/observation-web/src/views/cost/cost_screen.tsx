@@ -72,7 +72,7 @@ export function CostScreen(): ReactElement {
   const state = useCost();
   return (
     <>
-      <ViewTitle title="Cost" hint={VIEW_HINTS.cost} />
+      <ViewTitle title="Cost" hint={VIEW_HINTS.cost} help="cost" />
       {state.error ? <ErrorNotice error={state.error} /> : null}
       {!state.seeded && !state.error ? <p aria-busy="true">Reading the cost</p> : null}
       {state.seeded ? <Spend cost={state.cost} /> : null}

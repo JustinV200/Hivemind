@@ -44,7 +44,7 @@ function Body(): ReactElement {
   const watch = useWatch();
   return (
     <section className="enrol">
-      <ViewTitle title="Enrol" hint={VIEW_HINTS.enrol} />
+      <ViewTitle title="Enrol" hint={VIEW_HINTS.enrol} help="enrol" />
       <StepUpPanel />
       <StepUpPrompt step={step} />
       {actions.notice ? (

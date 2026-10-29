@@ -21,7 +21,11 @@
 import type { ReactElement } from 'react';
 import { TierBadge } from '../../components';
 import type { CombShieldLevel } from '../../components';
+import { hrefFor } from '../../router';
 import type { TierLegendEntry } from './slice';
+
+// The glossary entry on the levels, for the reader who wants more than a line each.
+const HELP_HREF = hrefFor({ name: 'help', page: 'glossary', section: 'comb-shield-level' });
 
 // The README's order, from open to closed; the pills do not depend on the answer.
 const TIERS: readonly CombShieldLevel[] = ['MEADOW', 'PROPOLIS', 'NIGHT_VEIL'];
@@ -38,6 +42,7 @@ export function Legend(props: { entries: readonly TierLegendEntry[] }): ReactEle
   return (
     <section className="fleet-legend" aria-labelledby="fleet-legend-title">
       <h2 id="fleet-legend-title">Comb Shield levels</h2>
+      <a href={HELP_HREF}>More in Help</a>
       <ul>
         {TIERS.map((tier) => (
           <li key={tier}>

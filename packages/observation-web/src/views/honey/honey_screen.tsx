@@ -64,7 +64,12 @@ export function HoneyScreen(props: { path: string; item: string | null }): React
     <>
       {/* At the root the path is a lone slash, which says nothing beside the title; the
           crumbs name the folder, so the subject is only shown once there is one */}
-      <ViewTitle title="Honey" subject={path === '/' ? undefined : path} hint={VIEW_HINTS.honey}>
+      <ViewTitle
+        title="Honey"
+        subject={path === '/' ? undefined : path}
+        hint={VIEW_HINTS.honey}
+        help="honey"
+      >
         <ClearanceLegend />
       </ViewTitle>
       <Breadcrumbs path={path} parent={folder?.parent ?? null} />

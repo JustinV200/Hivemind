@@ -59,7 +59,12 @@ export function CellHeader(props: { id: string; page: CellPage | null }): ReactE
   const { page } = props;
   return (
     <header className="cell-header">
-      <ViewTitle title={page?.cell.name ?? 'Cell'} subject={props.id} hint={VIEW_HINTS.cell}>
+      <ViewTitle
+        title={page?.cell.name ?? 'Cell'}
+        subject={props.id}
+        hint={VIEW_HINTS.cell}
+        help="cell-page"
+      >
         {page ? (
           <span className="cell-meta">
             {`${page.cell.kind === 'REAL' ? 'Real' : 'Virtual'} Cell, source ${page.cell.source}, ${plainCode(page.status)}`}

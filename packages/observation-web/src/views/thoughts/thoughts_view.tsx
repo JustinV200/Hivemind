@@ -92,7 +92,7 @@ export function ThoughtsView(props: { bee: string }): ReactElement {
   const items = timelineOf(state.episodes, state.decisions);
   return (
     <>
-      <ViewTitle title="Thoughts" subject={props.bee} hint={VIEW_HINTS.thoughts}>
+      <ViewTitle title="Thoughts" subject={props.bee} hint={VIEW_HINTS.thoughts} help="thoughts">
         <BeePicker bee={props.bee} />
         <FollowToggle
           follow={state.follow}

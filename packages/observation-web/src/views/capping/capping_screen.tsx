@@ -44,7 +44,7 @@ function Section(props: { title: string; children: ReactNode }): ReactElement {
 // The title row, the same in every state of the view, so the gloss is there before any data.
 function Title(props: { children?: ReactNode }): ReactElement {
   return (
-    <ViewTitle title="Capping" hint={VIEW_HINTS.capping}>
+    <ViewTitle title="Capping" hint={VIEW_HINTS.capping} help="capping">
       {props.children}
     </ViewTitle>
   );
