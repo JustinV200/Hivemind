@@ -41,7 +41,7 @@ from hivemind.entrance.help.retrieval import (
     KeywordRetriever,
     load_help_corpus,
 )
-from hivemind.forage import AccuracyBar, ModelSlot, Tempo, slot_for_binding
+from hivemind.forage import AccuracyBar, Tempo, slot_for_binding
 from hivemind.llm import FannerLane, LLMError, UnresolvableSlotError
 from hivemind.llm.routing import cheapest_chat_binding
 
@@ -95,12 +95,19 @@ def _retriever(hive: Hive, corpus: HelpCorpus, lane: FannerLane) -> HelpRetrieve
 def _answerer(hive: Hive, lane: FannerLane) -> HelpAnswerer | None:
     """The cheapest chat binding, bound through the registry; None when none can be bound."""
     deps = hive.queen_deps
-    row = cheapest_chat_binding(deps.bindings, deps.map.sources())
+    # The manifest's [llm.floors] rank a row the map does not price; a hand-built Hive with no
+    # rules gets the shipped defaults.
+    floors = deps.routing_rules.floors if deps.routing_rules else None
+    row = cheapest_chat_binding(deps.bindings, deps.map.sources(), floors)
     if row is None:
         return None  # The manifest validator makes this unreachable; a hand-built Hive may not.
     # The row serves its own slot, or the slot whose chain names it; the Cost view files the
     # answer's calls under that slot.
-    slot = slot_for_binding(row.key, deps.bindings) or ModelSlot.ATTENDANT
+    slot = slot_for_binding(row.key, deps.bindings)
+    if slot is None:
+        # cheapest_chat_binding returns only rows a chat slot's chain reaches, so no row lands
+        # here; a binding that cannot be attributed is refused, not filed under a guessed slot.
+        return None
     try:
         bound = hive.registry.bound_for_key(row.key, slot)
     except (LLMError, UnresolvableSlotError) as exc:
