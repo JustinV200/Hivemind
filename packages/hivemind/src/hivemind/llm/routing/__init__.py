@@ -30,8 +30,10 @@ Public API:
     - RoutingInputs, RoutingRules, default_floors: what it reads.
     - RoutingDecision, RoutingReason, PassedOver, PassOverCause, ForageShortfall: what it returns.
     - choose_effort, TIGHT_BUDGET_S: the tempo-to-effort rule.
+    - cheapest_chat_binding, CHAT_SLOTS: the chat row the map prices lowest (the help's Ask).
 """
 
+from hivemind.llm.routing.cheapest import CHAT_SLOTS, cheapest_chat_binding
 from hivemind.llm.routing.decision import (
     ForageShortfall,
     PassedOver,
@@ -45,6 +47,7 @@ from hivemind.llm.routing.policy import choose_binding
 from hivemind.llm.routing.rules import RoutingRules, default_floors
 
 __all__ = [
+    "CHAT_SLOTS",
     "TIGHT_BUDGET_S",
     "ForageShortfall",
     "PassOverCause",
@@ -53,6 +56,7 @@ __all__ = [
     "RoutingInputs",
     "RoutingReason",
     "RoutingRules",
+    "cheapest_chat_binding",
     "choose_binding",
     "choose_effort",
     "default_floors",
