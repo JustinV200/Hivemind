@@ -76,9 +76,6 @@ export function stateRank(state: ProposalState): number {
   return STATES.indexOf(state);
 }
 
-// The README's words: the enum's underscores read as spaces.
-export const wordsOf = (code: string): string => code.replace(/_/g, ' ');
-
 export interface CappingState {
   // False until the first answer lands; frames only count (never fold) before it.
   seeded: boolean;

@@ -32,7 +32,6 @@ import {
   useMinWidth,
   WIDE_TABLE_MIN,
 } from '../../../components';
-import { wordsOf } from '../slice';
 import type { ProposalState } from '../slice';
 import { BeeLink, CellLink, RecordingNote } from './links';
 import { NONE, reasonOf, rollbackOf, sortRows } from './rows';
@@ -102,7 +101,7 @@ function Row(props: { row: QueueRow }): ReactElement {
       <td data-label="Proposal">
         <IdToken id={proposal.id} />
       </td>
-      <td data-label="Tier" title={wordsOf(proposal.tier)}>
+      <td data-label="Tier" title={proposal.tier}>
         {riskTierWords(proposal.tier)}
       </td>
       <td data-label="State">

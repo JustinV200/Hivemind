@@ -20,6 +20,7 @@ export {
   CLEARANCE_NAMES,
   clearanceWords,
   inboxKindWords,
+  judgeOutcomeWords,
   KNOWN_CAPABILITIES,
   plainCode,
   proposalStateWords,

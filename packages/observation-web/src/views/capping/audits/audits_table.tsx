@@ -2,10 +2,11 @@
  * `AuditsTable`: the sampled audits, newest first, each with the judge's finding.
  *
  * A tier the gate cannot check in real time is audited afterwards, at a sampling rate per tier, by
- * the judge (codingrules 8.12). Each row is one audit: the proposal, its tier, the finding
- * (`APPROVE`, `REQUEST CHANGES`, `REJECT`, or "not scored" when the judge never answered), the bee
- * that proposed it (a link to its thoughts), its task and when the audit was recorded. A rejected
- * finding is marked with the alarm token and the word. Under 1280 px each audit is a stacked card.
+ * the judge (codingrules 8.12). Each row is one audit: the proposal, its tier, the finding (the
+ * words of `judgeOutcomeWords`, `Approved`, `Wants changes`, `Refused`, with the judge's code on
+ * the tag's `title`, or "not scored" when the judge never answered), the bee that proposed it (a
+ * link to its thoughts), its task and when the audit was recorded. A rejected finding is marked
+ * with the alarm token and the word. Under 1280 px each audit is a stacked card.
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/capping/audits/`. Drawn by `capping_screen.tsx` from the
@@ -21,10 +22,9 @@
  */
 import type { ReactElement } from 'react';
 import { IdToken, TimeStamp } from '../../../components';
-import { riskTierWords } from '../../../components';
+import { judgeOutcomeWords, riskTierWords } from '../../../components';
 import { BeeLink } from '../queue/links';
 import { NONE } from '../queue/rows';
-import { wordsOf } from '../slice';
 import type { AuditRow } from '../slice';
 
 function Finding(props: { audit: AuditRow }): ReactElement {
@@ -37,7 +37,11 @@ function Finding(props: { audit: AuditRow }): ReactElement {
     );
   }
   const tone = outcome === 'REJECT' ? 'alarm' : outcome === 'APPROVE' ? 'ok' : 'warn';
-  return <span className={`tag tag--status tag--${tone}`}>{wordsOf(outcome)}</span>;
+  return (
+    <span className={`tag tag--status tag--${tone}`} title={outcome}>
+      {judgeOutcomeWords(outcome)}
+    </span>
+  );
 }
 
 export function AuditsTable(props: { audits: readonly AuditRow[] }): ReactElement {
@@ -59,7 +63,7 @@ export function AuditsTable(props: { audits: readonly AuditRow[] }): ReactElemen
             <td data-label="Proposal">
               <IdToken id={audit.proposal_id} />
             </td>
-            <td data-label="Tier" title={wordsOf(audit.tier)}>
+            <td data-label="Tier" title={audit.tier}>
               {riskTierWords(audit.tier)}
             </td>
             <td data-label="Finding">

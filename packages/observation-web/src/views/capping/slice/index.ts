@@ -29,7 +29,6 @@ export {
   stateRank,
   STATES,
   tierRank,
-  wordsOf,
 } from './state';
 export type {
   AuditRow,

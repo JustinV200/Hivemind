@@ -1,6 +1,6 @@
 /**
  * Plain words for the codes the Landing Board sends: Alarm kinds, inbox kinds, clearances,
- * risk tiers, the Capping gate's proposal states and device capabilities.
+ * risk tiers, the Capping gate's proposal states, the judge's findings and device capabilities.
  *
  * The schema speaks in shouting codes (`CONTEXT_PRESSURE`, `SCRATCH_WRITE`, `entrance:submit`)
  * and the screen speaks to a person, so each enum has one table here that turns a code into a
@@ -67,6 +67,17 @@ const PROPOSAL_STATES: Readonly<Record<string, string>> = {
 
 export const proposalStateWords = (state: string): string =>
   PROPOSAL_STATES[state] ?? plainCode(state);
+
+// The judge's finding on a sampled audit (`JudgeOutcome`), in the register of the gate's states
+// above, so `REJECT` and `REJECTED` read as one word on the Capping page.
+const JUDGE_OUTCOMES: Readonly<Record<string, string>> = {
+  APPROVE: 'Approved',
+  REQUEST_CHANGES: 'Wants changes',
+  REJECT: 'Refused',
+};
+
+export const judgeOutcomeWords = (outcome: string): string =>
+  JUDGE_OUTCOMES[outcome] ?? plainCode(outcome);
 
 // What kind of thing landed in a supervisor's inbox (`InboxKind`).
 const INBOX_KINDS: Readonly<Record<string, string>> = {

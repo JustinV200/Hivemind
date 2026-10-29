@@ -84,8 +84,8 @@ describe('the rates strip', () => {
     const headings = strip.getAllByRole('heading', { level: 3 });
     expect(headings.map((h) => h.textContent)).toEqual([SCRATCH, EGRESS, IRREVERSIBLE]);
     expect(headings.map((h) => h.getAttribute('title'))).toEqual([
-      'SCRATCH WRITE',
-      'NETWORK EGRESS',
+      'SCRATCH_WRITE',
+      'NETWORK_EGRESS',
       'IRREVERSIBLE',
     ]);
     const figure = (tier: string, label: string) => {
@@ -287,7 +287,8 @@ describe('the sampled audits', () => {
       },
     });
     const audits = region('Sampled audits');
-    expect(audits.getByText('REJECT')).toBeTruthy();
+    // The finding is the gate's word for it, with the judge's code on the title.
+    expect(audits.getByText('Refused').getAttribute('title')).toBe('REJECT');
     expect(audits.getByText('not scored, the judge could not answer')).toBeTruthy();
     expect(audits.getByRole('link', { name: 'thoughts of worker_4' }).getAttribute('href')).toBe(
       '#/thoughts/worker_4',

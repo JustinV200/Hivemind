@@ -20,7 +20,6 @@
  */
 import type { ReactElement } from 'react';
 import { riskTierWords } from '../../../components';
-import { wordsOf } from '../slice';
 import type { CappingState } from '../slice';
 import { percent, tierRates } from './model';
 import type { TierRates } from './model';
@@ -38,7 +37,7 @@ function TierCard(props: { rates: TierRates }): ReactElement {
   const r = props.rates;
   return (
     <li className="capping-rate comb-cell">
-      <h3 title={wordsOf(r.tier)}>{riskTierWords(r.tier)}</h3>
+      <h3 title={r.tier}>{riskTierWords(r.tier)}</h3>
       <dl className="capping-figures">
         <Figure label="Proposals" value={r.proposals} />
         <Figure label="Waiting" value={r.waiting} />
