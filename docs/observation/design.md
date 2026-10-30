@@ -630,8 +630,9 @@ so the Ask and the pages never disagree.
   autopilot decision's action and reason, an access level, a grant's state, a Forage request's
   kind, a provider's health, an effort, a rollback's method, a lease state, a Virtual Cell's
   status, a task's status, a wax note's or an Alarm's severity, a wax note's state, a held
-  request's action, a thought's taint label) is drawn, with the code on `title` where the
-  element is a table cell, a tag or a line of text (the taint tag keeps its one-line meaning
+  request's action, a thought's taint label, a watch request's Worker role) is drawn, with the
+  code on `title` where the element is a table cell, a tag or a line of text (the taint tag
+  keeps its one-line meaning
   there instead, since its code is already the word). A
   diagram's node or box keeps its whole sentence in its `<title>` (4.8), so the Cell diagram's
   lease and Virtual Cell boxes carry the words there, not the code. The Entrance sends every

@@ -18,7 +18,7 @@
  *   - docs/adr/0069-the-owner-approves-the-running-screen-and-audio-at-the-hive-stand.md.
  */
 import type { ReactElement } from 'react';
-import { EmptyState, TimeStamp } from '../../../components';
+import { EmptyState, IdToken, plainCode, TimeStamp } from '../../../components';
 import type { EnrolActions } from '../use_enrol_actions';
 import type { WatchRequest } from './use_watch';
 
@@ -56,12 +56,16 @@ function Card(props: {
         <div>
           <dt>Asked by</dt>
           <dd>
-            {request.role} under {request.warden_id}
+            {/* The role arrives as its code (DRONE); words on the page, the code on title (design.md 8). */}
+            <span title={request.role}>{plainCode(request.role)}</span> under{' '}
+            <IdToken id={request.warden_id} />
           </dd>
         </div>
         <div>
           <dt>Task</dt>
-          <dd>{request.task_id}</dd>
+          <dd>
+            <IdToken id={request.task_id} />
+          </dd>
         </div>
         <div>
           <dt>Refused unless answered by</dt>

@@ -23,7 +23,7 @@ const APPROVE = 'POST /v1/entrance/watch/watch_1/approve';
 describe('the watch list', () => {
   it.each([
     [200, 'Allowed Take notes from the call.', 0],
-    [403, 'Only the Hive Stand browser link can do that.', 1],
+    [403, "Only the Hive Stand's own browser tab can do this.", 1],
   ])('answers Allow with %i and shows %s', async (status, shown, left) => {
     const opened = await mountScreen(<EnrolScreen />, {
       listener: 'loopback',
@@ -32,7 +32,9 @@ describe('the watch list', () => {
     const card = await screen.findByRole('listitem', { name: 'Waiting: Take notes from the call' });
     expect(card.textContent).toContain('asks to hear and play sound and see and use your screen');
     expect(within(card).getByText('hive-stand')).toBeTruthy();
-    expect(within(card).getByText('DRONE under warden_1')).toBeTruthy();
+    // The role in words with its code on title, the ids as the tables draw them.
+    expect(card.textContent).toContain('drone under warden_1');
+    expect(within(card).getByTitle('DRONE').textContent).toBe('drone');
 
     opened.fake.respond(APPROVE, status, status === 200 ? watchView({ status: 'APPROVED' }) : '');
     opened.fake.respond('GET /v1/entrance/watch', 200, { requests: [] });
