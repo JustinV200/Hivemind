@@ -30,7 +30,9 @@ export const VIEW_HINTS = {
   cost: 'What the Hive has spent on models, by goal, slot and provider.',
   capping: 'The change gate: what bees asked to do outside scratch and whether it was allowed.',
   devices: 'The devices enrolled on the Hive, what each may do, and remote access.',
-  enrol: 'Let a new device in: create an invite, then approve the device once it joins.',
+  enrol:
+    'Let a new device in (invite, then approve it), and allow or refuse a task using your ' +
+    'screen or sound.',
   help: 'What the words mean, how the Hive works and how to read each screen, and the tour.',
 } as const;
 

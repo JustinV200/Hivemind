@@ -135,7 +135,8 @@ A short-lived, general-purpose Worker for one-off tasks.
 ## Enrol
 
 Letting a new device in: an invite minted on the Hive Stand, then approval once the device joins.
-The Enrol screen exists only on the Hive Stand.
+The Enrol screen exists only on the Hive Stand, and is also where a
+[watch request](#/help/glossary?s=watch-request) is allowed or refused.
 
 ## Entrance Reducer
 
