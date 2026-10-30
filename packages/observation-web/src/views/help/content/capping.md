@@ -69,5 +69,8 @@ prompt again until a judge clears it.
   Entrance all ask for it.
 - Approving, widening, unlocking or revoking a device exists only on the Hive Stand's own listener,
   with the stand key. A remote session never sees those screens.
+- A task that would see and use your own screen, or hear and play sound, waits for your yes on
+  the same listener (a [watch request](#/help/glossary?s=watch-request) on the Enrol screen);
+  unanswered for fifteen minutes it is refused, and no goal can grant either scope itself.
 - Break-glass actions (Absconding, Sting Cut, Supersedure) are never one click and are pulled
   from the command line, not from a page.

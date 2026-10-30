@@ -444,6 +444,13 @@ escalates what it cannot resolve, and never provisions Cells.
 What a Real Cell's Warden does with no bees active: observe read-only, and on each Patrol review
 what it saw.
 
+## Watch request
+
+A task's ask to see and use your own screen, or to hear and play sound, on a machine whose
+manifest allows it. The Queen holds the task until you answer on the [Enrol screen](#/enrol) at
+the Hive Stand: Allow lets it start, Refuse cancels it, and one unanswered for fifteen minutes is
+refused. No goal or planner can grant either on its own.
+
 ## Wildflower (C0)
 
 The lowest clearance: public, nothing sensitive.

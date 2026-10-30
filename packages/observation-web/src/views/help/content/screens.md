@@ -126,8 +126,11 @@ prompt appears here when an action needs it.
 
 Only on the Hive Stand. Create invite mints a code and a QR with one line on what to do with them;
 the pending list shows each device that redeemed an invite, with Approve (name, capabilities as
-labelled boxes, spend cap, expiry) and Deny. A remote session that opens this address sees "Not
-found".
+labelled boxes, spend cap, expiry) and Deny. Under it, "Waiting to use your screen or sound" lists
+each task held for your yes to see and use your screen or to hear and play sound (a
+[watch request](#/help/glossary?s=watch-request)): what it asks for, the machine, the bee and the
+task, and when it is refused unanswered; Allow lets it start and Refuse cancels it. Check again
+re-reads the list, since nothing polls. A remote session that opens this address sees "Not found".
 
 ## Help
 
