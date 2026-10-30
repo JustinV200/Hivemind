@@ -577,7 +577,9 @@ so the Ask and the pages never disagree.
   tier pills are fully round and mask tags 2 px.
 - **Density:** table rows 32 px; buttons 36 px with a 44 px touch area under 720 px, and under
   720 px a link in a row, a card, a line of links or a breadcrumb has the same 44 px area as
-  padding around its line (a flex row that sets one beside plain text aligns them by baseline).
+  padding around its line (a flex row that sets one beside plain text aligns them by baseline);
+  a link in running prose (the Help's pages, a view's gloss) keeps that padding but stays
+  inline, so a paragraph that holds a link keeps the rhythm of the one beside it.
   A card has one rhythm: where its rows are label and value pairs (the Capping queue) every row
   takes that 44 px pitch, and in a Cell page panel a row's link takes a line of its own under
   the row's facts; numbers use `font-variant-numeric: tabular-nums`.

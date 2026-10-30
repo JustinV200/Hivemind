@@ -222,6 +222,16 @@
   font-weight: 600;
 }
 
+/* The gloss's `More in Help` link is in a sentence that wraps on a phone, so it stays inline
+   there: the 44px padding base.css gives a link in a `p` still widens where a finger lands, but
+   an inline box never grows its line, so the sentence keeps one rhythm. `:not(.button)` matches
+   the base rule's shape so this one outweighs it. */
+@media (max-width: 719px) {
+  .view-hint a:not(.button) {
+    display: inline;
+  }
+}
+
 @media (min-width: 720px) {
   .shell {
     grid-template-columns: var(--rail-w) minmax(0, 1fr);

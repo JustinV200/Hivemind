@@ -156,7 +156,9 @@ a.button {
    crumbs) has the buttons' 44px touch area (design.md 6): padding above and below its own line,
    so a link that holds an id and a word keeps the space between them, which a flex box would
    drop; a flex row that sets a padded link beside plain text aligns them by baseline. The
-   shell's nav sizes its own items and a diagram's node links are the nodes. */
+   shell's nav sizes its own items and a diagram's node links are the nodes. A link in running
+   prose (the Help's pages, help.css; a view's gloss, shell.css) keeps the padding but stays
+   inline, so the line it sits on keeps the paragraph's rhythm. */
 @media (max-width: 719px) {
   main :is(p, li, td, th, nav) a:not(.button) {
     display: inline-block;

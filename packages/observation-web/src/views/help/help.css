@@ -104,6 +104,16 @@
   line-height: 1.5;
 }
 
+/* On a phone base.css gives a link in a `p` or `li` the 44px touch area as an inline block, which
+   grows the line it sits on; in running prose that reads as uneven double spacing, so a link here
+   stays inline: its padding still widens where a finger lands, and an inline box never moves its
+   line. `:not(.button)` matches the base rule's shape so this one outweighs it. */
+@media (max-width: 719px) {
+  .help-page :is(p, li) a:not(.button) {
+    display: inline;
+  }
+}
+
 .help-page ul {
   margin: 0;
   padding-left: var(--sp-5);
