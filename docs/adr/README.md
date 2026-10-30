@@ -351,3 +351,10 @@ ADRs that exist today, in numeric order:
   (`/v1/entrance/watch/{request_id}/approve|deny`), denied or unanswered in fifteen minutes it is
   cancelled; `TaskAssign.owner_approved` (Waggle 1.17) carries the approval and the Warden drops
   either scope without it; amends ADR-0031.
+- `0070-help-ask-answers-from-the-help-pages-on-the-cheapest-binding.md`: the Observation Hive's
+  Help screen carries an Ask (`GET /v1/help/ask`, a read any approved session may make, held to a
+  few questions a minute) that answers from the help pages the served build carries and nothing
+  else, cut into the sections the Help screen addresses and ranked by BM25 or the `EMBEDDER` slot;
+  the answer runs on the chat binding the Forage map prices lowest (`cheapest_chat_binding`), never
+  a model id in code, through the Fanner's lane with no tools, citing the sections it used; the chat
+  stays the one write path.
