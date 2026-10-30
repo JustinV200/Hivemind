@@ -56,7 +56,8 @@ function Card(props: {
         <div>
           <dt>Asked by</dt>
           <dd>
-            {/* The role arrives as its code (DRONE); words on the page, the code on title (design.md 8). */}
+            {/* The role arrives as its code (DRONE); words on the page, the code on title
+                (design.md 8). */}
             <span title={request.role}>{plainCode(request.role)}</span> under{' '}
             <IdToken id={request.warden_id} />
           </dd>
