@@ -446,10 +446,10 @@ what it saw.
 
 ## Watch request
 
-A task's ask to see and use your own screen, or to hear and play sound, on a machine whose
-manifest allows it. The Queen holds the task until you answer on the [Enrol screen](#/enrol) at
-the Hive Stand: Allow lets it start, Refuse cancels it, and one unanswered for fifteen minutes is
-refused. No goal or planner can grant either on its own.
+A task's ask to see and use your own screen, or to hear and play sound, on a machine that has
+them (your screen only where its manifest allows it). The Queen holds the task until you answer on
+the [Enrol screen](#/enrol) at the Hive Stand: Allow lets it start, Refuse cancels it, and one
+unanswered for fifteen minutes is refused. No goal or planner can grant either on its own.
 
 ## Wildflower (C0)
 
