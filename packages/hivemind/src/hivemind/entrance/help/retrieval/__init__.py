@@ -1,6 +1,6 @@
 """Find the help passages a question is about: the corpus, a keyword ranker and two retrievers.
 
-The help's Ask (ADR-0069) answers only from the Observation Hive's own help pages, so this
+The help's Ask (ADR-0070) answers only from the Observation Hive's own help pages, so this
 package is where those pages become something a question can be matched against: ``corpus``
 cuts each page into the sections the Help screen itself addresses, ``rank`` scores sections by
 their words (BM25, in memory), and ``retriever`` defines the ``HelpRetriever`` seam with a
@@ -18,7 +18,7 @@ Key invariants:
       always lands where the words are.
 
 See Also:
-    - docs/adr/0069-help-ask-answers-from-the-help-pages-on-the-cheapest-binding.md
+    - docs/adr/0070-help-ask-answers-from-the-help-pages-on-the-cheapest-binding.md
 
 Public API:
     - HelpCorpus, HelpSection, corpus_from_pages, load_help_corpus, split_sections, slug_of,

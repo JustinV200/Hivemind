@@ -1,6 +1,6 @@
 """Define the help Ask's Landing Board shapes: the question a device sends and the answer it gets.
 
-A question arrives on ``GET /v1/help/ask?q=`` (ADR-0069), bounded here so a page of text is a
+A question arrives on ``GET /v1/help/ask?q=`` (ADR-0070), bounded here so a page of text is a
 422 before anything runs. The Hive answers with ``HelpAnswerView``: the question as asked, the
 model's words when a model answered, an ``outcome`` saying in one word what happened (so the
 screen never has to infer it from an empty field), the ``sources`` the answer was grounded in,

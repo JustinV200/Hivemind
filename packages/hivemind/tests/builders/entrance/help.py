@@ -1,6 +1,6 @@
 """Build the help's Ask for a serving rig, and ask it a question as a device does.
 
-The help's Ask (ADR-0069) is exercised over the builders' serving rig with a small corpus of two
+The help's Ask (ADR-0070) is exercised over the builders' serving rig with a small corpus of two
 pages (``PAGES``), a keyword retriever over it, and, when a test hands one in, a scripted
 ``FakeLLMProvider`` as the answerer's model on an unmetered gate (the rig meters nothing, so the
 fake's ``calls`` are each question a model saw). ``help_services`` builds the services on their

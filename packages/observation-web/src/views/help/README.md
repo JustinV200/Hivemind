@@ -12,7 +12,7 @@ the query, headings first; the screen runs it as the person types, since nothing
 Hive. `pages.ts` is the page table and `help_screen.tsx` the route component (`index.ts` exports it
 as `HelpScreen`); `help.css` the styles.
 
-`ask/` is the Ask (ADR-0069), the page list's last entry at `#/help/ask`: `ask_panel.tsx` draws
+`ask/` is the Ask (ADR-0070), the page list's last entry at `#/help/ask`: `ask_panel.tsx` draws
 the note that an AI helper answers from these pages and nothing else, the question box, example
 questions, and each exchange with its answer (or, in words, why there is none) and the sections it
 read as links into the pages, `(cited)` after the ones the answer rests on; `use_ask.ts` makes the

@@ -191,7 +191,7 @@ class ByteBudget:
 class QuestionBudget:
     """A session's budget of help questions a minute, each a model call the Hive pays for.
 
-    The help's Ask (ADR-0069) answers through the cheapest chat binding, which still costs seats
+    The help's Ask (ADR-0070) answers through the cheapest chat binding, which still costs seats
     and often money, so beside the per-device request rate each session is held to a few
     questions a minute: a token bucket of ``per_minute`` questions keyed by the session, held by
     the help's services as ``ByteBudget`` is by the image intake's.

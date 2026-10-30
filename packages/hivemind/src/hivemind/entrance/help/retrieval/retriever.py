@@ -1,6 +1,6 @@
 """Define HelpRetriever and its two implementations: find the help passages a question is about.
 
-The help's Ask (ADR-0069) grounds every answer in passages from the help pages, so the retriever
+The help's Ask (ADR-0070) grounds every answer in passages from the help pages, so the retriever
 is where a question meets the corpus. ``KeywordRetriever`` ranks sections with the BM25 index
 (``rank``) and needs no model. ``EmbeddingRetriever`` uses the Hive's own ``EMBEDDER`` slot (the
 non-chat slot that turns text into vectors, ADR-0036), through the Fanner's lane so every embed

@@ -1,7 +1,7 @@
 /**
  * `useAsk()`: send a question to the help and keep the exchanges the panel shows.
  *
- * One question at a time goes to `GET /v1/help/ask?q=`, the Help screen's one read (ADR-0069).
+ * One question at a time goes to `GET /v1/help/ask?q=`, the Help screen's one read (ADR-0070).
  * Each question becomes an exchange the moment it is sent, pending until the answer or the
  * refusal lands, so the panel can show the question, then `Asking the help`, then the words.
  * Nothing here writes to the Hive, and nothing is kept past the screen: the exchanges live in

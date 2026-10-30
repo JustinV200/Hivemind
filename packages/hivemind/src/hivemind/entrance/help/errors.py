@@ -1,6 +1,6 @@
 """Define the help Ask's refusals: no Ask on this Hive, and a session past its question budget.
 
-The help's Ask (ADR-0069, ``GET /v1/help/ask``) refuses for two reasons of its own: the Hive was
+The help's Ask (ADR-0070, ``GET /v1/help/ask``) refuses for two reasons of its own: the Hive was
 served without a front-end build, so there are no help pages to answer from (the route is not
 even mounted then, and the error is the belt to that brace), or a session has asked more
 questions this minute than its budget, each one a model call the Hive pays for. Each is an

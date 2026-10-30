@@ -92,7 +92,7 @@ own session.
 | GET | /v1/tools | L+R | observe (501 until phase 9) | read |
 | GET | /v1/swarm | L+R | observe (501 until phase 11) | read |
 
-`GET /v1/help/ask?q=` (`hivemind.entrance.help`, ADR-0069) is the Help screen's Ask: the question
+`GET /v1/help/ask?q=` (`hivemind.entrance.help`, ADR-0070) is the Help screen's Ask: the question
 (3 to 500 characters) is answered from the help pages the served build carries, the top passages
 retrieved by BM25 or the `EMBEDDER` slot and one call made on the chat binding the Forage map
 prices lowest, with no tools; the answer cites the sections it used as `#/help/<page>?s=<section>`

@@ -1,6 +1,6 @@
 """Define what the help door needs: the retriever, the answerer when there is one, and the budget.
 
-The help's Ask (ADR-0069) is handed one ``HelpServices`` by the composition root, as voice is
+The help's Ask (ADR-0070) is handed one ``HelpServices`` by the composition root, as voice is
 handed ``VoiceServices``: the retriever over the help pages (keyword, or the ``EMBEDDER`` slot
 with a keyword fallback), the ``HelpAnswerer`` on the chat binding the Forage map priced lowest
 (None when the manifest binds no chat slot at all, in which case every answer is the passages as

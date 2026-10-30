@@ -1,6 +1,6 @@
 """Serve ``GET /v1/help/ask``: one question about the Hive, answered from its help pages.
 
-The Observation Hive's Help screen has an Ask (ADR-0069): a person types a question and the Hive
+The Observation Hive's Help screen has an Ask (ADR-0070): a person types a question and the Hive
 answers it from the help pages it serves, citing the sections it used, on the cheapest chat
 binding the manifest configures. It is a read, as the Honey search is (``GET /v1/honey/search``
 also costs a model call): nothing in the Hive changes, no store is written, the question is

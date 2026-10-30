@@ -564,7 +564,7 @@ image is neither kept nor charged.
 ### 8.5 Ask the help
 
 `GET /v1/help/ask?q=<question>` answers a question about the Hive from the help pages the
-Observation Hive ships (ADR-0069), and from nothing else: it is the Help screen's Ask, not the
+Observation Hive ships (ADR-0070), and from nothing else: it is the Help screen's Ask, not the
 chat, and writes nothing. Any session may call it; `q` is 3 to 500 characters. The `200` answer is
 a `HelpAnswerView`: the `question`, an `outcome` (`ANSWERED`, `NO_MODEL`, `MODEL_FAILED` or
 `NOTHING_FOUND`), the `answer` (the model's words, citing passages by `[n]`; null unless

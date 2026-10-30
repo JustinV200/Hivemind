@@ -1,7 +1,7 @@
 """Cut the Observation Hive's help pages into sections: what the help's Ask retrieves over.
 
 The help pages are the markdown files the front end bundles (``src/views/help/content/``, design.md
-section 5.12) and its build copies beside itself as ``help/<page>.md`` (ADR-0069), so the Hive
+section 5.12) and its build copies beside itself as ``help/<page>.md`` (ADR-0070), so the Hive
 answers from exactly the words the person can read on the Help screen. A section is what the Help
 screen's own search returns and what its address names: a ``##`` heading and the blocks under it
 (a ``###`` heading stays inside its section), and the blocks before a page's first heading as the
@@ -23,7 +23,7 @@ Key invariants:
 
 See Also:
     - packages/observation-web/src/views/help/markdown.ts and search.ts for the grammar mirrored.
-    - docs/adr/0069-help-ask-answers-from-the-help-pages-on-the-cheapest-binding.md
+    - docs/adr/0070-help-ask-answers-from-the-help-pages-on-the-cheapest-binding.md
 """
 
 from __future__ import annotations

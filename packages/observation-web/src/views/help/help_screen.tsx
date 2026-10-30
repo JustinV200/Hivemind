@@ -8,7 +8,7 @@
  * section (`?s=<heading id>`, what another screen's "More in Help" and the legends carry) lands
  * focus on that heading. Beside the pages, the tour's card starts the guided tour and says
  * whether this browser has finished it. The list's last entry, Ask (`#/help/ask`), draws the Ask
- * panel in place of a page: the screen's one read (ADR-0069).
+ * panel in place of a page: the screen's one read (ADR-0070).
  *
  * Fits into the Hive:
  *   Layer 7 (observation-web), `src/views/help/`. Chosen by the outlet in `src/shell/` when the
@@ -36,7 +36,7 @@ import { headingId, Markdown } from './render';
 import { searchHelp } from './search';
 import { TourCard } from './tour';
 
-// The Ask's entry in the page list: not a page, but addressed and listed like one (ADR-0069).
+// The Ask's entry in the page list: not a page, but addressed and listed like one (ADR-0070).
 const ASK_ENTRY = {
   id: ASK_PAGE_ID,
   title: 'Ask',

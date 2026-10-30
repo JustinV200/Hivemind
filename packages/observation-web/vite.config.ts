@@ -33,7 +33,7 @@ import react from '@vitejs/plugin-react';
 const HELP_CONTENT = fileURLToPath(new URL('./src/views/help/content', import.meta.url));
 
 // Copies every help page into the build as `help/<page>.md`, so the Entrance's Ask answers from
-// exactly the words the Help screen shows, from one source (ADR-0069). Build only: the dev
+// exactly the words the Help screen shows, from one source (ADR-0070). Build only: the dev
 // server and the tests read the pages through the `?raw` imports.
 function helpPages(): Plugin {
   return {

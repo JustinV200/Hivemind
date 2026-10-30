@@ -1,6 +1,6 @@
 """Define cheapest_chat_binding: the configured chat binding that costs the least to call.
 
-The Observation Hive's help assistant (ADR-0069: the Ask on the Help screen) answers a person's
+The Observation Hive's help assistant (ADR-0070: the Ask on the Help screen) answers a person's
 question about the Hive from its own help pages, a small job for which the cheapest model that can
 read is the right one. Which model that is must come from the manifest and the Forage map (the
 catalogue of every source that can serve a model, with its hand-set or measured grade and its
@@ -29,7 +29,7 @@ Key invariants:
     - An unpriced row never beats a priced one, and never wins by manifest position alone.
 
 See Also:
-    - docs/adr/0069-help-ask-answers-from-the-help-pages-on-the-cheapest-binding.md
+    - docs/adr/0070-help-ask-answers-from-the-help-pages-on-the-cheapest-binding.md
     - hivemind.llm.routing.policy for the full routing rank this rule is a narrow cousin of.
 """
 

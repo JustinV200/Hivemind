@@ -1,4 +1,4 @@
-# ADR-0069: The help's Ask answers from the help pages alone, on the cheapest chat binding
+# ADR-0070: The help's Ask answers from the help pages alone, on the cheapest chat binding
 
 - Status: Accepted
 - Date: 2026-10-29

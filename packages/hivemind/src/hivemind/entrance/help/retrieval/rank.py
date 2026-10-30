@@ -1,6 +1,6 @@
 """Rank help sections by their words: a small BM25 over a corpus that fits in memory.
 
-The help's Ask (ADR-0069) needs a ranker that always works, costs nothing and needs no store:
+The help's Ask (ADR-0070) needs a ranker that always works, costs nothing and needs no store:
 the help pages are a few hundred short sections, so a plain BM25 (the standard term-weighting
 rule behind most keyword search) over an in-memory index is enough, and it is the fallback the
 embedding retriever drops to when the ``EMBEDDER`` slot is unbound or its provider fails. Words

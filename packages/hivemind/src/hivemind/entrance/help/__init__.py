@@ -1,6 +1,6 @@
 """Answer questions about the Hive from its own help pages: the Help screen's Ask.
 
-ADR-0069: the Observation Hive's Help screen carries an Ask, a small assistant that answers a
+ADR-0070: the Observation Hive's Help screen carries an Ask, a small assistant that answers a
 person's question from the help pages the front end bundles and nothing else. ``GET
 /v1/help/ask?q=`` is its one route; the door charges the session's question budget, retrieves
 the passages the question is about (BM25 over the pages, or the Hive's ``EMBEDDER`` slot with
@@ -21,7 +21,7 @@ Key invariants:
       request a model sees has no tools and no schema.
 
 See Also:
-    - docs/adr/0069-help-ask-answers-from-the-help-pages-on-the-cheapest-binding.md
+    - docs/adr/0070-help-ask-answers-from-the-help-pages-on-the-cheapest-binding.md
     - docs/observation/design.md section 5.12 for the screen.
 
 Public API:

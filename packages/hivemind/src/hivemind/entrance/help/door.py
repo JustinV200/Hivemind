@@ -1,6 +1,6 @@
 """Answer one help question at the door: the budget, the passages, then the model or the links.
 
-The help's Ask (ADR-0069) runs every question through one path. The session's question budget is
+The help's Ask (ADR-0070) runs every question through one path. The session's question budget is
 charged first, so a session over it costs nothing. The retriever then finds the passages the
 question is about; with none, the answer is ``NOTHING_FOUND`` and no model runs, since a model
 with nothing to read could only guess. With passages and no answerer (the manifest binds no chat

@@ -73,7 +73,7 @@ RESOURCE_ROUTES: tuple[tuple[RouteSpec, ...], ...] = (
     chat.ROUTES,
     VOICE_ROUTES,  # POST /v1/chat/audio, beside the chat it speaks into (hivemind.entrance.voice).
     IMAGE_ROUTES,  # POST /v1/nectar/images, roadmap step 12.12 (hivemind.entrance.images).
-    HELP_ROUTES,  # GET /v1/help/ask, the help's Ask, ADR-0069 (hivemind.entrance.help).
+    HELP_ROUTES,  # GET /v1/help/ask, the help's Ask, ADR-0070 (hivemind.entrance.help).
     inbox.ROUTES,
     push.ROUTES,
     TASK_ROUTES,

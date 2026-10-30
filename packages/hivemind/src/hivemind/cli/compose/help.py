@@ -1,6 +1,6 @@
 """Compose the help's Ask for `hive serve`: pages, retriever, the cheapest binding, the budget.
 
-ADR-0069: the Observation Hive's Help screen answers questions from its own help pages, which the
+ADR-0070: the Observation Hive's Help screen answers questions from its own help pages, which the
 front end's build copies beside itself as `help/<page>.md`. `build_help_services` reads them from
 the build the Entrance serves (`OBSERVATION_BUILD`), so a Hive served without a build has no Ask
 and its route stays unmounted. The retriever uses the Hive's `EMBEDDER` slot when its binding can

@@ -2569,7 +2569,7 @@ in this phase adds a new write path.
   elements by `data-tour`, opens a step's route, skips an absent target, answers the keyboard, and
   remembers finishing per browser; a test proves every nav label, strip word, badge word and
   clearance name has a glossary entry (design.md section 5.12).
-  **Ask (2026-10-29, ADR-0069):** an Ask page on the Help screen (`src/views/help/ask/`) that
+  **Ask (2026-10-29, ADR-0070):** an Ask page on the Help screen (`src/views/help/ask/`) that
   sends a question to `GET /v1/help/ask` (`hivemind.entrance.help`) and shows the answer with the
   sections it cites as links into the pages, example questions, a note that it is an AI helper,
   and its loading, refused and links-only states; the Entrance answers from the `help/<page>.md`

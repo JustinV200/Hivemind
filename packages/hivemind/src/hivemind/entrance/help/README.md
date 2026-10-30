@@ -1,6 +1,6 @@
 # hivemind.entrance.help
 
-The Help screen's Ask (ADR-0069): a person types a question about the Hive on the Observation
+The Help screen's Ask (ADR-0070): a person types a question about the Hive on the Observation
 Hive's Help screen and `GET /v1/help/ask?q=` answers it from the help pages the front end bundles,
 and from nothing else. The assistant has no tools, takes no action, keeps nothing between
 questions, and reads the question and the pages as data.

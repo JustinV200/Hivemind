@@ -1,6 +1,6 @@
 """Answer one help question from its passages on the cheapest chat binding, with no tools at all.
 
-The help's Ask (ADR-0069) is a reader, not a bee: it holds no tools, takes no action, keeps no
+The help's Ask (ADR-0070) is a reader, not a bee: it holds no tools, takes no action, keeps no
 transcript, and may say only what the retrieved passages say. ``render_help_prompt`` assembles
 the one prompt from the shipped ``help_answer`` asset (``hivemind.llm.prompts``): the passages as
 a numbered, labelled RETRIEVED section and the question as a USER section, both with their

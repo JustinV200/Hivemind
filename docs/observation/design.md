@@ -544,7 +544,7 @@ the way the tour was moving. Finishing is remembered per browser in `localStorag
 write guarded); skipping is not, and a log out or a lost session mid-tour closes it, so the next
 session never opens on an old step. Reads nothing from the Hive.
 
-**Ask** (`#/help/ask`, ADR-0069) is the one entry of the page list that is not a page: a panel in
+**Ask** (`#/help/ask`, ADR-0070) is the one entry of the page list that is not a page: a panel in
 place of the text with a question box, an Ask button, a row of example questions, and one note,
 always shown, that an AI helper answers from these pages and nothing else, lists the sections it
 read, can be wrong, and cannot see or change the Hive. A question goes to `GET /v1/help/ask`, the
